@@ -1271,6 +1271,7 @@ body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:640px;m
 padding:24px 16px;line-height:1.7;background:#fbfbfa;color:#1a1a19}
 @media(prefers-color-scheme:dark){body{background:#191918;color:#e8e8e6}}
 h1{font-size:1.5rem;margin:0 0 4px}
+h3{font-size:.95rem;margin:22px 0 8px;opacity:.75}
 .sub{opacity:.65;margin:0 0 24px;font-size:.9rem}
 .row{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;
 background:#fff;border:1px solid #e5e5e3;margin-bottom:8px}
@@ -1314,10 +1315,99 @@ ${!tablesReady ? `<a class="btn" href="/setup/init?key=${key}">1. إنشاء ق�
 ${tablesReady && !hooked ? `<a class="btn" href="/setup/webhook?key=${key}">2. تفعيل بوت تليجرام</a>` : ''}
 ${tablesReady ? `<a class="btn" href="/auth/google?key=${key}">${googleLinked ? 'إعادة ربط جوجل' : '3. ربط جوجل'}</a>` : ''}
 
+<a class="btn" href="/setup/check?key=${key}" style="background:#5b6470">فحص الاتصال والمفاتيح</a>
+
 <p class="sub">رابط التحويل المطلوب في إعدادات جوجل:<br><code>${base}/auth/callback</code></p>
 ${users.length === 0 && hooked
     ? '<p class="sub">الخطوة الأخيرة: افتح البوت في تليجرام وابعتله <b>كلمة الإعداد</b> (قيمة SETUP_SECRET) حتى تتسجّل كمالك.</p>'
     : ''}
+`);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// يصف سراً بلا كشفه: موجود؟ كم طوله؟ فيه مسافات زائدة؟
+function describeSecret(env, name) {
+  const raw = env[name];
+  if (raw === undefined || raw === null || String(raw) === '') {
+    return `<div class="row">❌ <span><b>${name}</b> — غير موجود</span></div>`;
+  }
+  const value = String(raw);
+  const trimmed = value.trim();
+  const dirty = value !== trimmed
+    ? ' <span class="bad">⚠️ فيه مسافة أو سطر زائد</span>'
+    : '';
+  return `<div class="row">✅ <span><b>${name}</b> — ${trimmed.length} حرف${dirty}</span></div>`;
+}
+
+async function checkPage(env, url) {
+  const cfg = settings(env);
+  const key = secret(env, 'GEMINI_API_KEY');
+
+  let geminiKeyResult;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
+    );
+    const body = await res.text();
+    geminiKeyResult = res.ok
+      ? '<span class="ok">✅ المفتاح مقبول</span>'
+      : `<span class="bad">❌ ${res.status}</span><br><code>${escapeHtml(body.slice(0, 400))}</code>`;
+  } catch (err) {
+    geminiKeyResult = `<span class="bad">❌ فشل الاتصال: ${escapeHtml(err.message)}</span>`;
+  }
+
+  let geminiModelResult;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'قل كلمة: تمام' }] }] }),
+      },
+    );
+    const body = await res.text();
+    geminiModelResult = res.ok
+      ? '<span class="ok">✅ النموذج ردّ بنجاح</span>'
+      : `<span class="bad">❌ ${res.status}</span><br><code>${escapeHtml(body.slice(0, 400))}</code>`;
+  } catch (err) {
+    geminiModelResult = `<span class="bad">❌ فشل الاتصال: ${escapeHtml(err.message)}</span>`;
+  }
+
+  let telegramResult;
+  try {
+    const me = await tgCall(env, 'getMe', {});
+    telegramResult = `<span class="ok">✅ متصل بـ @${escapeHtml(me.result.username)}</span>`;
+  } catch (err) {
+    telegramResult = `<span class="bad">❌ ${escapeHtml(err.message)}</span>`;
+  }
+
+  return page(`
+<h1>فحص سند</h1>
+<p class="sub">هذي الصفحة تختبر الاتصال من داخل الـ Worker نفسه.</p>
+
+<h3>المفاتيح المحفوظة</h3>
+${describeSecret(env, 'TELEGRAM_BOT_TOKEN')}
+${describeSecret(env, 'GEMINI_API_KEY')}
+${describeSecret(env, 'SETUP_SECRET')}
+${describeSecret(env, 'GOOGLE_CLIENT_ID')}
+${describeSecret(env, 'GOOGLE_CLIENT_SECRET')}
+<div class="row">🤖 <span>النموذج المطلوب: <b>${escapeHtml(cfg.model)}</b></span></div>
+
+<h3>اختبار Gemini — المفتاح</h3>
+<div class="row"><span>${geminiKeyResult}</span></div>
+
+<h3>اختبار Gemini — النموذج</h3>
+<div class="row"><span>${geminiModelResult}</span></div>
+
+<h3>اختبار تليجرام</h3>
+<div class="row"><span>${telegramResult}</span></div>
+
+<p class="sub">مفتاح Gemini الصحيح طوله 39 حرفاً عادةً ويبدأ بـ AIza.</p>
 `);
 }
 
@@ -1350,6 +1440,11 @@ async function handleRequest(request, env, ctx) {
   if (path === '/setup') {
     if (!authorized(env, url)) return new Response('غير مصرّح', { status: 403 });
     return setupPage(env, url);
+  }
+
+  if (path === '/setup/check') {
+    if (!authorized(env, url)) return new Response('غير مصرّح', { status: 403 });
+    return checkPage(env, url);
   }
 
   if (path === '/setup/init') {
