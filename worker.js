@@ -51,6 +51,12 @@ function settings(env) {
   };
 }
 
+// لصق مفتاح من المتصفح يجرّ معه مسافة أو سطراً جديداً كثيراً، وهو يفسد
+// الطلب بصمت — فكل سر يُقرأ مقصوصاً من أطرافه
+function secret(env, name) {
+  return String(env[name] ?? '').trim();
+}
+
 function can(user, permission) {
   const set = PERMISSIONS[user?.role] || PERMISSIONS.member;
   return set[permission] === true;
@@ -227,7 +233,7 @@ async function consumeRate(env, userId, limit) {
 const TG = 'https://api.telegram.org';
 
 async function tgCall(env, method, body) {
-  const res = await fetch(`${TG}/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+  const res = await fetch(`${TG}/bot${secret(env, 'TELEGRAM_BOT_TOKEN')}/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -276,7 +282,7 @@ async function sendDocument(env, chatId, { bytes, name, mimeType }) {
   const form = new FormData();
   form.append('chat_id', String(chatId));
   form.append('document', new Blob([bytes], { type: mimeType || 'application/octet-stream' }), name);
-  const res = await fetch(`${TG}/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
+  const res = await fetch(`${TG}/bot${secret(env, 'TELEGRAM_BOT_TOKEN')}/sendDocument`, {
     method: 'POST',
     body: form,
   });
@@ -294,7 +300,7 @@ async function downloadTelegramFile(env, fileId) {
     console.log('getFile failed:', err.message);
     return null;
   }
-  const res = await fetch(`${TG}/file/bot${env.TELEGRAM_BOT_TOKEN}/${info.result.file_path}`);
+  const res = await fetch(`${TG}/file/bot${secret(env, 'TELEGRAM_BOT_TOKEN')}/${info.result.file_path}`);
   if (!res.ok) return null;
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -332,8 +338,8 @@ async function googleAccessToken(env) {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID,
-      client_secret: env.GOOGLE_CLIENT_SECRET,
+      client_id: secret(env, 'GOOGLE_CLIENT_ID'),
+      client_secret: secret(env, 'GOOGLE_CLIENT_SECRET'),
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     }),
@@ -864,7 +870,7 @@ ${cfg.extraInstructions ? `\n# تعليمات خاصة من المالك\n${cfg.
 
 async function askGemini(env, cfg, { systemPrompt, contents, tools }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent`;
-  const res = await fetch(`${url}?key=${env.GEMINI_API_KEY}`, {
+  const res = await fetch(`${url}?key=${encodeURIComponent(secret(env, 'GEMINI_API_KEY'))}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -1046,7 +1052,7 @@ async function tryRegister(env, from, chatId, text) {
 
   const displayName = [from.first_name, from.last_name].filter(Boolean).join(' ') || 'مستخدم';
 
-  if (env.SETUP_SECRET && trimmed === env.SETUP_SECRET) {
+  if (secret(env, 'SETUP_SECRET') && trimmed === secret(env, 'SETUP_SECRET')) {
     if (await ownerExists(env)) {
       await sendMessage(env, chatId, 'فما مالك مسجّل قبل. استعمل كود دعوة من المالك.');
       return true;
@@ -1320,7 +1326,7 @@ ${users.length === 0 && hooked
 // ═══════════════════════════════════════════════════════════
 
 function authorized(env, url) {
-  return Boolean(env.SETUP_SECRET) && url.searchParams.get('key') === env.SETUP_SECRET;
+  return Boolean(secret(env, 'SETUP_SECRET')) && url.searchParams.get('key') === secret(env, 'SETUP_SECRET');
 }
 
 async function handleRequest(request, env, ctx) {
@@ -1330,7 +1336,7 @@ async function handleRequest(request, env, ctx) {
   // ── مسار تليجرام ──
   if (path === '/webhook' && request.method === 'POST') {
     const token = request.headers.get('x-telegram-bot-api-secret-token');
-    if (token !== env.SETUP_SECRET) return new Response('forbidden', { status: 403 });
+    if (token !== secret(env, 'SETUP_SECRET')) return new Response('forbidden', { status: 403 });
 
     const update = await request.json();
     // نرد فوراً حتى ما يعيدش تليجرام إرسال التحديث، والشغل يكمل في الخلفية
@@ -1361,7 +1367,7 @@ async function handleRequest(request, env, ctx) {
     if (!authorized(env, url)) return new Response('غير مصرّح', { status: 403 });
     const result = await tgCall(env, 'setWebhook', {
       url: `${url.origin}/webhook`,
-      secret_token: env.SETUP_SECRET,
+      secret_token: secret(env, 'SETUP_SECRET'),
       allowed_updates: ['message'],
       drop_pending_updates: true,
     });
@@ -1375,23 +1381,23 @@ async function handleRequest(request, env, ctx) {
   // ── ربط جوجل ──
   if (path === '/auth/google') {
     if (!authorized(env, url)) return new Response('غير مصرّح', { status: 403 });
-    if (!env.GOOGLE_CLIENT_ID) return page('<h1>❌ GOOGLE_CLIENT_ID غير موجود</h1>');
+    if (!secret(env, 'GOOGLE_CLIENT_ID')) return page('<h1>❌ GOOGLE_CLIENT_ID غير موجود</h1>');
 
     const params = new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID,
+      client_id: secret(env, 'GOOGLE_CLIENT_ID'),
       redirect_uri: `${url.origin}/auth/callback`,
       response_type: 'code',
       scope: GOOGLE_SCOPES,
       access_type: 'offline',
       prompt: 'consent',
-      state: env.SETUP_SECRET,
+      state: secret(env, 'SETUP_SECRET'),
     });
     return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`, 302);
   }
 
   if (path === '/auth/callback') {
     const code = url.searchParams.get('code');
-    if (url.searchParams.get('state') !== env.SETUP_SECRET) {
+    if (url.searchParams.get('state') !== secret(env, 'SETUP_SECRET')) {
       return new Response('غير مصرّح', { status: 403 });
     }
     if (!code) return page(`<h1>❌ فشل الربط</h1><p><code>${url.searchParams.get('error') || 'لا يوجد كود'}</code></p>`);
@@ -1401,8 +1407,8 @@ async function handleRequest(request, env, ctx) {
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,
-        client_id: env.GOOGLE_CLIENT_ID,
-        client_secret: env.GOOGLE_CLIENT_SECRET,
+        client_id: secret(env, 'GOOGLE_CLIENT_ID'),
+        client_secret: secret(env, 'GOOGLE_CLIENT_SECRET'),
         redirect_uri: `${url.origin}/auth/callback`,
         grant_type: 'authorization_code',
       }),
