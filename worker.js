@@ -17,7 +17,7 @@ const DEFAULTS = {
   UTC_OFFSET_MINUTES: 120, // ليبيا UTC+2 بلا توقيت صيفي
   MEMORY_TURNS: 30,
   HOURLY_LIMIT: 40,
-  MAX_TOOL_ROUNDS: 6,
+  MAX_TOOL_ROUNDS: 4,
   MAX_MODEL_FILE_BYTES: 4 * 1024 * 1024,
   MAX_DELIVERY_ATTEMPTS: 5,
 };
@@ -44,6 +44,7 @@ function settings(env) {
   return {
     botName: env.BOT_NAME || DEFAULTS.BOT_NAME,
     model: env.GEMINI_MODEL || DEFAULTS.GEMINI_MODEL,
+    fallbackModel: (env.GEMINI_FALLBACK_MODEL || '').trim(),
     calendarId: env.CALENDAR_ID || DEFAULTS.CALENDAR_ID,
     driveFolderId: env.DRIVE_FOLDER_ID || '',
     offsetMin: Number(env.UTC_OFFSET_MINUTES ?? DEFAULTS.UTC_OFFSET_MINUTES),
@@ -530,16 +531,6 @@ const STR = { type: 'string' };
 
 const TOOLS = [
   {
-    name: 'get_current_time',
-    permission: null,
-    declaration: {
-      name: 'get_current_time',
-      description: 'يرجّع التاريخ والوقت الحالي بتوقيت المستخدم. استعمله قبل أي حساب زمني بدل التخمين.',
-      parameters: { type: 'object', properties: {} },
-    },
-    run: async ({ cfg }) => ({ الآن: toLocalIso(Date.now(), cfg.offsetMin) }),
-  },
-  {
     name: 'list_events',
     permission: 'calendar_read',
     declaration: {
@@ -868,24 +859,47 @@ ${cfg.extraInstructions ? `\n# تعليمات خاصة من المالك\n${cfg.
 //  8. العقل — Gemini مع حلقة استدعاء الأدوات
 // ═══════════════════════════════════════════════════════════
 
-async function askGemini(env, cfg, { systemPrompt, contents, tools }) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent`;
-  const res = await fetch(`${url}?key=${encodeURIComponent(secret(env, 'GEMINI_API_KEY'))}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      tools: tools.length ? [{ functionDeclarations: tools }] : undefined,
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-    }),
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ازدحام النموذج وتجاوز الحصة عارضان مؤقتان ينتهيان خلال ثوانٍ،
+// فإعادة المحاولة أنفع بكثير من إرجاع عطل للمستخدم
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRY_DELAYS_MS = [1500, 4000];
+
+async function askGemini(env, cfg, { systemPrompt, contents, tools }, model = cfg.model) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const body = JSON.stringify({
+    contents,
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    tools: tools.length ? [{ functionDeclarations: tools }] : undefined,
+    generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
   });
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `Gemini رفض الطلب (${res.status})`);
+  let lastError;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    const res = await fetch(`${url}?key=${encodeURIComponent(secret(env, 'GEMINI_API_KEY'))}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+
+    const message = data?.error?.message || `Gemini رفض الطلب (${res.status})`;
+    if (!RETRYABLE_STATUS.has(res.status)) throw new Error(message);
+
+    lastError = new Error(message);
+    console.log(`gemini ${res.status} على ${model}، محاولة ${attempt + 1}`);
+    if (attempt < RETRY_DELAYS_MS.length) await sleep(RETRY_DELAYS_MS[attempt]);
   }
-  return data;
+
+  // النموذج الأساسي مزدحم: نجرّب البديل مرة وحدة إن كان مضبوطاً
+  if (cfg.fallbackModel && model !== cfg.fallbackModel) {
+    console.log(`التحويل للنموذج البديل: ${cfg.fallbackModel}`);
+    return askGemini(env, cfg, { systemPrompt, contents, tools }, cfg.fallbackModel);
+  }
+  throw lastError;
 }
 
 async function respond(env, cfg, user, others, text, media) {
@@ -1185,8 +1199,14 @@ async function handleUpdate(env, update) {
   } catch (err) {
     console.log('respond failed:', err.stack || err.message);
     // المالك يشوف السبب التقني مباشرة بدل ما يدوّر في السجلات
-    const detail = user.role === 'owner' ? `\n\n🔧 ${String(err.message).slice(0, 300)}` : '';
-    await sendMessage(env, chatId, `صار عندي خلل تقني، جرّب تبعتلي من جديد بعد شوية 🙏${detail}`);
+    const busy = /quota|rate.?limit|high demand|overload|exceeded|RESOURCE_EXHAUSTED/i
+      .test(String(err.message));
+    const detail = user.role === 'owner' && !busy
+      ? `\n\n🔧 ${String(err.message).slice(0, 300)}`
+      : '';
+    await sendMessage(env, chatId, busy
+      ? 'الخدمة مزدحمة توا شوية 😮‍💨 استنى دقيقة وابعتلي من جديد.'
+      : `صار عندي خلل تقني، جرّب تبعتلي من جديد بعد شوية 🙏${detail}`);
     return;
   }
 
