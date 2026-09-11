@@ -70,7 +70,7 @@ export const config = {
   },
   env: {
     geminiKey: process.env.GEMINI_API_KEY || '',
-    geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN || '',

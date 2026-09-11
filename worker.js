@@ -12,7 +12,7 @@
 
 const DEFAULTS = {
   BOT_NAME: 'سند',
-  GEMINI_MODEL: 'gemini-2.5-flash',
+  GEMINI_MODEL: 'gemini-3.6-flash',
   CALENDAR_ID: 'primary',
   UTC_OFFSET_MINUTES: 120, // ليبيا UTC+2 بلا توقيت صيفي
   MEMORY_TURNS: 30,
