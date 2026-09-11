@@ -769,7 +769,17 @@ const TOOLS = [
 
 function toolsFor(user) {
   return TOOLS.filter((t) => !t.permission || can(user, t.permission))
-    .map((t) => t.declaration);
+    .map((t) => {
+      const declaration = t.declaration;
+      // Gemini يرفض مخطط OBJECT بخصائص فارغة ويرد بخطأ 400 على الطلب كله،
+      // فالأداة اللي ما تاخذش وسائط تتبعث بدون parameters أصلاً
+      const properties = declaration.parameters?.properties;
+      if (declaration.parameters && Object.keys(properties || {}).length === 0) {
+        const { parameters, ...rest } = declaration;
+        return rest;
+      }
+      return declaration;
+    });
 }
 
 async function runTool(name, args, ctx) {
@@ -1167,8 +1177,10 @@ async function handleUpdate(env, update) {
   try {
     result = await respond(env, cfg, user, others, prompt, modelMedia);
   } catch (err) {
-    console.log('respond failed:', err.message);
-    await sendMessage(env, chatId, 'صار عندي خلل تقني، جرّب تبعتلي من جديد بعد شوية 🙏');
+    console.log('respond failed:', err.stack || err.message);
+    // المالك يشوف السبب التقني مباشرة بدل ما يدوّر في السجلات
+    const detail = user.role === 'owner' ? `\n\n🔧 ${String(err.message).slice(0, 300)}` : '';
+    await sendMessage(env, chatId, `صار عندي خلل تقني، جرّب تبعتلي من جديد بعد شوية 🙏${detail}`);
     return;
   }
 
