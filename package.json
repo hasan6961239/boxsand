@@ -1,27 +1,13 @@
 {
-  "name": "boxsand",
-  "version": "1.0.0",
-  "description": "سكرتير شخصي ذكي على الواتساب - يرد بالصوت والنص، يدير المواعيد والتذكيرات، ومربوط بجوجل درايف",
+  "name": "sanad-telegram-worker",
+  "private": true,
   "type": "module",
-  "main": "src/index.js",
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
-    "start": "node src/index.js",
-    "auth:google": "node scripts/google-auth.js",
-    "check": "node scripts/selftest.js"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 create sanad"
   },
-  "dependencies": {
-    "@google/genai": "^1.5.0",
-    "@hapi/boom": "^10.0.1",
-    "@whiskeysockets/baileys": "^6.7.9",
-    "better-sqlite3": "^11.8.1",
-    "dotenv": "^16.4.7",
-    "googleapis": "^144.0.0",
-    "node-cron": "^3.0.3",
-    "pino": "^9.6.0",
-    "pino-pretty": "^13.0.0",
-    "qrcode-terminal": "^0.12.0"
+  "devDependencies": {
+    "wrangler": "^3.100.0"
   }
 }

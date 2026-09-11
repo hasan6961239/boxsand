@@ -1,0 +1,18 @@
+name = "sanad"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# التذكيرات تُفحص كل دقيقة
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sanad"
+database_id = "placeholder-replace-in-dashboard"
+
+[vars]
+BOT_NAME = "سند"
+GEMINI_MODEL = "gemini-2.5-flash"
+CALENDAR_ID = "primary"
+UTC_OFFSET_MINUTES = "120"
