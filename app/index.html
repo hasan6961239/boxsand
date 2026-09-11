@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>منظومة المكتبة والقرطاسية</title>
+<link rel="icon" type="image/png" sizes="256x256" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="app">
+  <aside id="rail">
+    <div class="brand">
+      <h1 id="brandName">المكتبة والقرطاسية</h1>
+      <div class="sub">نظام بيع ومخزون — يعمل بدون إنترنت</div>
+    </div>
+
+    <nav id="nav"></nav>
+
+    <div class="rail-foot">
+      <span id="saveState"><span class="dot-live"></span> محفوظ</span>
+      <span id="ver">v2.0</span>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <div class="page-title" id="pageTitle">لوحة اليوم</div>
+      <span class="branch-tag" id="branchTag"></span>
+      <div class="spacer"></div>
+      <div class="clock" id="clock"></div>
+      <button class="btn primary" onclick="location.hash='#/pos'">بيع جديد <span class="small">F2</span></button>
+    </header>
+    <div id="view"></div>
+  </main>
+</div>
+
+<div id="toasts"></div>
+<div id="modalHost"></div>
+<div id="printArea"></div>
+
+<script src="js/core.js"></script>
+<script src="js/inventory.js"></script>
+<script src="js/branches.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/consign.js"></script>
+<script src="js/count.js"></script>
+<script src="js/sales.js"></script>
+<script src="js/people.js"></script>
+<script src="js/reports.js"></script>
+<script>App.boot();</script>
+</body>
+</html>
