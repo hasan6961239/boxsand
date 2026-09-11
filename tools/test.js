@@ -175,6 +175,20 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   check('الرمز الصحيح يفتح الأرباح', unlock === true);
   check('الرمز الخاطئ يُرفض', wrong === false);
 
+  console.log('\n== 9ب. ترحيل رمز أرباح من نسخة قديمة ==');
+  {
+    fs.rmSync(path.join(DATA, 'profit.hash'), { force: true });
+    const old = seed(); old.meta.profitCode = 'رمزي-القديم-99';   // كما كان يُخزَّن في 2.1
+    await closePage(pg); writeStore(old); pg = await open();
+    await sleep(1500);
+    const migrated = await pg.evaluate(() => App.unlockProfit('رمزي-القديم-99'));
+    const defaultGone = await pg.evaluate(() => App.unlockProfit('Rtv8ss3i'));
+    const cleaned = await pg.evaluate(() => App.api('/api/load').then(r => r.json()).then(d => d.meta.profitCode));
+    check('الرمز القديم ما زال يعمل بعد الترقية', migrated === true);
+    check('والرمز الافتراضي لم يعد يفتح', defaultGone === false);
+    check('ولم يعد مخزّناً في store.json', !cleaned, 'got: ' + cleaned);
+  }
+
   console.log('\n== 10. الإشعار اليومي لا يحمل الربح ==');
   const notif = await pg.evaluate(() => {
     const c = App.S.notify; c.enabled = true; c.topic = 'test-topic'; c.dailyHour = 0;

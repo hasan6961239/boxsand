@@ -5,6 +5,7 @@
 var App = (function () {
 
   var S = null;              // الحالة الكاملة
+  var pendingProfitCode = "";   // رمز أرباح من نسخة قديمة، يُنقل إلى النواة عند الإقلاع
   var saveTimer = null;
   var saving = false;
   var dirty = false;
@@ -62,8 +63,10 @@ var App = (function () {
     if (!s.meta.lastBook || typeof s.meta.lastBook !== "object") s.meta.lastBook = b.meta.lastBook;
     if (!s.meta.lastStat || typeof s.meta.lastStat !== "object") s.meta.lastStat = b.meta.lastStat;
     if (!Array.isArray(s.meta.quickPicks)) s.meta.quickPicks = [];
-    // الرمز صار مجزّأً في النواة — نمسحه من أي ملف قديم يحمله صراحةً
-    if (s.meta.profitCode) delete s.meta.profitCode;
+    /* الرمز صار مجزّأً في النواة. من غيّر رمزه في نسخة قديمة كان رمزه
+       مخزّناً هنا — ننقله أولاً ثم نمسحه، وإلا عاد الرمز الافتراضي بصمت
+       وفقد صاحب المحل رمزه الذي اختاره. */
+    if (s.meta.profitCode) { pendingProfitCode = String(s.meta.profitCode); delete s.meta.profitCode; }
     for (var br in b.branch) { if (!(br in s.branch) || s.branch[br] === null) s.branch[br] = b.branch[br]; }
     repairBranch(s);
     for (var sy in b.sync) { if (!(sy in s.sync) || s.sync[sy] === null) s.sync[sy] = b.sync[sy]; }
@@ -1127,6 +1130,16 @@ var App = (function () {
           block("المنظومة مفتوحة في نافذة أخرى. هذه النافذة للعرض فقط.");
         }
         paintBlockBar();
+
+        // ترحيل رمز الأرباح من نسخة قديمة — مرة واحدة، ومن النافذة المالكة وحدها
+        if (ok && pendingProfitCode) {
+          var oldCode = pendingProfitCode; pendingProfitCode = "";
+          setProfitCode(oldCode).then(function (res) {
+            if (res && res.ok) { save(); log("ترحيل", "نُقل رمز الأرباح إلى التخزين المجزّأ"); }
+            else pendingProfitCode = oldCode;   // نعيد المحاولة في الإقلاع القادم
+          });
+        }
+
         return checkLicense().then(applyPreset).then(function () {
           if (!lic.active) { route(); return; }
           if (!S.meta.setupDone && !readOnly) { route(); Rep.firstRun(); }
