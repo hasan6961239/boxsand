@@ -21,6 +21,74 @@ const CURRENCY_ALIASES = {
   GBP: ['الإسترليني', 'الاسترليني', 'الجنيه', 'باوند', 'GBP', 'Pound'],
 };
 
+/**
+ * Other Libyan cities that appear in the same coverage. We do not quote them,
+ * but we need to recognise them to spot a grouped label.
+ */
+const OTHER_CITIES = ['زليتن', 'سبها', 'الزاويه', 'طبرق', 'درنه', 'سرت', 'البيضاء', 'اجدابيا', 'صبراته', 'غريان', 'الخمس', 'ترهونه'];
+
+/**
+ * Words that mark a different instrument than the cash market: bank counter
+ * rates, cheques (الصك) and transfers all trade at their own prices, and
+ * reading one of those as a street rate is simply the wrong number.
+ */
+const NON_CASH_MARKERS = ['مصرف', 'المصرف', 'مصارف', 'بنك', 'الصك', 'الصكوك', 'صكوك', 'الدفتري', 'دفتري', 'حواله', 'حوالات', 'التحويل', 'اعتماد'];
+
+/**
+ * Words that mark a historical column rather than the current price — weekly
+ * tables print the opening price right beside the closing one.
+ */
+const HISTORICAL_MARKERS = ['الافتتاح', 'افتتاح', 'الاسبوعي', 'الاسبوعيه', 'بدايه الاسبوع', 'السبت الماضي', 'مقارنه بسعر'];
+
+/** Index of the LAST match of `re` in `str`, or -1. */
+function lastMatchIndex(str, re) {
+  const g = new RegExp(re.source, 'g');
+  let last = -1, m;
+  while ((m = g.exec(str)) !== null) last = m.index;
+  return last;
+}
+
+function otherCityPattern(selfAliases) {
+  const self = new Set(selfAliases.map((a) => normalizeArabic(a)));
+  const names = [...OTHER_CITIES, ...Object.values(CITIES).flatMap((c) => c.aliases)]
+    .map((n) => normalizeArabic(n))
+    .filter((n) => n && !self.has(n));
+  return new RegExp([...new Set(names)].join('|'));
+}
+
+/**
+ * True when a city is named inside a list that shares ONE rate, as in
+ * "الدولار الامريكي (طرابلس وزليتن ومصراته وبنغازي) 9.230 د.ل".
+ *
+ * The tell is that the city names run together with no number between them.
+ * A genuine per-city sentence — "سجل في طرابلس 9.39 … وفي بنغازي 9.39" — puts a
+ * number after each name, so it passes.
+ */
+function mentionIsGrouped(hay, index, selfAliases) {
+  const cityRe = otherCityPattern(selfAliases);
+
+  // Another city ahead of us with no number in between: we are mid-list.
+  const forward = hay.slice(index + 1, index + 70);
+  const fCity = forward.search(cityRe);
+  const fNum = forward.search(/\d/);
+  if (fCity !== -1 && (fNum === -1 || fCity < fNum)) return true;
+
+  // Another city behind us, more recent than the last number: same list.
+  const backward = hay.slice(Math.max(0, index - 70), index);
+  const bCity = lastMatchIndex(backward, cityRe);
+  if (bCity !== -1 && bCity > lastMatchIndex(backward, /\d/)) return true;
+
+  return false;
+}
+
+/** True when the surrounding text is quoting something other than today's cash price. */
+function spanIsUsable(span) {
+  const hay = normalizeArabic(span);
+  for (const marker of NON_CASH_MARKERS) if (hay.includes(normalizeArabic(marker))) return false;
+  for (const marker of HISTORICAL_MARKERS) if (hay.includes(normalizeArabic(marker))) return false;
+  return true;
+}
+
 /** Plausible LYD-per-unit bands — anything outside is a mis-parse, not a rate. */
 const BANDS = {
   USD: { min: 3, max: 30 },
@@ -74,8 +142,16 @@ function passCurrencyMajor(text) {
     const span = hay.slice(pos, end);
     for (const [key, city] of Object.entries(CITIES)) {
       if (result[code]?.[key] != null) continue;
-      const val = findNearNumber(span, city.aliases, { ...BANDS[code], window: 90, requireDecimal: true });
-      if (val != null) (result[code] ||= {})[key] = val;
+      const aliasRe = new RegExp(city.aliases.map((a) => normalizeArabic(a)).join('|'), 'g');
+      for (const hit of span.matchAll(aliasRe)) {
+        const at = hit.index;
+        // Judge the immediate neighbourhood, not the whole span: one bank-rate
+        // paragraph further down must not disqualify a good sentence up here.
+        const near = span.slice(Math.max(0, at - 60), at + 110);
+        if (!spanIsUsable(near) || mentionIsGrouped(span, at, city.aliases)) continue;
+        const val = findNearNumber(near, city.aliases, { ...BANDS[code], window: 90, requireDecimal: true });
+        if (val != null) { (result[code] ||= {})[key] = val; break; }
+      }
     }
   }
   return result;
@@ -94,6 +170,8 @@ function passCityMajor(text) {
     const { pos, key } = marks[i];
     const end = Math.min(marks[i + 1]?.pos ?? hay.length, pos + 400);
     const span = hay.slice(pos, end);
+    if (!spanIsUsable(hay.slice(Math.max(0, pos - 60), pos + 110))) continue;
+    if (mentionIsGrouped(hay, pos, CITIES[key].aliases)) continue;
     for (const [code, aliases] of Object.entries(CURRENCY_ALIASES)) {
       if (result[code]?.[key] != null) continue;
       const val = findNearNumber(span, aliases, { ...BANDS[code], window: 90, requireDecimal: true });
@@ -105,10 +183,24 @@ function passCityMajor(text) {
 
 /** Market-wide rate with no city attached — the national headline number. */
 export function extractNationalRates(text) {
+  const hay = normalizeArabic(text);
   const out = {};
   for (const [code, aliases] of Object.entries(CURRENCY_ALIASES)) {
-    const val = findNearNumber(text, aliases, { ...BANDS[code], window: 70, requireDecimal: true });
-    if (val != null) out[code] = val;
+    // Walk each mention and take the first that sits in a cash-market sentence,
+    // so a bank's counter rate or a weekly opening column is never the answer.
+    for (const alias of aliases) {
+      const needle = normalizeArabic(alias);
+      let i = hay.indexOf(needle);
+      while (i !== -1 && out[code] == null) {
+        const span = hay.slice(Math.max(0, i - 40), i + 130);
+        if (spanIsUsable(span)) {
+          const val = findNearNumber(span, [alias], { ...BANDS[code], window: 70, requireDecimal: true });
+          if (val != null) out[code] = val;
+        }
+        i = hay.indexOf(needle, i + 1);
+      }
+      if (out[code] != null) break;
+    }
   }
   return out;
 }

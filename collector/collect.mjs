@@ -72,8 +72,9 @@ function mergeParallel(results) {
 
 /**
  * Drop any city number that sits far from where the rest of the market is.
- * A mis-parse usually lands well outside the pack, while genuine inter-city
- * spread in Libya is fractions of a percent — so 10% is a wide, safe fence.
+ * Libyan cash markets move together — the live articles quote Tripoli and
+ * Benghazi at the same 9.39 and Zliten a single قرش away — so a city more than
+ * 2.5% off the pack is a mis-parse, not a spread.
  */
 function dropOutliers(parallel) {
   const dropped = [];
@@ -83,7 +84,7 @@ function dropOutliers(parallel) {
     const mid = median(values);
     if (!Number.isFinite(mid) || mid === 0) continue;
     for (const [city, val] of Object.entries(cities)) {
-      if (Number.isFinite(val) && Math.abs(val - mid) / mid > 0.10) {
+      if (Number.isFinite(val) && Math.abs(val - mid) / mid > 0.025) {
         delete cities[city];
         dropped.push(`${code}.${city}=${val}`);
       }
