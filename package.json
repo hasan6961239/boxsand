@@ -8,12 +8,23 @@
     "start": "node server/index.js",
     "seed": "node server/seed.js",
     "reset": "node server/seed.js --force",
-    "demo": "node demo/build-demo.js"
+    "demo": "node demo/build-demo.js",
+    "fonts": "node scripts/fetch-fonts.js",
+    "social": "node scripts/build-social.js"
   },
-  "keywords": ["pharmacy", "pos", "libya", "arabic", "صيدلية", "منظومة"],
+  "keywords": [
+    "pharmacy",
+    "pos",
+    "libya",
+    "arabic",
+    "صيدلية",
+    "منظومة"
+  ],
   "license": "UNLICENSED",
   "dependencies": {
     "better-sqlite3": "^12.4.1"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }
