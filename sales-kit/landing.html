@@ -1,0 +1,553 @@
+<title>صيدليتي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+<style>
+/* ===== الرموز ===== */
+:root{
+  --paper:#FBFAF6;        /* ورق الوصفة الطبية */
+  --surface:#FFFFFF;
+  --sand:#EFE9DB;         /* كرتون التغليف */
+  --sand-line:#DFD7C4;
+  --ink:#0C2B27;          /* أخضر شديد القتامة */
+  --ink-2:#3A544F;
+  --sage:#6E817C;         /* رمادي مائل للأخضر */
+  --green:#0E6E5C;        /* أخضر الصليب الصيدلاني */
+  --green-deep:#08453A;
+  --green-wash:#E4F0EC;
+  --amber:#A85F10;        /* زجاج العنبر — تنبيه الصلاحية */
+  --amber-wash:#FBF0DF;
+  --red:#A3281E;
+  --red-wash:#FBE9E6;
+  --on-deep:#EAF3F0;        /* نص فوق الأخضر الغامق */
+  --shadow:0 1px 2px rgba(12,43,39,.05), 0 10px 28px -14px rgba(12,43,39,.22);
+  --shadow-lift:0 2px 4px rgba(12,43,39,.06), 0 24px 48px -20px rgba(12,43,39,.3);
+  --display:'Readex Pro','Noto Kufi Arabic',system-ui,sans-serif;
+  --body:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;
+  --gutter:clamp(18px,5vw,56px);
+  --maxw:1120px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#081917; --surface:#0E2422; --sand:#15302C; --sand-line:#1F423C;
+    --ink:#EAF3F0; --ink-2:#B4C9C4; --sage:#89A19B;
+    --green:#3FBBA0; --green-deep:#8FE0CC; --green-wash:#12332D;
+    --amber:#E2A055; --amber-wash:#332614;
+    --red:#E8897E; --red-wash:#361F1C;
+    --on-deep:#07201C;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+    --shadow-lift:0 2px 4px rgba(0,0,0,.4), 0 24px 48px -20px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#081917; --surface:#0E2422; --sand:#15302C; --sand-line:#1F423C;
+  --ink:#EAF3F0; --ink-2:#B4C9C4; --sage:#89A19B;
+  --green:#3FBBA0; --green-deep:#8FE0CC; --green-wash:#12332D;
+  --amber:#E2A055; --amber-wash:#332614;
+  --red:#E8897E; --red-wash:#361F1C;
+  --on-deep:#07201C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  --shadow-lift:0 2px 4px rgba(0,0,0,.4), 0 24px 48px -20px rgba(0,0,0,.8);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+body{
+  direction:rtl; background:var(--paper); color:var(--ink);
+  font-family:var(--body); font-size:16px; line-height:1.75;
+  margin:0; padding-inline:var(--gutter); padding-block:0;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:var(--maxw);margin-inline:auto}
+h1,h2,h3,h4{font-family:var(--display);margin:0;line-height:1.25;text-wrap:balance;font-weight:600}
+h1{font-size:clamp(30px,5.4vw,52px);font-weight:700;letter-spacing:-.015em}
+h2{font-size:clamp(23px,3.4vw,34px);font-weight:600}
+h3{font-size:clamp(17px,2vw,20px)}
+p{margin:0}
+a{color:var(--green);text-decoration:none}
+.num{font-variant-numeric:tabular-nums}
+.eyebrow{
+  font-family:var(--body); font-size:12px; font-weight:600; letter-spacing:.13em;
+  color:var(--sage); text-transform:uppercase;
+}
+.lede{font-size:clamp(16px,2vw,18.5px);color:var(--ink-2);max-width:62ch}
+section{padding-block:clamp(48px,7vw,84px);border-top:1px solid var(--sand-line)}
+section:first-of-type{border-top:0}
+
+/* ===== الترويسة ===== */
+.masthead{display:flex;align-items:center;gap:12px;padding-block:22px}
+.mark{
+  width:38px;height:38px;border-radius:11px;display:grid;place-items:center;flex:0 0 38px;
+  background:var(--green);color:#fff;font-family:var(--display);font-weight:700;font-size:19px;
+}
+.masthead b{font-family:var(--display);font-size:18px;font-weight:600}
+.masthead .role{font-size:12.5px;color:var(--sage);margin-inline-start:auto;text-align:left}
+
+/* ===== الافتتاحية ===== */
+.hero{padding-block:clamp(26px,4vw,48px) clamp(48px,7vw,80px);border-top:0}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,5vw,56px);align-items:center}
+.hero h1 .hl{
+  background:linear-gradient(to top,var(--amber-wash) 0 38%,transparent 38%);
+  padding-inline:3px;
+  -webkit-box-decoration-break:clone; box-decoration-break:clone;  /* يلفّ كل سطر على حدة */
+}
+.hero .lede{margin-top:18px}
+.cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.btn{
+  display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:11px;
+  font-family:var(--body);font-weight:600;font-size:15.5px;border:1.5px solid transparent;
+  transition:transform .12s ease, box-shadow .12s ease;
+}
+.btn:focus-visible{outline:3px solid var(--green);outline-offset:3px}
+.btn-main{background:var(--green);color:#fff;box-shadow:var(--shadow)}
+.btn-main:hover{transform:translateY(-1px);box-shadow:var(--shadow-lift)}
+.btn-alt{border-color:var(--sand-line);color:var(--ink);background:var(--surface)}
+.btn-alt:hover{border-color:var(--green);color:var(--green)}
+.trust{margin-top:16px;font-size:13.5px;color:var(--sage)}
+
+/* ===== لوحة الصلاحية (البطل البصري) ===== */
+.panel{
+  background:var(--surface);border:1px solid var(--sand-line);border-radius:16px;
+  box-shadow:var(--shadow-lift);overflow:hidden;
+}
+.panel-top{
+  display:flex;align-items:center;gap:9px;padding:13px 17px;
+  background:var(--green-deep);color:var(--on-deep);
+}
+.panel-top b{font-family:var(--display);font-size:14.5px;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:#E7B15A;flex:0 0 8px}
+.panel-note{
+  padding:12px 17px;background:var(--amber-wash);color:var(--amber);
+  font-size:13.5px;font-weight:600;border-bottom:1px solid var(--sand-line);
+}
+.rows{display:flex;flex-direction:column}
+.row{
+  display:grid;grid-template-columns:4px 1fr auto;gap:0 14px;align-items:center;
+  padding:0;border-bottom:1px solid var(--sand-line);
+}
+.row:last-child{border-bottom:0}
+.rail{align-self:stretch;background:var(--amber)}
+.rail.crit{background:var(--red)}
+.rail.warn{background:#D9A441}
+.row-main{padding:11px 0}
+.row-main b{font-size:14.5px;font-weight:600;display:block}
+.row-main span{font-size:12.5px;color:var(--sage)}
+.row-val{padding:11px 17px 11px 0;text-align:left}
+.row-val b{font-size:15px;font-weight:600;display:block}
+.row-val span{font-size:12px;color:var(--sage)}
+.chip{
+  display:inline-block;padding:1.5px 9px;border-radius:20px;font-size:11.5px;font-weight:600;
+  background:var(--red-wash);color:var(--red);
+}
+.chip.warn{background:var(--amber-wash);color:var(--amber)}
+.panel-foot{
+  padding:13px 17px;background:var(--sand);font-size:13px;color:var(--ink-2);
+  display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+
+/* ===== الأرقام ===== */
+.figures{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--sand-line);
+  border:1px solid var(--sand-line);border-radius:14px;overflow:hidden;margin-top:14px}
+.fig{background:var(--surface);padding:22px 20px}
+.fig .n{font-family:var(--display);font-size:clamp(26px,4vw,36px);font-weight:700;color:var(--green);line-height:1.1}
+.fig .l{font-size:13.5px;color:var(--ink-2);margin-top:7px}
+
+/* ===== التسريبات ===== */
+.leaks{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-top:34px}
+.leak{
+  display:grid;grid-template-columns:4px 1fr;gap:0 18px;
+  background:var(--surface);border:1px solid var(--sand-line);border-radius:13px;overflow:hidden;
+}
+.leak-body{padding:20px 0 20px 20px}
+.leak h3{margin-bottom:7px}
+.leak p{font-size:14.5px;color:var(--ink-2)}
+.leak .fix{
+  margin-top:12px;font-size:13.5px;color:var(--green);font-weight:600;
+  display:flex;gap:7px;align-items:flex-start;
+}
+
+/* ===== الوحدات ===== */
+.modules{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:34px}
+.mod{background:var(--surface);border:1px solid var(--sand-line);border-radius:12px;padding:18px 19px}
+.mod b{font-family:var(--display);font-size:15.5px;font-weight:600;display:block;margin-bottom:5px}
+.mod p{font-size:13.5px;color:var(--ink-2);line-height:1.65}
+
+/* ===== لماذا محلية ===== */
+.why{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(24px,4vw,44px);align-items:start}
+.why-list{display:flex;flex-direction:column;gap:16px;margin-top:8px}
+.why-item{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+.why-num{
+  font-family:var(--display);font-weight:700;font-size:13px;color:var(--green);
+  background:var(--green-wash);width:28px;height:28px;border-radius:8px;display:grid;place-items:center;flex:0 0 28px;
+}
+.why-item b{font-weight:600;display:block;font-size:15.5px}
+.why-item p{font-size:14px;color:var(--ink-2)}
+
+/* ===== الأسعار ===== */
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:34px;align-items:start}
+.plan{background:var(--surface);border:1px solid var(--sand-line);border-radius:15px;padding:24px 22px}
+.plan.pick{border-color:var(--green);border-width:2px;box-shadow:var(--shadow-lift);position:relative}
+.plan-tag{
+  position:absolute;top:-11px;inset-inline-start:22px;background:var(--green);color:#fff;
+  font-size:11.5px;font-weight:600;padding:3px 12px;border-radius:20px;letter-spacing:.02em;
+}
+.plan h3{font-size:17px}
+.plan .price{font-family:var(--display);font-size:32px;font-weight:700;margin-top:10px;line-height:1.1}
+.plan .price small{font-size:14px;font-weight:500;color:var(--sage)}
+.plan .once{font-size:12.5px;color:var(--sage);margin-top:3px}
+.plan ul{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:9px}
+.plan li{font-size:14px;display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;color:var(--ink-2)}
+.tick{color:var(--green);font-weight:700;line-height:1.6}
+.plan .btn{width:100%;justify-content:center;margin-top:20px}
+
+/* ===== الأسئلة ===== */
+.faq{margin-top:30px;display:flex;flex-direction:column;gap:1px;background:var(--sand-line);
+  border:1px solid var(--sand-line);border-radius:13px;overflow:hidden}
+details{background:var(--surface)}
+summary{
+  padding:16px 20px;cursor:pointer;font-weight:600;font-size:15px;list-style:none;
+  display:flex;justify-content:space-between;gap:14px;align-items:center;
+}
+summary::-webkit-details-marker{display:none}
+summary::after{content:'+';color:var(--green);font-size:20px;font-weight:400;line-height:1}
+details[open] summary::after{content:'−'}
+summary:focus-visible{outline:3px solid var(--green);outline-offset:-3px}
+details p{padding:0 20px 18px;font-size:14.5px;color:var(--ink-2);max-width:68ch}
+
+/* ===== الختام ===== */
+.close{
+  background:var(--green-deep);border-radius:18px;padding:clamp(30px,5vw,52px);
+  margin-block:clamp(40px,6vw,70px);text-align:center;color:var(--on-deep);
+}
+.close h2{color:inherit}
+.close p{margin-top:14px;opacity:.85;max-width:52ch;margin-inline:auto;font-size:15.5px}
+.close .cta-row{justify-content:center}
+.close .btn-main{background:var(--surface);color:var(--green)}
+.close .btn-alt{background:transparent;border-color:currentColor;opacity:.82;color:inherit}
+.close .btn-alt:hover{opacity:1}
+footer{padding-block:26px 40px;font-size:13px;color:var(--sage);border-top:1px solid var(--sand-line);
+  display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+
+@media (max-width:900px){
+  .hero-grid,.leaks,.why{grid-template-columns:1fr}
+  .modules,.plans{grid-template-columns:repeat(2,1fr)}
+  .figures{grid-template-columns:1fr}
+}
+@media (max-width:560px){
+  .modules,.plans{grid-template-columns:1fr}
+  .btn{width:100%;justify-content:center}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="mark">ص</div>
+    <b>صيدليتي</b>
+    <span class="role">منظومة إدارة الصيدليات · ليبيا</span>
+  </header>
+
+  <!-- ================= الافتتاحية ================= -->
+  <section class="hero">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">تعمل بدون إنترنت · عربية بالكامل</p>
+        <h1 style="margin-top:14px">الدواء اللي تنتهي صلاحيته <span class="hl">فلوس تتحرق على الرف</span></h1>
+        <p class="lede">
+          صيدليتي منظومة تشتغل على جهاز صيدليتك، تعرف كل علبة عندك: رقم دفعتها، تاريخ انتهائها،
+          وكم تسوى. تنبهك قبل الانتهاء بوقت كافٍ تبيع فيه البضاعة بدل ما ترميها.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-main" href="https://claude.ai/code/artifact/825a9161-37f9-4327-9bb8-178e48fb04d0" target="_blank" rel="noopener">
+            جرّب المنظومة الآن ↗
+          </a>
+          <a class="btn btn-alt" href="#الأسعار">شوف الأسعار</a>
+        </div>
+        <p class="trust">تجربة مباشرة بدون تحميل وبدون تسجيل · تفتح من الجوال أو الكمبيوتر</p>
+      </div>
+
+      <!-- لوحة الصلاحية الحقيقية من المنظومة -->
+      <div class="panel" role="img" aria-label="لوحة تنبيهات الصلاحية: 8,107 دينار من الأدوية تنتهي صلاحيتها خلال 90 يوماً">
+        <div class="panel-top">
+          <span class="dot" aria-hidden="true"></span>
+          <b>تنبيهات الصلاحية</b>
+          <span style="margin-inline-start:auto;font-size:12.5px;opacity:.8">خلال 90 يوم</span>
+        </div>
+        <div class="panel-note">⏰ 24 دفعة بقيمة 8,107.37 د.ل معرّضة للتلف</div>
+        <div class="rows">
+          <div class="row">
+            <span class="rail crit" aria-hidden="true"></span>
+            <div class="row-main">
+              <b>أوجمنتين 1جم</b>
+              <span>دفعة B55637 · رف D4</span>
+            </div>
+            <div class="row-val">
+              <b class="num">2,418.50</b>
+              <span class="chip">18 يوم متبقي</span>
+            </div>
+          </div>
+          <div class="row">
+            <span class="rail" aria-hidden="true"></span>
+            <div class="row-main">
+              <b>سرنجات 5مل</b>
+              <span>دفعة B57507 · رف F1</span>
+            </div>
+            <div class="row-val">
+              <b class="num">1,818.96</b>
+              <span class="chip warn">41 يوم متبقي</span>
+            </div>
+          </div>
+          <div class="row">
+            <span class="rail warn" aria-hidden="true"></span>
+            <div class="row-main">
+              <b>بروفين شراب</b>
+              <span>دفعة B25728 · رف G3</span>
+            </div>
+            <div class="row-val">
+              <b class="num">846.21</b>
+              <span class="chip warn">67 يوم متبقي</span>
+            </div>
+          </div>
+          <div class="row">
+            <span class="rail warn" aria-hidden="true"></span>
+            <div class="row-main">
+              <b>نيوروبيون</b>
+              <span>دفعة B68467 · رف H8</span>
+            </div>
+            <div class="row-val">
+              <b class="num">212.60</b>
+              <span class="chip warn">83 يوم متبقي</span>
+            </div>
+          </div>
+        </div>
+        <div class="panel-foot">
+          <span>المنظومة تبيع الأقرب انتهاءً أولاً تلقائياً</span>
+          <span style="color:var(--green);font-weight:600">FEFO</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= الأرقام ================= -->
+  <section>
+    <p class="eyebrow">من صيدلية حقيقية الحجم في النسخة التجريبية</p>
+    <h2 style="margin-top:12px">ما الذي تراه أول ما تفتح المنظومة</h2>
+    <div class="figures">
+      <div class="fig">
+        <div class="n num">15,149 د.ل</div>
+        <div class="l">قيمة بضاعة منتهية أو قاربت على الانتهاء — كانت ستُرمى بصمت</div>
+      </div>
+      <div class="fig">
+        <div class="n num">32,797 د.ل</div>
+        <div class="l">ديون متراكمة على الزبائن، كل دينار منها باسم صاحبه وتاريخه</div>
+      </div>
+      <div class="fig">
+        <div class="n num">9 أصناف</div>
+        <div class="l">وصلت الحد الأدنى — قائمة شراء جاهزة للمورد بضغطة</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= التسريبات ================= -->
+  <section>
+    <p class="eyebrow">المشكلة</p>
+    <h2 style="margin-top:12px">أربعة أماكن تتسرب منها أرباح الصيدلية</h2>
+    <p class="lede" style="margin-top:14px">
+      ما تخسرش الصيدلية فلوسها مرة واحدة، تخسرها نقطة نقطة. وكل نقطة من هذه الأربع
+      سببها شيء واحد: ما فيش سجل يقولك وين المشكلة قبل ما تكبر.
+    </p>
+
+    <div class="leaks">
+      <article class="leak">
+        <span class="rail crit" aria-hidden="true"></span>
+        <div class="leak-body">
+          <h3>أدوية تنتهي صلاحيتها وأنت ما تدري</h3>
+          <p>علبة في آخر الرف انتهت من ثلاثة شهور. اكتشفتها لما جاء زبون يطلبها. ثمنها خسارة كاملة، وما تقدرش ترجعها للمورد لأن مدة الإرجاع فاتت.</p>
+          <p class="fix"><span aria-hidden="true">←</span> المنظومة تتابع تاريخ كل دفعة وتنبهك قبل 90 يوم — وقت يكفي للبيع أو الإرجاع.</p>
+        </div>
+      </article>
+
+      <article class="leak">
+        <span class="rail" aria-hidden="true"></span>
+        <div class="leak-body">
+          <h3>صنف نفد والزبون راح لغيرك</h3>
+          <p>الصنف اللي يمشي عندك خلص، وما انتبهتش إلا لما طلبه زبون. راح للصيدلية المجاورة، وغالباً ما رجعش.</p>
+          <p class="fix"><span aria-hidden="true">←</span> حد أدنى لكل صنف، وقائمة شراء تُحسب من مبيعات آخر 30 يوم وتُطبع للمورد.</p>
+        </div>
+      </article>
+
+      <article class="leak">
+        <span class="rail warn" aria-hidden="true"></span>
+        <div class="leak-body">
+          <h3>ديون في دفتر ما حد يقراه</h3>
+          <p>عيادات وأطباء يشترون بالآجل. الدفتر فيه خط ما تعرفش تقراه، والزبون يقول سددت وأنت مش متأكد.</p>
+          <p class="fix"><span aria-hidden="true">←</span> كشف حساب لكل زبون بالفواتير والدفعات والتواريخ، وحد ائتمان يوقف البيع عند تجاوزه.</p>
+        </div>
+      </article>
+
+      <article class="leak">
+        <span class="rail warn" aria-hidden="true"></span>
+        <div class="leak-body">
+          <h3>رأس مال نائم في بضاعة راكدة</h3>
+          <p>أصناف اشتريتها من سنة وما باعتش منها ولا علبة. فلوسك واقفة فيها بدل ما تشتري بها شيء يمشي.</p>
+          <p class="fix"><span aria-hidden="true">←</span> تقرير البضاعة الراكدة يعرض كل صنف ما تحركش 90 يوم وكم دينار مجمّد فيه.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= الوحدات ================= -->
+  <section>
+    <p class="eyebrow">ما بداخل المنظومة</p>
+    <h2 style="margin-top:12px">اثنتا عشرة شاشة تغطي يوم الصيدلية كامل</h2>
+    <div class="modules">
+      <div class="mod"><b>نقطة البيع</b><p>قارئ باركود، بحث بالاسم أو المادة الفعالة، تعليق فاتورة، وطباعة على طابعة حرارية 80مم.</p></div>
+      <div class="mod"><b>تنبيهات الصلاحية</b><p>كل دفعة بتاريخها وقيمتها وموقع رفها، مع زر إتلاف يسجّل الخسارة في الحسابات.</p></div>
+      <div class="mod"><b>الأدوية والمخزون</b><p>رصيد كل صنف، بدائل بنفس المادة الفعالة، حد أدنى للتنبيه، وموقع الرف.</p></div>
+      <div class="mod"><b>المشتريات</b><p>فاتورة المورد تدخل مرة واحدة: تزيد المخزون، تسجّل الدفعات وتواريخها، وتحدّث الأسعار.</p></div>
+      <div class="mod"><b>الموردون</b><p>رصيد كل مورد، فواتيره، وما دفعت له — تعرف بالضبط شن عليك قبل ما يزورك.</p></div>
+      <div class="mod"><b>الزبائن والآجل</b><p>كشف حساب كامل، حد ائتمان، وتسجيل الدفعات على الحساب.</p></div>
+      <div class="mod"><b>المرتجعات</b><p>إرجاع بند أو أكثر من أي فاتورة، والكمية ترجع للمخزون في دفعتها الأصلية.</p></div>
+      <div class="mod"><b>المصروفات</b><p>إيجار، كهرباء، رواتب — تُخصم من الأرباح حتى يكون الرقم الأخير صادقاً.</p></div>
+      <div class="mod"><b>التقارير</b><p>أرباح وخسائر، حركة مبيعات، أداء الأصناف، ذمم، بضاعة راكدة، وقائمة شراء مقترحة.</p></div>
+      <div class="mod"><b>المستخدمون</b><p>مدير وصيدلي وكاشير — الكاشير يبيع ولا يرى التكاليف ولا الأرباح.</p></div>
+      <div class="mod"><b>النسخ الاحتياطي</b><p>نسخة بضغطة تنقلها على فلاش أو درايف. تعطّل الجهاز؟ ترجع كل شيء في دقيقة.</p></div>
+      <div class="mod"><b>سجل النشاط</b><p>مين عمل شنو ومتى — كل عملية بيع وحذف وتعديل مسجلة باسم صاحبها.</p></div>
+    </div>
+  </section>
+
+  <!-- ================= لماذا محلية ================= -->
+  <section>
+    <div class="why">
+      <div>
+        <p class="eyebrow">القرار التقني</p>
+        <h2 style="margin-top:12px">تشتغل على جهازك، لا على إنترنت غيرك</h2>
+        <p class="lede" style="margin-top:14px">
+          أغلب المنظومات الجاهزة سحابية: تنقطع النت أو الكهرباء فتقف الصيدلية.
+          صيدليتي بنيت من البداية لظروف السوق الليبي.
+        </p>
+      </div>
+      <div class="why-list">
+        <div class="why-item">
+          <span class="why-num">١</span>
+          <div><b>لا تحتاج إنترنت إطلاقاً</b><p>كل شيء على جهاز الصيدلية. انقطع النت؟ البيع مستمر عادي.</p></div>
+        </div>
+        <div class="why-item">
+          <span class="why-num">٢</span>
+          <div><b>عدة أجهزة على شبكة المحل</b><p>كاشير قدام ومخزن ورا، على نفس البيانات لحظة بلحظة، بدون خادم خارجي.</p></div>
+        </div>
+        <div class="why-item">
+          <span class="why-num">٣</span>
+          <div><b>بياناتك ملكك</b><p>ما فيش اشتراك شهري يوقف ويقفل عليك بياناتك. الملف عندك، تنسخه وقت ما تبي.</p></div>
+        </div>
+        <div class="why-item">
+          <span class="why-num">٤</span>
+          <div><b>تعمل على أي جهاز تقريباً</b><p>ويندوز أو لينكس، جهاز قديم يكفي. ما تحتاجش تشتري كمبيوتر جديد.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= الأسعار ================= -->
+  <section id="الأسعار">
+    <p class="eyebrow">الأسعار</p>
+    <h2 style="margin-top:12px">دفعة واحدة، بدون اشتراك شهري</h2>
+    <p class="lede" style="margin-top:14px">
+      التركيب والتدريب داخل السعر. تدفع بعد ما تشوف المنظومة شغالة عندك في صيدليتك.
+    </p>
+
+    <div class="plans">
+      <div class="plan">
+        <h3>الأساسية</h3>
+        <div class="price num">1,200 <small>د.ل</small></div>
+        <div class="once">دفعة واحدة · جهاز واحد</div>
+        <ul>
+          <li><span class="tick">✓</span> كل الوحدات الاثنتي عشرة</li>
+          <li><span class="tick">✓</span> تركيب على جهازك وإدخال أصنافك</li>
+          <li><span class="tick">✓</span> تدريب ساعتين للموظفين</li>
+          <li><span class="tick">✓</span> دعم فني ٣ أشهر</li>
+          <li><span class="tick">✓</span> تحديثات سنة كاملة</li>
+        </ul>
+        <a class="btn btn-alt" href="#تواصل">اطلبها</a>
+      </div>
+
+      <div class="plan pick">
+        <span class="plan-tag">الأكثر طلباً</span>
+        <h3>الاحترافية</h3>
+        <div class="price num">2,200 <small>د.ل</small></div>
+        <div class="once">دفعة واحدة · حتى ٣ أجهزة</div>
+        <ul>
+          <li><span class="tick">✓</span> كل ما في الأساسية</li>
+          <li><span class="tick">✓</span> ربط ٣ أجهزة على شبكة المحل</li>
+          <li><span class="tick">✓</span> إدخال مخزونك كامل بالباركود</li>
+          <li><span class="tick">✓</span> نسخ احتياطي تلقائي يومي</li>
+          <li><span class="tick">✓</span> دعم فني سنة كاملة</li>
+          <li><span class="tick">✓</span> تخصيص الفاتورة بشعار صيدليتك</li>
+        </ul>
+        <a class="btn btn-main" href="#تواصل">اطلبها</a>
+      </div>
+
+      <div class="plan">
+        <h3>متعددة الفروع</h3>
+        <div class="price num">3,500 <small>د.ل</small></div>
+        <div class="once">دفعة واحدة · فرعان فأكثر</div>
+        <ul>
+          <li><span class="tick">✓</span> كل ما في الاحترافية</li>
+          <li><span class="tick">✓</span> نسخة لكل فرع بتقرير مجمّع</li>
+          <li><span class="tick">✓</span> أجهزة غير محدودة داخل الفرع</li>
+          <li><span class="tick">✓</span> تعديلات وتقارير حسب طلبك</li>
+          <li><span class="tick">✓</span> دعم بأولوية طوال السنة</li>
+        </ul>
+        <a class="btn btn-alt" href="#تواصل">تواصل معنا</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= الأسئلة ================= -->
+  <section>
+    <p class="eyebrow">قبل ما تسأل</p>
+    <h2 style="margin-top:12px">الأسئلة اللي تجي دائماً</h2>
+    <div class="faq">
+      <details open>
+        <summary>عندي آلاف الأصناف — مين يدخلها؟</summary>
+        <p>نحن. في الباقة الاحترافية ندخل مخزونك كامل بالباركود والأسعار وتواريخ الصلاحية قبل التسليم. إذا عندك ملف إكسل من منظومة قديمة نستورده مباشرة. وإذا ما عندكش، ندخل الأصناف الأكثر حركة أولاً وتكمل البقية مع الاستعمال.</p>
+      </details>
+      <details>
+        <summary>موظفيني ما يعرفوش كمبيوتر — بيتعلموا؟</summary>
+        <p>شاشة البيع فيها حقل بحث واحد وزر واحد. قارئ الباركود يشتغل مباشرة بدون إعداد. التدريب ساعتان عملياً داخل الصيدلية، والمنظومة عربية بالكامل بدون كلمة إنجليزية.</p>
+      </details>
+      <details>
+        <summary>لو تعطّل الجهاز تروح بياناتي؟</summary>
+        <p>لا، إذا كنت تأخذ نسخة احتياطية. المنظومة تعمل النسخة بضغطة واحدة، وننصح بنسخة يومية على فلاش أو جوجل درايف. في الباقة الاحترافية النسخ تلقائي يومياً. الاستعادة تتم في أقل من دقيقة على أي جهاز.</p>
+      </details>
+      <details>
+        <summary>هل فيه اشتراك شهري أو رسوم مخفية؟</summary>
+        <p>لا. تدفع مرة واحدة وتملك النسخة. التحديثات سنة مجانية، وبعدها اختياري تماماً — المنظومة تكمل شغلها عادي بدون أي تجديد.</p>
+      </details>
+      <details>
+        <summary>وإذا ما عجبتني بعد التركيب؟</summary>
+        <p>ما تدفعش قبل التركيب. نركّبها ونشغّلها في صيدليتك وتجرّبها على بياناتك الحقيقية. إذا ما ناسبتك، ما فيش التزام.</p>
+      </details>
+      <details>
+        <summary>تشتغل على جهاز قديم؟</summary>
+        <p>نعم. المنظومة خفيفة وتشتغل على أي جهاز ويندوز من 2015 فما فوق بذاكرة 4 جيجا. تفتح من متصفح كروم أو إيدج العادي، وتقدر تفتحها من الموبايل على نفس شبكة المحل.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ================= الختام ================= -->
+  <div class="close" id="تواصل">
+    <h2>افتح المنظومة وشوفها بنفسك</h2>
+    <p>نسخة تجريبية كاملة ببيانات صيدلية حقيقية الحجم. بيع فاتورة، شوف تنبيهات الصلاحية، افتح التقارير — بدون تحميل وبدون تسجيل.</p>
+    <div class="cta-row">
+      <a class="btn btn-main" href="https://claude.ai/code/artifact/825a9161-37f9-4327-9bb8-178e48fb04d0" target="_blank" rel="noopener">افتح التجربة المباشرة ↗</a>
+      <a class="btn btn-alt" href="https://wa.me/218000000000" target="_blank" rel="noopener">راسلنا على واتساب</a>
+    </div>
+  </div>
+
+  <footer>
+    <span>صيدليتي · منظومة إدارة الصيدليات</span>
+    <span>طرابلس — ليبيا</span>
+  </footer>
+
+</div>
