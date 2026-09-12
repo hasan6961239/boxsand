@@ -1,0 +1,19 @@
+{
+  "name": "saydaliyati",
+  "version": "1.0.0",
+  "description": "منظومة صيدليتي - نظام إدارة الصيدليات المتكامل (يعمل بدون إنترنت)",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node server/seed.js",
+    "reset": "node server/seed.js --force",
+    "demo": "node demo/build-demo.js"
+  },
+  "keywords": ["pharmacy", "pos", "libya", "arabic", "صيدلية", "منظومة"],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "better-sqlite3": "^12.4.1"
+  },
+  "engines": { "node": ">=18" }
+}
