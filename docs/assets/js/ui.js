@@ -216,11 +216,17 @@
         <div class="gt-value num">${D.fmtMoney(table?.[24])}<span class="gt-unit">د.ل</span></div>
         <div class="gt-foot"><span class="rc-market">نقاء 99.9%</span></div>
       </div>
+      ${Number.isFinite(state.latest?.localGold?.k18PerGram) ? `
+      <div class="gold-tile">
+        <div class="gt-label">كسر الذهب عيار 18 — سعر السوق</div>
+        <div class="gt-value num">${D.fmtMoney(state.latest.localGold.k18PerGram)}<span class="gt-unit">د.ل</span></div>
+        <div class="gt-foot"><span class="rc-market">سعر معلن من السوق الليبي، لا محسوب من الأونصة</span></div>
+      </div>` : `
       <div class="gold-tile">
         <div class="gt-label">أونصة الفضة عالمياً</div>
         <div class="gt-value num">${D.fmtMoney(metals.XAG)}<span class="gt-unit">دولار</span></div>
         <div class="gt-foot"><span class="rc-market">XAG/USD</span></div>
-      </div>`;
+      </div>`}`;
 
     const karats = [24, 22, 21, 18, 14];
     $('#gold-table tbody').innerHTML = karats.map((k) => {

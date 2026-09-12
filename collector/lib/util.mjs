@@ -107,7 +107,7 @@ export function round(n, d = 4) {
  * look for the label (city or currency) and take the closest number that falls
  * inside the expected band for that quote.
  */
-export function findNearNumber(text, aliases, { min, max, window = 160 } = {}) {
+export function findNearNumber(text, aliases, { min, max, window = 160, requireDecimal = false } = {}) {
   const hay = normalizeArabic(text);
   const candidates = [];
   for (const alias of aliases) {
@@ -118,7 +118,11 @@ export function findNearNumber(text, aliases, { min, max, window = 160 } = {}) {
       const from = Math.max(0, idx - Math.round(window / 3));
       const slice = hay.slice(from, idx + needle.length + window);
       const anchor = idx - from + needle.length;
-      for (const m of slice.matchAll(/\d{1,4}(?:[.,]\d{1,4})?/g)) {
+      // Exchange rates are always quoted with decimals (9.39, 10.89). Requiring
+      // one rejects the bare integers that page furniture is full of — menu
+      // counts, years, "منذ 3 ايام" — which otherwise parse as plausible rates.
+      const pattern = requireDecimal ? /\d{1,4}[.,]\d{1,4}/g : /\d{1,4}(?:[.,]\d{1,4})?/g;
+      for (const m of slice.matchAll(pattern)) {
         const val = parseNum(m[0]);
         if (val == null || val < min || val > max) continue;
         // Numbers that follow the label win over numbers that precede it.

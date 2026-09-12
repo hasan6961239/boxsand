@@ -74,7 +74,7 @@ function passCurrencyMajor(text) {
     const span = hay.slice(pos, end);
     for (const [key, city] of Object.entries(CITIES)) {
       if (result[code]?.[key] != null) continue;
-      const val = findNearNumber(span, city.aliases, { ...BANDS[code], window: 90 });
+      const val = findNearNumber(span, city.aliases, { ...BANDS[code], window: 90, requireDecimal: true });
       if (val != null) (result[code] ||= {})[key] = val;
     }
   }
@@ -96,7 +96,7 @@ function passCityMajor(text) {
     const span = hay.slice(pos, end);
     for (const [code, aliases] of Object.entries(CURRENCY_ALIASES)) {
       if (result[code]?.[key] != null) continue;
-      const val = findNearNumber(span, aliases, { ...BANDS[code], window: 90 });
+      const val = findNearNumber(span, aliases, { ...BANDS[code], window: 90, requireDecimal: true });
       if (val != null) (result[code] ||= {})[key] = val;
     }
   }
@@ -107,7 +107,7 @@ function passCityMajor(text) {
 export function extractNationalRates(text) {
   const out = {};
   for (const [code, aliases] of Object.entries(CURRENCY_ALIASES)) {
-    const val = findNearNumber(text, aliases, { ...BANDS[code], window: 70 });
+    const val = findNearNumber(text, aliases, { ...BANDS[code], window: 70, requireDecimal: true });
     if (val != null) out[code] = val;
   }
   return out;
@@ -118,25 +118,26 @@ export function extractNationalRates(text) {
 /**
  * Telegram renders public channels as plain HTML at /s/<channel> with no auth,
  * which makes the live trading-floor channels the most dependable scrape target.
+ * Its posts carry the national (Tripoli) quote plus a real local gold price.
  */
 const TELEGRAM_CHANNELS = ['lydollar'];
 
-const PARALLEL_PAGES = [
-  'https://almashhadlibya.com/economic-news/currency-prices',
-  'https://www.libyaakhbar.com/latestnews/currency-prices',
-  'https://www.eanlibya.com/exchangerate/',
-];
+/** Aliases for the locally-traded gold line the channel publishes. */
+const LOCAL_GOLD_ALIASES = ['كسر الذهب عيار18', 'كسر الذهب عيار 18', 'كسر الذهب', 'الذهب عيار18', 'الذهب عيار 18'];
 
 export async function parallelFromTelegram() {
   const merged = {};
+  let localGold18 = null;
   const seen = [];
+
   for (const channel of TELEGRAM_CHANNELS) {
     const html = await fetchText(`https://t.me/s/${channel}`);
-    // Newest messages sit last in the preview feed; read the tail only.
     const messages = [...html.matchAll(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/g)]
       .map((m) => htmlToText(m[1]));
-    const recent = messages.slice(-6).reverse();
+    // Newest messages sit last in the preview feed; read the tail, newest first.
+    const recent = messages.slice(-8).reverse();
     seen.push(`${channel}:${messages.length}msg`);
+
     for (const msg of recent) {
       const found = extractCityRates(msg);
       const national = extractNationalRates(msg);
@@ -145,13 +146,60 @@ export async function parallelFromTelegram() {
         for (const [city, val] of Object.entries(found[code] || {})) merged[code][city] ??= val;
         if (national[code] != null) merged[code].national ??= national[code];
       }
+      localGold18 ??= findNearNumber(msg, LOCAL_GOLD_ALIASES, { min: 80, max: 6000, window: 40, requireDecimal: false });
     }
   }
+
   if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error('no rates parsed from telegram');
-  return { rates: merged, detail: seen.join(', ') };
+  return { rates: merged, localGold18, detail: `${seen.join(', ')}${localGold18 ? ` · ذهب18 ${localGold18}` : ''}` };
 }
 
-export async function parallelFromNewsPage(url) {
+/** Every href on a page, resolved against it. */
+function absoluteLinks(html, baseUrl) {
+  const out = new Set();
+  for (const m of html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
+    try { out.add(new URL(m[1], baseUrl).toString()); } catch { /* skip junk hrefs */ }
+  }
+  return [...out];
+}
+
+/**
+ * Per-city rates live in the *articles*, not on the index that links to them
+ * ("سجل الدولار في طرابلس 9.39 وفي بنغازي 9.38…"), so follow the newest few
+ * links and read the bodies. Stops as soon as all three cities are resolved.
+ */
+export async function parallelFromArticles({ listUrl, match, max = 4 }) {
+  const listHtml = await fetchText(listUrl);
+  const links = absoluteLinks(listHtml, listUrl).filter(match).slice(0, max);
+  if (!links.length) throw new Error(`no article links matched on ${listUrl}`);
+
+  const merged = {};
+  const visited = [];
+  for (const link of links) {
+    let text;
+    try { text = htmlToText(await fetchText(link, { retries: 1, timeout: 12000 })); }
+    catch { continue; }
+
+    const found = extractCityRates(text);
+    const national = extractNationalRates(text);
+    visited.push(link.split('/').pop());
+
+    for (const code of Object.keys(BANDS)) {
+      merged[code] ||= {};
+      // Articles are listed newest first, so the first value for a city wins.
+      for (const [city, val] of Object.entries(found[code] || {})) merged[code][city] ??= val;
+      if (national[code] != null) merged[code].national ??= national[code];
+    }
+    if (CITY_KEYS.every((c) => merged.USD?.[c] != null)) break;
+  }
+
+  const cityHits = CITY_KEYS.filter((c) => merged.USD?.[c] != null).length;
+  if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error(`no rates in articles from ${listUrl}`);
+  return { rates: merged, detail: `${visited.length} مقال · ${cityHits}/3 مدن` };
+}
+
+/** Pages that publish a straight rate table with no city breakdown. */
+export async function parallelFromRatePage(url) {
   const text = htmlToText(await fetchText(url));
   const found = extractCityRates(text);
   const national = extractNationalRates(text);
@@ -164,15 +212,33 @@ export async function parallelFromNewsPage(url) {
   return { rates: merged, detail: `${text.length} chars` };
 }
 
+const CITY_KEYS = Object.keys(CITIES);
+
 export const PARALLEL_SOURCES = [
-  { id: 'telegram-lydollar', label: 'قناة سوق المشير (تلغرام)', url: 'https://t.me/s/lydollar', weight: 3, run: parallelFromTelegram },
-  ...PARALLEL_PAGES.map((url) => ({
-    id: new URL(url).hostname.replace(/^www\./, ''),
-    label: new URL(url).hostname.replace(/^www\./, ''),
-    url,
-    weight: 1,
-    run: () => parallelFromNewsPage(url),
-  })),
+  {
+    id: 'telegram-lydollar', label: 'قناة سوق المشير (تلغرام)', url: 'https://t.me/s/lydollar',
+    weight: 3, run: parallelFromTelegram,
+  },
+  {
+    id: 'eanlibya.com', label: 'عين ليبيا — أسعار العملات', url: 'https://www.eanlibya.com/exchangerate/',
+    weight: 2, run: () => parallelFromRatePage('https://www.eanlibya.com/exchangerate/'),
+  },
+  {
+    id: 'almashhadlibya.com', label: 'المشهد الليبي — مقالات الأسعار', url: 'https://almashhadlibya.com/economic-news/currency-prices',
+    weight: 2,
+    run: () => parallelFromArticles({
+      listUrl: 'https://almashhadlibya.com/economic-news/currency-prices',
+      match: (u) => /almashhadlibya\.com\/economic-news\/.*\d{5,}/.test(u),
+    }),
+  },
+  {
+    id: 'libyaakhbar.com', label: 'أخبار ليبيا — مقالات الأسعار', url: 'https://www.libyaakhbar.com/latestnews/currency-prices',
+    weight: 2,
+    run: () => parallelFromArticles({
+      listUrl: 'https://www.libyaakhbar.com/latestnews/currency-prices',
+      match: (u) => /libyaakhbar\.com\/business-news\/\d+\.html/.test(u),
+    }),
+  },
 ];
 
 /* ------------------------------------------------------------ official rates */

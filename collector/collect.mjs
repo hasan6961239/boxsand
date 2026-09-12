@@ -70,6 +70,28 @@ function mergeParallel(results) {
   return out;
 }
 
+/**
+ * Drop any city number that sits far from where the rest of the market is.
+ * A mis-parse usually lands well outside the pack, while genuine inter-city
+ * spread in Libya is fractions of a percent — so 10% is a wide, safe fence.
+ */
+function dropOutliers(parallel) {
+  const dropped = [];
+  for (const [code, cities] of Object.entries(parallel)) {
+    const values = Object.values(cities).filter(Number.isFinite);
+    if (values.length < 2) continue;
+    const mid = median(values);
+    if (!Number.isFinite(mid) || mid === 0) continue;
+    for (const [city, val] of Object.entries(cities)) {
+      if (Number.isFinite(val) && Math.abs(val - mid) / mid > 0.10) {
+        delete cities[city];
+        dropped.push(`${code}.${city}=${val}`);
+      }
+    }
+  }
+  return dropped;
+}
+
 /** Fill a city we could not read directly from the market-wide number. */
 function fillFromNational(parallel) {
   const derived = [];
@@ -148,6 +170,7 @@ function snapshot(data, t) {
     s: round(data.metals?.XAG, 3) ?? undefined,
     o: round(data.official?.USD, 4) ?? undefined,
     oe: round(data.official?.EUR, 4) ?? undefined,
+    lg: round(data.localGold?.k18PerGram, 2) ?? undefined,
   };
 }
 
@@ -164,7 +187,7 @@ async function main() {
   const [parallelResults, cbl, fx, metals] = await Promise.all([
     Promise.all(PARALLEL_SOURCES.map(async (s) => {
       const out = await run(s.id, s.label, s.url, s.run);
-      return out ? { weight: s.weight, rates: out.rates } : null;
+      return out ? { weight: s.weight, rates: out.rates, localGold18: out.localGold18 } : null;
     })),
     run('cbl', 'مصرف ليبيا المركزي', 'https://cbl.gov.ly/currency-exchange-rates/', officialFromCbl),
     (async () =>
@@ -176,8 +199,14 @@ async function main() {
       (await run('paxg', 'PAX Gold (احتياطي)', 'https://api.coingecko.com', metalsFromPaxg)))(),
   ]);
 
-  const parallel = mergeParallel(parallelResults.filter(Boolean));
+  const liveParallel = parallelResults.filter(Boolean);
+  const parallel = mergeParallel(liveParallel);
+  const dropped = dropOutliers(parallel);
   const derived = fillFromNational(parallel);
+
+  // A price quoted by Libyan dealers themselves, rather than derived from the
+  // world spot price — it carries the local premium and the workmanship market.
+  const localGold18 = liveParallel.map((r) => r.localGold18).find(Number.isFinite) ?? null;
 
   // CBL is authoritative for the official rate; the international feed only
   // fills in when the bank's page could not be read.
@@ -194,6 +223,7 @@ async function main() {
     official,
     parallel,
     metals: { XAU: round(metals?.rates?.XAU, 2), XAG: round(metals?.rates?.XAG, 3), unit: 'USD/oz' },
+    localGold: { k18PerGram: round(localGold18, 2), unit: 'LYD/g', source: 'قناة سوق المشير' },
   };
 
   const carried = carryForward(data, previous);
@@ -208,7 +238,13 @@ async function main() {
     parallel: Object.fromEntries(CITY_KEYS.map((c) => [c, goldTable(xau, data.parallel?.USD?.[c])])),
   };
 
-  data.meta = { derived, carried, cities: CITIES };
+  // Keep the last known local quote when the channel post lacks one.
+  if (!Number.isFinite(data.localGold.k18PerGram) && Number.isFinite(previous?.localGold?.k18PerGram)) {
+    data.localGold.k18PerGram = previous.localGold.k18PerGram;
+    carried.push('localGold.k18PerGram');
+  }
+
+  data.meta = { derived, carried, dropped, cities: CITIES };
   data.sources = report;
 
   const history = thinHistory([
@@ -221,7 +257,9 @@ async function main() {
   await writeFile(HISTORY_PATH, JSON.stringify(history) + '\n');
 
   const ok = report.filter((r) => r.status === 'ok').length;
-  console.log(`[collect] ${ok}/${report.length} sources ok · ${history.length} history points`);
+  const cityCount = ['USD', 'EUR'].map((c) => `${c}:${CITY_KEYS.filter((k) => Number.isFinite(data.parallel?.[c]?.[k]) && !derived.includes(`${c}.${k}`)).length}/3`).join(' ');
+  console.log(`[collect] ${ok}/${report.length} sources ok · ${history.length} history points · real city rates ${cityCount}`);
+  if (dropped.length) console.log(`  dropped outliers: ${dropped.join(', ')}`);
   for (const r of report) console.log(`  ${r.status === 'ok' ? '✓' : r.status === 'skipped' ? '–' : '✗'} ${r.id.padEnd(20)} ${r.detail}`);
 }
 
