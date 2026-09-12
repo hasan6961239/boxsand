@@ -33,33 +33,43 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Collect
-        run: node collector/collect.mjs
-
-      - name: Commit updated data
+      - name: Collect and publish
+        env:
+          BRANCH: ${{ github.ref_name }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git diff --quiet -- docs/data; then
-            echo "No change in docs/data — nothing to commit."
-            exit 0
-          fi
+          publish() {
+            node collector/collect.mjs || return 1
+            if git diff --quiet -- docs/data; then
+              echo "No change in docs/data — nothing to commit."
+              return 0
+            fi
+            git add docs/data || return 1
+            git commit -q -m "data: rates at $(date -u '+%Y-%m-%d %H:%M UTC')" || return 1
+            git push
+          }
 
-          git add docs/data
-          git commit -m "data: rates at $(date -u '+%Y-%m-%d %H:%M UTC')"
-
-          # A concurrent run may have pushed first; rebase onto it and retry.
           for attempt in 1 2 3 4; do
-            if git push; then
-              echo "Pushed on attempt $attempt."
+            if publish; then
+              echo "Published on attempt $attempt."
               exit 0
             fi
-            echo "Push rejected, rebasing (attempt $attempt)…"
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
-            sleep $((attempt * 3))
+            echo "Attempt $attempt failed — resetting to origin and collecting again."
+            # docs/data is generated output, never something to merge. If another
+            # run published first, throw this attempt away, take what landed, and
+            # re-collect on top of it: rebasing here just produces a conflict that
+            # leaves a detached HEAD and wedges every later attempt.
+            git rebase --abort 2>/dev/null || true
+            git merge  --abort 2>/dev/null || true
+            git checkout -f -- . 2>/dev/null || true
+            git fetch -q origin "$BRANCH" || true
+            git checkout -q -B "$BRANCH" "origin/$BRANCH" || true
+            git reset --hard -q "origin/$BRANCH" || true
+            sleep $((attempt * 4))
           done
 
-          echo "::error::Could not push collected data after 4 attempts."
+          echo "::error::Could not publish collected data after 4 attempts."
           exit 1
