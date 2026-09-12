@@ -166,6 +166,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   await victim.close(); evil.close();
 
   console.log('\n== 9. رمز الأرباح ==');
+  fs.rmSync(path.join(DATA, 'profit.hash'), { force: true });   // ابدأ من الرمز الافتراضي
   writeStore(seed());
   pg = await open();
   const leak = await pg.evaluate(() => App.api('/api/load').then(r => r.json()).then(d => d.meta.profitCode));
@@ -204,7 +205,40 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   check('الملخص اليومي يُرسل', !!notif);
   check('ولا يحتوي كلمة "الربح"', notif && notif.indexOf('الربح') < 0, notif ? notif.slice(0, 160) : '');
 
-  console.log('\n== 11. سلامة التطبيق عموماً ==');
+  console.log('\n== 11. أرشفة الفواتير ==');
+  {
+    fs.rmSync(path.join(DATA, 'archive'), { recursive: true, force: true });
+    const mixed = seed();
+    for (let i = 1; i <= 500; i++) mixed.invoices.push({ id: 'o' + i, no: i, kind: 'sale', date: '2025-03-14',
+      at: '2025-03-14 10:00', items: [], subtotal: 20, discount: 0, total: 20, profit: 5, method: 'cash', paid: 20, due: 0 });
+    for (let i = 1; i <= 20; i++) mixed.invoices.push({ id: 'n' + i, no: 500 + i, kind: 'sale', date: '2026-09-01',
+      at: '2026-09-01 10:00', items: [], subtotal: 30, discount: 0, total: 30, profit: 9, method: 'cash', paid: 30, due: 0 });
+    await closePage(pg); writeStore(mixed); pg = await open();
+
+    const before = await pg.evaluate(() => App.S.invoices.length);
+    await pg.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(700);
+    const hasBtn = await pg.$$eval('#view button', e => e.some(x => x.textContent.includes('أرشف سنة 2025')));
+    check('زر أرشفة السنة الماضية ظاهر', hasBtn);
+
+    await pg.evaluate(() => Rep.doArchive('2025')); await sleep(600);
+    await pg.click('#modalHost button:has-text("أرشف سنة 2025")'); await sleep(2500);
+
+    const after = await pg.evaluate(() => App.S.invoices.length);
+    const archived = fs.existsSync(path.join(DATA, 'archive', 'invoices-2025.json'))
+      ? JSON.parse(fs.readFileSync(path.join(DATA, 'archive', 'invoices-2025.json'), 'utf8')) : null;
+    const onDisk = JSON.parse(fs.readFileSync(path.join(DATA, 'store.json'), 'utf8'));
+    check('فواتير السنة الماضية خرجت من الملف', before === 520 && after === 20, before + ' → ' + after);
+    check('وحُفظت كلها في الأرشيف', archived && archived.length === 500, 'archived=' + (archived ? archived.length : 0));
+    check('والقرص يوافق الذاكرة', onDisk.invoices.length === 20, 'disk=' + onDisk.invoices.length);
+    check('فواتير هذه السنة لم تُمس', onDisk.invoices.every(v => v.date.slice(0, 4) === '2026'));
+
+    const read = await pg.evaluate(() => App.api('/api/archive-read?year=2025').then(r => r.json()));
+    check('يمكن قراءة الأرشيف لاحقاً', Array.isArray(read) && read.length === 500, 'read=' + (Array.isArray(read) ? read.length : 'err'));
+    const bad = await pg.evaluate(() => App.api('/api/archive-read?year=../../etc').then(r => r.json()));
+    check('سنة غير صالحة تُرفض', bad && bad.ok === false);
+  }
+
+  console.log('\n== 12. سلامة التطبيق عموماً ==');
   writeStore(seed());
   await closePage(pg); pg = await open();
   for (const k of ['dash','pos','invoices','stocktake','stock','purchases','alerts','customers','consign','suppliers','profits','notify','settings']) {

@@ -51,9 +51,48 @@ namespace Qirtasiya
         static string InstanceKey = "0";
 
         // ---------- الترخيص ----------
-        // التطبيق يحمل المفتاح العام فقط: يتحقق من التوقيع ولا يستطيع توليده.
-        const string PUB_N = "ul8ewQ1L8J7bmh0sNG5zGT/8PoKI5pnUmhNqEj1UZQiwaC9utxjGOkF8AjESJKwnVo9TqQpQaspkYcALYW8RKn9kt0bka9l3SVNL6AbIc0UNsfOV7LuQB6CnCyrCE33Bh0PNeOSR37HPtjCj+Cmde86iGylLgpU34nHkeW41RW4OJdtHuS6WOP7U9fGZ2/9KNXwYX0W0TWyPPtD7ckBczDXBoe0EQfq6hHeiCPxFkO3B8vazGrmzjy9UKMGA2sRXuN05AQUqwV5cDmTJK4LcYQzYm1bUoNdw9tp6rmIf6qukey7iIYMxR9XPKqgN5VXb7Q8AUAOm7Chph/J/aPS1tw==";
+        // التطبيق يحمل المفاتيح العامة فقط: يتحقق من التوقيع ولا يستطيع توليده.
+        //
+        // PUB_N_NEW: مفتاحك الجديد. ولّده بـ tools/توليد-مفاتيح.html على جهازك
+        //            (المفتاح الخاص لا يغادر متصفحك) والصق الناتج هنا.
+        // PUB_N_OLD: المفتاح السابق — يبقى مقبولاً فترة انتقالية حتى لا تتوقف
+        //            تراخيص الزبائن الحاليين. احذفه بعد إعادة إصدار تراخيصهم.
+        //
+        // اتركه فارغاً ("") لتعطيل أي من المفتاحين.
+        const string PUB_N_NEW = "";
+        const string PUB_N_OLD = "ul8ewQ1L8J7bmh0sNG5zGT/8PoKI5pnUmhNqEj1UZQiwaC9utxjGOkF8AjESJKwnVo9TqQpQaspkYcALYW8RKn9kt0bka9l3SVNL6AbIc0UNsfOV7LuQB6CnCyrCE33Bh0PNeOSR37HPtjCj+Cmde86iGylLgpU34nHkeW41RW4OJdtHuS6WOP7U9fGZ2/9KNXwYX0W0TWyPPtD7ckBczDXBoe0EQfq6hHeiCPxFkO3B8vazGrmzjy9UKMGA2sRXuN05AQUqwV5cDmTJK4LcYQzYm1bUoNdw9tp6rmIf6qukey7iIYMxR9XPKqgN5VXb7Q8AUAOm7Chph/J/aPS1tw==";
         const string PUB_E = "AQAB";
+
+        static string[] PublicKeys()
+        {
+            List<string> keys = new List<string>();
+            if (!string.IsNullOrEmpty(PUB_N_NEW)) keys.Add(PUB_N_NEW);
+            if (!string.IsNullOrEmpty(PUB_N_OLD)) keys.Add(PUB_N_OLD);
+            return keys.ToArray();
+        }
+
+        static bool SignatureValid(byte[] data, byte[] sig)
+        {
+            byte[] hash;
+            using (SHA256 sha = SHA256.Create()) hash = sha.ComputeHash(data);
+            string[] keys = PublicKeys();
+            for (int i = 0; i < keys.Length; i++)
+            {
+                try
+                {
+                    using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
+                    {
+                        RSAParameters pr = new RSAParameters();
+                        pr.Modulus = Convert.FromBase64String(keys[i]);
+                        pr.Exponent = Convert.FromBase64String(PUB_E);
+                        rsa.ImportParameters(pr);
+                        if (rsa.VerifyHash(hash, CryptoConfig.MapNameToOID("SHA256"), sig)) return true;
+                    }
+                }
+                catch { }
+            }
+            return false;
+        }
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         static extern bool GetVolumeInformation(string rootPathName,
@@ -62,8 +101,7 @@ namespace Qirtasiya
             out uint fileSystemFlags, System.Text.StringBuilder fileSystemNameBuffer,
             int nFileSystemNameSize);
 
-        /* بصمة الجهاز: الرقم التسلسلي للقرص + اسم الجهاز */
-        static string MachineFingerprint()
+        static uint VolumeSerial()
         {
             uint serial = 0;
             try
@@ -75,15 +113,62 @@ namespace Qirtasiya
                 GetVolumeInformation(root, v, v.Capacity, out serial, out a, out b, f, f.Capacity);
             }
             catch { }
+            return serial;
+        }
 
-            string raw = serial.ToString("X8", CultureInfo.InvariantCulture) + "|" + Environment.MachineName;
+        /* معرّف التثبيت من سجل ويندوز — يبقى ثابتاً إن غيّر الزبون اسم جهازه */
+        static string MachineGuid()
+        {
+            string[] views = new string[] {
+                "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography",
+                "HKEY_LOCAL_MACHINE\\SOFTWARE\\Wow6432Node\\Microsoft\\Cryptography"
+            };
+            for (int i = 0; i < views.Length; i++)
+            {
+                try
+                {
+                    object v = Registry.GetValue(views[i], "MachineGuid", null);
+                    if (v != null && v.ToString().Length > 0) return v.ToString();
+                }
+                catch { }
+            }
+            return "";
+        }
+
+        static string Fp12(string raw)
+        {
             byte[] h;
             using (SHA256 sha = SHA256.Create()) h = sha.ComputeHash(Encoding.UTF8.GetBytes(raw));
-
             const string AB = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // بلا حروف تلتبس
             char[] outc = new char[12];
             for (int i = 0; i < 12; i++) outc[i] = AB[h[i] % AB.Length];
             return new string(outc, 0, 4) + "-" + new string(outc, 4, 4) + "-" + new string(outc, 8, 4);
+        }
+
+        /* البصمة الحالية: الرقم التسلسلي للقرص + معرّف ويندوز الثابت.
+           اسم الجهاز خرج منها — تغييره كان يبطل ترخيصاً مدفوعاً. */
+        static string MachineFingerprint()
+        {
+            string guid = MachineGuid();
+            string raw = VolumeSerial().ToString("X8", CultureInfo.InvariantCulture) + "|" +
+                (guid.Length > 0 ? guid : Environment.MachineName);
+            return Fp12(raw);
+        }
+
+        /* البصمة القديمة (القرص + اسم الجهاز). تُقبل أيضاً حتى لا يتوقف
+           ترخيص أُصدر بنسخة سابقة. */
+        static string LegacyFingerprint()
+        {
+            return Fp12(VolumeSerial().ToString("X8", CultureInfo.InvariantCulture) + "|" + Environment.MachineName);
+        }
+
+        /* كل البصمات التي يُقبل ترخيص محرّر لأيٍّ منها */
+        static string[] AcceptedFingerprints()
+        {
+            string now = MachineFingerprint();
+            string old = LegacyFingerprint();
+            if (old == now) return new string[] { now };
+            return new string[] { now, old };
         }
 
         static bool VerifyLicense(string fp, string code, out string until)
@@ -100,16 +185,7 @@ namespace Qirtasiya
                 byte[] sig = Convert.FromBase64String(sigB64);
 
                 byte[] data = Encoding.UTF8.GetBytes(fp + "|" + exp);
-                using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
-                {
-                    RSAParameters pr = new RSAParameters();
-                    pr.Modulus = Convert.FromBase64String(PUB_N);
-                    pr.Exponent = Convert.FromBase64String(PUB_E);
-                    rsa.ImportParameters(pr);
-                    byte[] hash;
-                    using (SHA256 sha = SHA256.Create()) hash = sha.ComputeHash(data);
-                    if (!rsa.VerifyHash(hash, CryptoConfig.MapNameToOID("SHA256"), sig)) return false;
-                }
+                if (!SignatureValid(data, sig)) return false;
 
                 if (exp != "0")
                 {
@@ -196,7 +272,15 @@ namespace Qirtasiya
             try
             {
                 if (!File.Exists(LicPath())) return false;
-                return VerifyLicense(fp, File.ReadAllText(LicPath()).Trim(), out until);
+                string code = File.ReadAllText(LicPath()).Trim();
+                string[] fps = AcceptedFingerprints();
+                for (int i = 0; i < fps.Length; i++)
+                {
+                    string u;
+                    if (VerifyLicense(fps[i], code, out u)) { until = u; return true; }
+                    if (u == "expired") until = "expired";
+                }
+                return false;
             }
             catch { return false; }
         }
@@ -713,7 +797,8 @@ namespace Qirtasiya
                 // نداءات الكتابة تحتاج ملكية النافذة
                 bool needOwner = path == "/api/save" || path == "/api/restore" ||
                                  path == "/api/backup" || path == "/api/backup-dir" ||
-                                 path == "/api/uninstall" || path == "/api/profit-code";
+                                 path == "/api/uninstall" || path == "/api/profit-code" ||
+                                 path == "/api/archive";
                 if (needOwner && !IsOwner(lines))
                 {
                     Send(s, 409, "Conflict", "application/json; charset=utf-8",
@@ -780,6 +865,82 @@ namespace Qirtasiya
                     File.WriteAllText(ProfitCodePath(), HashCode(code.Trim()), new UTF8Encoding(false));
                     Log("غُيّر رمز الأرباح");
                     SendJson(s, "{\"ok\":true}");
+                }
+                catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                return;
+            }
+
+            /* ---------- أرشفة الفواتير ----------
+               store.json يحمل كل فاتورة منذ أول يوم. بعد سنتين يصل 20-30
+               ميجابايت: كل حفظ يعيد كتابته، وكل نسخة احتياطية تنسخه.
+               الأرشفة تنقل فواتير سنة كاملة إلى ملف مستقل يُقرأ عند الطلب. */
+
+            if (path == "/api/archive" && method == "POST")
+            {
+                try
+                {
+                    string req = Encoding.UTF8.GetString(body);
+                    string year = ExtractJsonValue(req, "year");
+                    string rows = ExtractJsonRaw(req, "invoices");
+                    if (string.IsNullOrEmpty(year) || year.Length != 4)
+                        throw new Exception("سنة غير صالحة");
+                    for (int i = 0; i < year.Length; i++)
+                        if (year[i] < '0' || year[i] > '9') throw new Exception("سنة غير صالحة");
+                    if (string.IsNullOrEmpty(rows) || rows == "null")
+                        throw new Exception("لا توجد فواتير للأرشفة");
+
+                    string dir = Path.Combine(DataDir, "archive");
+                    Directory.CreateDirectory(dir);
+                    string target = Path.Combine(dir, "invoices-" + year + ".json");
+                    lock (IoLock) File.WriteAllText(target, rows, new UTF8Encoding(false));
+                    Log("أُرشفت فواتير سنة " + year);
+                    SendJson(s, "{\"ok\":true,\"file\":" + JsonStr("archive/invoices-" + year + ".json") + "}");
+                }
+                catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                return;
+            }
+
+            if (path == "/api/archives")
+            {
+                StringBuilder ab = new StringBuilder("[");
+                try
+                {
+                    string dir = Path.Combine(DataDir, "archive");
+                    if (Directory.Exists(dir))
+                    {
+                        string[] fs2 = Directory.GetFiles(dir, "invoices-*.json");
+                        Array.Sort(fs2, StringComparer.Ordinal);
+                        ReverseStrings(fs2);
+                        for (int i = 0; i < fs2.Length; i++)
+                        {
+                            FileInfo fi = new FileInfo(fs2[i]);
+                            string yr = Path.GetFileNameWithoutExtension(fi.Name).Replace("invoices-", "");
+                            if (i > 0) ab.Append(",");
+                            ab.Append("{\"year\":").Append(JsonStr(yr))
+                              .Append(",\"size\":").Append(fi.Length.ToString(CultureInfo.InvariantCulture))
+                              .Append("}");
+                        }
+                    }
+                }
+                catch { }
+                ab.Append("]");
+                SendJson(s, ab.ToString());
+                return;
+            }
+
+            if (path == "/api/archive-read")
+            {
+                try
+                {
+                    string yr = "";
+                    int qp = rawPath.IndexOf("?year=", StringComparison.Ordinal);
+                    if (qp >= 0) yr = rawPath.Substring(qp + 6);
+                    if (yr.Length != 4) throw new Exception("سنة غير صالحة");
+                    for (int i = 0; i < yr.Length; i++)
+                        if (yr[i] < '0' || yr[i] > '9') throw new Exception("سنة غير صالحة");
+                    string f = Path.Combine(Path.Combine(DataDir, "archive"), "invoices-" + yr + ".json");
+                    if (!File.Exists(f)) throw new Exception("لا يوجد أرشيف لهذه السنة");
+                    Send(s, 200, "OK", "application/json; charset=utf-8", File.ReadAllBytes(f));
                 }
                 catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
                 return;
@@ -958,8 +1119,16 @@ namespace Qirtasiya
                 try
                 {
                     string code = ExtractJsonValue(Encoding.UTF8.GetString(body), "code");
-                    string fp2 = MachineFingerprint(), until2;
-                    if (!VerifyLicense(fp2, code, out until2))
+                    string until2 = "";
+                    bool okAct = false;
+                    string[] fps2 = AcceptedFingerprints();
+                    for (int i = 0; i < fps2.Length && !okAct; i++)
+                    {
+                        string u2;
+                        if (VerifyLicense(fps2[i], code, out u2)) { okAct = true; until2 = u2; }
+                        else if (u2 == "expired") until2 = "expired";
+                    }
+                    if (!okAct)
                     {
                         SendJson(s, "{\"ok\":false,\"error\":" +
                             JsonStr(until2 == "expired" ? "انتهت صلاحية هذا الرمز" : "الرمز غير صحيح لهذا الجهاز") + "}");
@@ -1194,11 +1363,36 @@ namespace Qirtasiya
             while (i < json.Length && (json[i] == ' ' || json[i] == '\t')) i++;
             if (i >= json.Length || json[i] != '"') return null;
             i++;
+            /* فكّ الهروب الصحيح. سابقاً كان الخط المائل يُتجاهَل فقط،
+               فتصير \n حرف n و م تصير u0645 — يظهر الأثر في اسم نسخة
+               احتياطية أو رمز تفعيل فيه محرف خاص. */
             StringBuilder sb = new StringBuilder();
             while (i < json.Length && json[i] != '"')
             {
-                if (json[i] == '\\' && i + 1 < json.Length) { i++; sb.Append(json[i]); }
-                else sb.Append(json[i]);
+                if (json[i] != '\\') { sb.Append(json[i]); i++; continue; }
+                i++;
+                if (i >= json.Length) break;
+                char e = json[i];
+                if (e == 'n') sb.Append('\n');
+                else if (e == 't') sb.Append('\t');
+                else if (e == 'r') sb.Append('\r');
+                else if (e == 'b') sb.Append('\b');
+                else if (e == 'f') sb.Append('\f');
+                else if (e == '/') sb.Append('/');
+                else if (e == '"') sb.Append('"');
+                else if (e == '\\') sb.Append('\\');
+                else if (e == 'u' && i + 4 < json.Length)
+                {
+                    int cp;
+                    if (int.TryParse(json.Substring(i + 1, 4), NumberStyles.HexNumber,
+                        CultureInfo.InvariantCulture, out cp))
+                    {
+                        sb.Append((char)cp);
+                        i += 4;
+                    }
+                    else sb.Append(e);
+                }
+                else sb.Append(e);
                 i++;
             }
             return sb.ToString();

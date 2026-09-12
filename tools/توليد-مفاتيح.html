@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>توليد مفاتيح ترخيص جديدة</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:"Segoe UI",Tahoma,sans-serif;background:#F4F1EA;margin:0;padding:26px 16px;color:#17222E;line-height:1.85}
+.w{max-width:760px;margin:0 auto}
+.card{background:#fff;border:1px solid #D9E0E5;border-radius:14px;padding:26px;margin-bottom:16px}
+h1{font-size:23px;margin:0 0 6px}
+h2{font-size:17px;margin:0 0 10px}
+.sub{color:#6B7A87;font-size:14px;margin:0 0 20px}
+.warn{background:#FBF3E2;border:1px solid #E8D5A8;border-radius:9px;padding:14px 16px;font-size:14px;margin-bottom:18px}
+.bad{background:#FBEAEA;border-color:#E8B4B4}
+button{width:100%;padding:15px;border:0;border-radius:9px;background:#0E6E62;color:#fff;font-size:17px;font-weight:700;cursor:pointer;font-family:inherit}
+button:hover{background:#0B564C}
+button.sec{background:#17222E;margin-top:9px}
+button:disabled{background:#9AA7AE;cursor:default}
+label{display:block;font-size:13px;color:#6B7A87;margin:16px 0 6px;font-weight:600}
+textarea{width:100%;padding:11px 13px;border:1px solid #D9E0E5;border-radius:9px;
+  font-family:Consolas,monospace;font-size:11px;direction:ltr;text-align:left;min-height:92px;resize:vertical}
+ol{margin:0;padding-inline-start:22px}
+li{margin-bottom:10px}
+code{background:#EFF2EF;padding:2px 6px;border-radius:4px;font-family:Consolas,monospace;font-size:12.5px;direction:ltr;display:inline-block}
+.hide{display:none}
+.ok{color:#0E6E62;font-weight:700}
+</style></head><body><div class="w">
+
+<div class="card">
+  <h1>توليد مفاتيح ترخيص جديدة</h1>
+  <p class="sub">مرة واحدة. بعدها لن يستطيع أحد توليد تراخيص لمنظومتك إلا أنت.</p>
+
+  <div class="warn bad"><b>لماذا تفعل هذا؟</b><br>
+    المفتاح الخاص القديم خرج من يدك (أُرسل في محادثة). من يملكه يستطيع توليد
+    تراخيص مجانية لأي جهاز. هذه الصفحة تولّد زوجاً جديداً بالكامل.</div>
+
+  <div class="warn"><b>المفتاح الخاص لا يغادر هذا المتصفح.</b><br>
+    التوليد يتم داخل جهازك، بلا إنترنت وبلا إرسال لأي خادم. أغلق الإنترنت
+    قبل الضغط إن أحببت — ستعمل الصفحة كما هي.</div>
+
+  <button id="gen" onclick="go()">ولّد زوج مفاتيح جديداً</button>
+</div>
+
+<div id="out" class="hide">
+  <div class="card">
+    <h2>١ — الصق هذا في <code>src/Program.cs</code></h2>
+    <p class="sub">ابحث عن السطر الذي يبدأ بـ <code>const string PUB_N_NEW</code> واستبدله كاملاً بهذا:</p>
+    <textarea id="pub" readonly></textarea>
+    <button class="sec" onclick="cp('pub')">نسخ</button>
+  </div>
+
+  <div class="card">
+    <h2>٢ — نزّل مولّد التراخيص الجديد</h2>
+    <p class="sub">هذا هو الملف الذي تستعمله لإصدار رمز لكل زبون. احفظه عندك
+      ولا ترسله لأحد أبداً — من يملكه يولّد التراخيص.</p>
+    <button onclick="dl()">تنزيل «مولّد التراخيص الجديد.html»</button>
+  </div>
+
+  <div class="card">
+    <h2>٣ — ماذا بعد</h2>
+    <ol>
+      <li>ابنِ المنظومة من جديد بـ <code>build.bat</code>.</li>
+      <li>وزّع النسخة الجديدة على زبائنك — <span class="ok">تراخيصهم القديمة ستبقى تعمل</span>،
+        لأن المنظومة تقبل المفتاحين معاً فترة انتقالية.</li>
+      <li>أصدر لكل زبون رمزاً جديداً من المولّد الجديد على مهلك.</li>
+      <li>بعد أن ينتقل الجميع: افتح <code>src/Program.cs</code> واجعل
+        <code>PUB_N_OLD = ""</code> ثم ابنِ من جديد. عندها يُغلق الباب القديم نهائياً.</li>
+    </ol>
+  </div>
+</div>
+
+</div>
+<script>
+var PRIV_B64 = "", PUB_B64 = "";
+
+function b2a(b){ var s="",u=new Uint8Array(b); for(var i=0;i<u.length;i++) s+=String.fromCharCode(u[i]); return btoa(s); }
+
+async function go(){
+  var btn = document.getElementById("gen");
+  btn.disabled = true; btn.textContent = "يولّد… (قد يأخذ ثوانيَ)";
+  try{
+    var kp = await crypto.subtle.generateKey(
+      { name:"RSASSA-PKCS1-v1_5", modulusLength:2048,
+        publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" },
+      true, ["sign","verify"]);
+
+    PRIV_B64 = b2a(await crypto.subtle.exportKey("pkcs8", kp.privateKey));
+    var jwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
+    // n في JWK بترميز base64url — نحوّله إلى base64 عادي كما تتوقعه النواة
+    PUB_B64 = jwk.n.replace(/-/g,"+").replace(/_/g,"/");
+    while (PUB_B64.length % 4) PUB_B64 += "=";
+
+    document.getElementById("pub").value =
+      '        const string PUB_N_NEW = "' + PUB_B64 + '";';
+    document.getElementById("out").className = "";
+    btn.textContent = "تم التوليد ✓";
+    document.getElementById("out").scrollIntoView({behavior:"smooth"});
+  }catch(e){
+    btn.disabled = false; btn.textContent = "ولّد زوج مفاتيح جديداً";
+    alert("تعذّر التوليد: " + e.message + "\n\nجرّب متصفح Edge أو Chrome حديثاً.");
+  }
+}
+
+function cp(id){
+  var el = document.getElementById(id);
+  el.select(); el.setSelectionRange(0, 99999);
+  try{ document.execCommand("copy"); alert("نُسخ."); }
+  catch(e){ alert("انسخه يدوياً."); }
+}
+
+function dl(){
+  var html = GEN_TEMPLATE.replace("__PRIVATE_KEY__", PRIV_B64);
+  var blob = new Blob([html], {type:"text/html;charset=utf-8"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "مولّد التراخيص الجديد.html";
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 900);
+}
+
+var GEN_TEMPLATE = [
+'<!DOCTYPE html>',
+'<html lang="ar" dir="rtl"><head><meta charset="utf-8">',
+'<title>مولّد تراخيص منظومة القرطاسية</title>',
+'<style>',
+'*{box-sizing:border-box}',
+'body{font-family:"Segoe UI",Tahoma,sans-serif;background:#F4F1EA;margin:0;padding:30px;color:#17222E}',
+'.w{max-width:620px;margin:0 auto;background:#fff;border:1px solid #D9E0E5;border-radius:14px;padding:28px}',
+'h1{font-size:22px;margin:0 0 4px}',
+'.sub{color:#6B7A87;font-size:13px;margin:0 0 22px}',
+'label{display:block;font-size:13px;color:#6B7A87;margin:14px 0 6px;font-weight:600}',
+'input,select,textarea{width:100%;padding:12px 14px;border:1px solid #D9E0E5;border-radius:9px;font-size:15px;font-family:inherit}',
+'textarea{min-height:110px;font-family:Consolas,monospace;font-size:11px;direction:ltr;text-align:left}',
+'button{width:100%;padding:15px;margin-top:18px;border:0;border-radius:9px;background:#0E6E62;color:#fff;font-size:17px;font-weight:700;cursor:pointer}',
+'button:hover{background:#0B564C}',
+'.warn{background:#FBF3E2;border:1px solid #E8D5A8;border-radius:9px;padding:12px 14px;font-size:13px;line-height:1.8;margin-bottom:18px}',
+'.copy{background:#17222E;margin-top:8px}',
+'table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}',
+'th,td{text-align:right;padding:7px 9px;border-bottom:1px solid #EEF1F3}',
+'th{color:#6B7A87;font-weight:600;font-size:12px}',
+'</style></head><body><div class="w">',
+'<h1>مولّد تراخيص المنظومة</h1>',
+'<p class="sub">احتفظ بهذا الملف عندك ولا ترسله لأحد — من يملكه يستطيع توليد التراخيص.</p>',
+'<div class="warn"><b>كيف تستعمله:</b><br>',
+'1. الزبون يفتح المنظومة فتظهر له بصمة جهازه.<br>',
+'2. يرسلها لك (واتساب أو اتصال).<br>',
+'3. تلصقها هنا وتختار المدة وتضغط توليد.<br>',
+'4. ترسل له الرمز الناتج فيلصقه ويضغط تفعيل.</div>',
+'<label>اسم الزبون (لسجلّك فقط)</label>',
+'<input id="who" placeholder="مثال: مكتبة النور — مصراتة" autocomplete="off">',
+'<label>بصمة جهاز الزبون</label>',
+'<input id="fp" placeholder="XXXX-XXXX-XXXX" autocomplete="off">',
+'<label>مدة الترخيص</label>',
+'<select id="dur">',
+'<option value="0">دائم — بلا انتهاء</option>',
+'<option value="365">سنة واحدة</option>',
+'<option value="180">ستة أشهر</option>',
+'<option value="90">ثلاثة أشهر</option>',
+'<option value="30">شهر واحد (تجربة)</option>',
+'<option value="7">أسبوع (تجربة)</option>',
+'</select>',
+'<button onclick="gen()">توليد رمز التفعيل</button>',
+'<div><label>رمز التفعيل — أرسله للزبون</label>',
+'<textarea id="out" readonly placeholder="سيظهر هنا"></textarea>',
+'<button class="copy" onclick="cp()">نسخ الرمز</button></div>',
+'<label style="margin-top:24px">سجل ما أصدرتَه</label>',
+'<div class="warn" style="margin-bottom:0">السجل محفوظ في هذا المتصفح على هذا الجهاز فقط.</div>',
+'<table id="logT"><thead><tr><th>التاريخ</th><th>الزبون</th><th>البصمة</th><th>ينتهي</th></tr></thead><tbody></tbody></table>',
+'<button class="copy" onclick="dlLog()">تنزيل السجل (CSV)</button>',
+'</div>',
+'<script>',
+'const PRIV="__PRIVATE_KEY__";',
+'let key=null;',
+'function b2a(b){return btoa(String.fromCharCode(...new Uint8Array(b)));}',
+'function a2b(s){return Uint8Array.from(atob(s),c=>c.charCodeAt(0));}',
+'async function getKey(){',
+'  if(key)return key;',
+'  key=await crypto.subtle.importKey("pkcs8",a2b(PRIV),',
+'    {name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);',
+'  return key;',
+'}',
+'function readLog(){try{return JSON.parse(localStorage.getItem("qi_lic_log")||"[]");}catch(e){return [];}}',
+'function paintLog(){',
+'  const b=document.querySelector("#logT tbody"); b.innerHTML="";',
+'  readLog().slice().reverse().forEach(r=>{',
+'    const tr=document.createElement("tr");',
+'    [r.at,r.who||"—",r.fp,r.exp==="0"?"دائم":r.exp].forEach(v=>{',
+'      const td=document.createElement("td"); td.textContent=v; tr.appendChild(td);});',
+'    b.appendChild(tr);});',
+'}',
+'function dlLog(){',
+'  const rows=readLog();',
+'  if(!rows.length){alert("السجل فارغ.");return;}',
+'  let csv="التاريخ,الزبون,البصمة,ينتهي\\n";',
+'  rows.forEach(r=>{csv+=[r.at,(r.who||"").replace(/,/g,"،"),r.fp,r.exp==="0"?"دائم":r.exp].join(",")+"\\n";});',
+'  const a=document.createElement("a");',
+'  a.href=URL.createObjectURL(new Blob(["\\ufeff"+csv],{type:"text/csv;charset=utf-8"}));',
+'  a.download="سجل-التراخيص.csv"; a.click();',
+'}',
+'async function gen(){',
+'  const fp=document.getElementById("fp").value.trim().toUpperCase();',
+'  if(!/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(fp)){alert("البصمة غير صحيحة — الشكل: XXXX-XXXX-XXXX");return;}',
+'  const d=parseInt(document.getElementById("dur").value,10);',
+'  let exp="0";',
+'  if(d>0){const t=new Date();t.setDate(t.getDate()+d);',
+'    exp=t.getFullYear()+String(t.getMonth()+1).padStart(2,"0")+String(t.getDate()).padStart(2,"0");}',
+'  const data=new TextEncoder().encode(fp+"|"+exp);',
+'  const sig=await crypto.subtle.sign("RSASSA-PKCS1-v1_5",await getKey(),data);',
+'  const code=exp+"."+b2a(sig).replace(/\\+/g,",").replace(/\\//g,"_");',
+'  document.getElementById("out").value=code;',
+'  const log=readLog();',
+'  log.push({at:new Date().toISOString().slice(0,16).replace("T"," "),',
+'    who:document.getElementById("who").value.trim(),fp:fp,exp:exp});',
+'  try{localStorage.setItem("qi_lic_log",JSON.stringify(log));}catch(e){}',
+'  paintLog();',
+'}',
+'function cp(){const o=document.getElementById("out");o.select();document.execCommand("copy");alert("نُسخ الرمز");}',
+'paintLog();',
+'<\/script></body></html>'
+].join("\n");
+</script>
+</body></html>

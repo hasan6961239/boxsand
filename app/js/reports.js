@@ -654,7 +654,8 @@ var Rep = (function () {
       '<button class="btn" onclick="Rep.setBackupDir()">مجلد نسخ إضافي (فلاشة)</button>' +
       '<button class="btn" onclick="Rep.exportAll()">تصدير كل البيانات (ملف واحد)</button>' +
       '<button class="btn" onclick="Rep.importAll()">استعادة من ملف</button>' +
-      '</div><div id="bkList"></div></div></div>';
+      '</div><div id="bkList"></div></div></div>' +
+      archivePage();
 
     h += '<div class="card" style="grid-column:1/-1;border-inline-start:3px solid var(--stamp)">' +
       '<div class="card-head"><h3 style="color:var(--stamp)">منطقة الخطر</h3><div class="spacer"></div>' +
@@ -935,6 +936,101 @@ var Rep = (function () {
     });
   }
 
+  /* ---------- أرشفة الفواتير ----------
+     كل فاتورة منذ أول يوم كانت تبقى في store.json: كل حفظ يعيد كتابته
+     وكل نسخة احتياطية تنسخه. الأرشفة تنقل سنة كاملة إلى ملف مستقل. */
+
+  function archivableYears() {
+    var thisYear = App.today().slice(0, 4);
+    var by = {};
+    S().invoices.forEach(function (v) {
+      var y = String(v.date || "").slice(0, 4);
+      if (y.length === 4 && y < thisYear) by[y] = (by[y] || 0) + 1;
+    });
+    return Object.keys(by).sort().map(function (y) { return { year: y, n: by[y] }; });
+  }
+
+  function archivePage() {
+    var years = archivableYears();
+    var size = JSON.stringify(S()).length;
+    var h = '<div class="card"><div class="card-head"><h3>أرشفة الفواتير القديمة</h3></div><div class="card-body">' +
+      '<p style="line-height:1.9;margin-top:0">حجم ملف بياناتك الآن: <b class="num">' +
+      (size / 1048576).toFixed(2) + ' ميجابايت</b>. ' +
+      'الأرشفة تنقل فواتير سنة كاملة إلى ملف مستقل، فيصغر الملف ويسرع الحفظ. ' +
+      'الفواتير المؤرشفة تبقى محفوظة ويمكن عرضها متى شئت — لكنها تخرج من التقارير والبحث اليومي.</p>';
+
+    if (!years.length) {
+      h += '<div class="empty"><h4>لا شيء للأرشفة</h4><p>لا توجد فواتير من سنوات سابقة. تُؤرشف السنة بعد انتهائها.</p></div>';
+    } else {
+      h += '<div class="row" style="flex-wrap:wrap;gap:10px">';
+      years.forEach(function (y) {
+        h += '<button class="btn" onclick="Rep.doArchive(\'' + y.year + '\')">أرشف سنة ' + y.year +
+          ' <span class="muted small">(' + y.n + ' فاتورة)</span></button>';
+      });
+      h += "</div>";
+    }
+    h += '<div id="archList" style="margin-top:18px"></div></div></div>';
+    setTimeout(loadArchives, 0);
+    return h;
+  }
+
+  function loadArchives() {
+    var host = document.getElementById("archList");
+    if (!host) return;
+    App.api("/api/archives").then(function (r) { return r.json(); }).then(function (list) {
+      host.innerHTML = "<h4 style=\"margin:0 0 8px\">الأرشيف المحفوظ</h4>" + App.table([
+        { h: "السنة", cls: "num", c: function (a) { return "<b>" + App.esc(a.year) + "</b>"; } },
+        { h: "الحجم", cls: "num", c: function (a) { return (a.size / 1024).toFixed(0) + " KB"; } },
+        { h: "", cls: "act", c: function (a) { return '<button class="btn sm" onclick="Rep.viewArchive(\'' + App.esc(a.year) + '\')">عرض</button>'; } }
+      ], list || [], { emptyIcon: "▤", emptyTitle: "لا أرشيف بعد", emptyText: "" });
+    }).catch(function () { });
+  }
+
+  function doArchive(year) {
+    var rows = S().invoices.filter(function (v) { return String(v.date || "").slice(0, 4) === year; });
+    if (!rows.length) { App.toast("لا فواتير في هذه السنة.", "warn"); return; }
+    App.confirm("ستُنقل " + rows.length + " فاتورة من سنة " + year + " إلى ملف أرشيف مستقل.\n\n" +
+      "تبقى محفوظة ويمكنك عرضها، لكنها تخرج من التقارير والبحث. تُؤخذ نسخة احتياطية أولاً.",
+      function () {
+        App.api("/api/backup", { method: "POST" }).then(function () {
+          return App.api("/api/archive", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ year: year, invoices: rows })
+          }).then(function (r) { return r.json(); });
+        }).then(function (res) {
+          if (!res || !res.ok) { App.toast((res && res.error) || "تعذّرت الأرشفة.", "bad"); return; }
+          // لا نحذف من الحالة إلا بعد أن يؤكّد القرص أن الأرشيف كُتب
+          S().invoices = S().invoices.filter(function (v) { return String(v.date || "").slice(0, 4) !== year; });
+          App.log("أرشفة", "نُقلت " + rows.length + " فاتورة من سنة " + year);
+          App.saveNow().then(function () {
+            App.toast("أُرشفت " + rows.length + " فاتورة من سنة " + year + ".");
+            App.rerender();
+          });
+        }).catch(function () { App.toast("تعذّرت الأرشفة.", "bad"); });
+      }, { yes: "أرشف سنة " + year });
+  }
+
+  function viewArchive(year) {
+    App.api("/api/archive-read?year=" + encodeURIComponent(year))
+      .then(function (r) { return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows)) { App.toast("تعذّرت قراءة الأرشيف.", "bad"); return; }
+        var total = rows.reduce(function (a, v) { return a + App.num(v.total); }, 0);
+        App.modal({
+          title: "أرشيف سنة " + year,
+          size: "wide",
+          body: '<p class="muted" style="margin-top:0">' + rows.length + " فاتورة · إجمالي " +
+            App.money0(total) + "</p>" +
+            App.table([
+              { h: "رقم", cls: "num", c: function (v) { return v.no; } },
+              { h: "التاريخ", c: function (v) { return App.esc(v.date); } },
+              { h: "الأصناف", c: function (v) { return '<span class="sub">' + App.esc((v.items || []).map(function (l) { return l.name + "×" + l.qty; }).join("، ").slice(0, 60)) + "</span>"; } },
+              { h: "الإجمالي", cls: "num", c: function (v) { return App.money0(v.total); } }
+            ], rows, { limit: 200, emptyTitle: "الأرشيف فارغ" })
+        });
+      }).catch(function () { App.toast("تعذّرت قراءة الأرشيف.", "bad"); });
+  }
+
   function exportAll() {
     App.saveNow().then(function () {
       App.download("نسخة-كاملة-" + App.nowStamp().replace(/[: ]/g, "-") + ".json",
@@ -998,6 +1094,7 @@ var Rep = (function () {
     testReceipt: testReceipt,
     backupNow: backupNow, openFolder: openFolder, restore: restore,
     recoverScreen: recoverScreen, setBackupDir: setBackupDir,
+    archivePage: archivePage, doArchive: doArchive, viewArchive: viewArchive,
     exportAll: exportAll, importAll: importAll
   };
 })();

@@ -48,7 +48,7 @@ http.createServer((req, res) => {
       if (req.headers['x-qirtasiya'] !== '1') return json(res, { ok: false, error: 'forbidden' }, 403);
 
       const needOwner = ['/api/save', '/api/restore', '/api/backup', '/api/backup-dir',
-        '/api/uninstall', '/api/profit-code'].includes(p);
+        '/api/uninstall', '/api/profit-code', '/api/archive'].includes(p);
       if (needOwner && !isOwner(req)) return json(res, { ok: false, notOwner: true }, 409);
     }
 
@@ -73,6 +73,29 @@ http.createServer((req, res) => {
       fs.writeFileSync(PROFIT, hashCode(code)); return json(res, { ok: true });
     }
     if (p === '/api/backup-dir') return json(res, { ok: true });
+
+    if (p === '/api/archive' && req.method === 'POST') {
+      let o = {}; try { o = JSON.parse(body.toString()); } catch { }
+      if (!/^\d{4}$/.test(String(o.year || ''))) return json(res, { ok: false, error: 'سنة غير صالحة' });
+      if (!Array.isArray(o.invoices) || !o.invoices.length) return json(res, { ok: false, error: 'لا توجد فواتير للأرشفة' });
+      fs.mkdirSync(path.join(DATA, 'archive'), { recursive: true });
+      fs.writeFileSync(path.join(DATA, 'archive', 'invoices-' + o.year + '.json'), JSON.stringify(o.invoices));
+      return json(res, { ok: true, file: 'archive/invoices-' + o.year + '.json' });
+    }
+    if (p === '/api/archives') {
+      const dir = path.join(DATA, 'archive');
+      if (!fs.existsSync(dir)) return json(res, []);
+      return json(res, fs.readdirSync(dir).filter(f => f.startsWith('invoices-')).sort().reverse()
+        .map(f => ({ year: f.replace('invoices-', '').replace('.json', ''), size: fs.statSync(path.join(dir, f)).size })));
+    }
+    if (p === '/api/archive-read') {
+      const m = req.url.match(/[?&]year=(\d{4})/);
+      if (!m) return json(res, { ok: false, error: 'سنة غير صالحة' });
+      const f = path.join(DATA, 'archive', 'invoices-' + m[1] + '.json');
+      if (!fs.existsSync(f)) return json(res, { ok: false, error: 'لا يوجد أرشيف لهذه السنة' });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(fs.readFileSync(f));
+    }
 
     if (p === '/api/load') {
       let d = fs.existsSync(STORE) ? fs.readFileSync(STORE) : Buffer.from('null');
