@@ -1,0 +1,65 @@
+name: Collect rates
+
+# GitHub only runs scheduled workflows on the repository's DEFAULT branch, so
+# this file has to be merged into it before the schedule starts firing.
+# The cron is best-effort: GitHub queues scheduled jobs and can delay them under
+# load, which is why the page also refreshes gold spot in the browser.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'collector/**'
+      - '.github/workflows/collect-rates.yml'
+
+permissions:
+  contents: write
+
+# Never let two collections write the history file at the same time.
+concurrency:
+  group: collect-rates
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Collect
+        run: node collector/collect.mjs
+
+      - name: Commit updated data
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- docs/data; then
+            echo "No change in docs/data — nothing to commit."
+            exit 0
+          fi
+
+          git add docs/data
+          git commit -m "data: rates at $(date -u '+%Y-%m-%d %H:%M UTC')"
+
+          # A concurrent run may have pushed first; rebase onto it and retry.
+          for attempt in 1 2 3 4; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected, rebasing (attempt $attempt)…"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            sleep $((attempt * 3))
+          done
+
+          echo "::error::Could not push collected data after 4 attempts."
+          exit 1

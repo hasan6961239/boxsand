@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>مِرصاد — أسعار الصرف والذهب في ليبيا</title>
+<meta name="description" content="أسعار الدولار واليورو في السوق الموازية بمصراتة وطرابلس وبنغازي، السعر الرسمي لمصرف ليبيا المركزي، وأسعار الذهب بجميع العيارات — مع رسوم بيانية وتحديث تلقائي.">
+<meta name="theme-color" content="#0b0e14">
+<meta property="og:title" content="مِرصاد — أسعار الصرف والذهب في ليبيا">
+<meta property="og:description" content="الدولار واليورو والذهب: مصراتة، طرابلس، بنغازي — والسعر الرسمي، مع تحديث تلقائي.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪙</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<!-- depth layers behind everything -->
+<div class="backdrop" aria-hidden="true">
+  <div class="aurora aurora-a"></div>
+  <div class="aurora aurora-b"></div>
+  <div class="aurora aurora-c"></div>
+  <div class="grid-floor"></div>
+</div>
+
+<a class="skip-link" href="#main">تخطَّ إلى المحتوى</a>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><span class="brand-mark-face">م</span></span>
+      <span class="brand-text">
+        <strong>مِرصاد</strong>
+        <small>أسعار الصرف والذهب في ليبيا</small>
+      </span>
+    </div>
+
+    <div class="topbar-tools">
+      <div class="freshness" id="freshness">
+        <span class="pulse" id="pulse" aria-hidden="true"></span>
+        <span class="freshness-text">
+          <b id="updated-rel">جارٍ التحميل…</b>
+          <small id="updated-abs">—</small>
+        </span>
+      </div>
+
+      <button class="icon-btn refresh" id="refresh-btn" type="button" title="تحديث الآن" aria-label="تحديث الآن">
+        <svg class="countdown" viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="countdown-track" cx="18" cy="18" r="15.5"></circle>
+          <circle class="countdown-bar" id="countdown-bar" cx="18" cy="18" r="15.5"></circle>
+        </svg>
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
+      </button>
+
+      <button class="icon-btn" id="theme-btn" type="button" title="تبديل المظهر" aria-label="تبديل المظهر">
+        <svg class="ico ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
+        <svg class="ico ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ───────────────────────────── hero ───────────────────────────── -->
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span> السوق الموازية · تحديث تلقائي كل ٥ دقائق</p>
+      <h1 id="hero-title">سعر الدولار واليورو والذهب<br><span class="grad">في مصراتة وطرابلس وبنغازي</span></h1>
+
+      <div class="hero-figures" id="hero-figures">
+        <div class="hero-figure skeleton-block" aria-hidden="true"></div>
+      </div>
+
+      <p class="hero-note" id="hero-note"></p>
+    </div>
+
+    <div class="hero-visual" aria-hidden="true">
+      <div class="coin-stage" id="coin-stage">
+        <div class="coin">
+          <div class="coin-face coin-front">
+            <span class="coin-glyph">ل.د</span>
+            <span class="coin-ring"></span>
+          </div>
+          <div class="coin-face coin-back"><span class="coin-glyph">Au</span><span class="coin-ring"></span></div>
+          <div class="coin-edge"></div>
+        </div>
+        <div class="coin-shadow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── currencies ───────────────────────── -->
+  <section class="wrap section" aria-labelledby="usd-title">
+    <div class="section-head">
+      <h2 id="usd-title"><span class="sec-badge usd">$</span> الدولار الأمريكي</h2>
+      <p class="section-sub">السعر بالدينار الليبي في السوق الموازية لكل مدينة</p>
+    </div>
+    <div class="card-grid" id="usd-cards"></div>
+  </section>
+
+  <section class="wrap section" aria-labelledby="eur-title">
+    <div class="section-head">
+      <h2 id="eur-title"><span class="sec-badge eur">€</span> اليورو</h2>
+      <p class="section-sub">السعر بالدينار الليبي في السوق الموازية لكل مدينة</p>
+    </div>
+    <div class="card-grid" id="eur-cards"></div>
+  </section>
+
+  <!-- ───────────────────────────── official ───────────────────────── -->
+  <section class="wrap section" aria-labelledby="official-title">
+    <div class="section-head">
+      <h2 id="official-title"><span class="sec-badge cbl">🏛</span> السعر الرسمي — مصرف ليبيا المركزي</h2>
+      <p class="section-sub">السعر المعتمد للمصارف والجمارك والميزانية، والفارق عنه في السوق الموازية</p>
+    </div>
+    <div class="card-grid official-grid" id="official-cards"></div>
+  </section>
+
+  <!-- ───────────────────────────── gold ──────────────────────────── -->
+  <section class="wrap section" aria-labelledby="gold-title">
+    <div class="section-head">
+      <h2 id="gold-title"><span class="sec-badge gold">◆</span> أسعار الذهب</h2>
+      <p class="section-sub">سعر الجرام بالدينار الليبي — محسوباً بالسعر الرسمي وبسعر السوق الموازية في كل مدينة</p>
+    </div>
+
+    <div class="gold-top" id="gold-top"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>جدول العيارات</h3>
+        <div class="seg" role="tablist" aria-label="أساس التسعير" id="gold-basis">
+          <button role="tab" class="seg-btn is-active" data-basis="official" aria-selected="true">السعر الرسمي</button>
+          <button role="tab" class="seg-btn" data-basis="misrata" aria-selected="false">مصراتة</button>
+          <button role="tab" class="seg-btn" data-basis="tripoli" aria-selected="false">طرابلس</button>
+          <button role="tab" class="seg-btn" data-basis="benghazi" aria-selected="false">بنغازي</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="data-table" id="gold-table">
+          <caption class="visually-hidden">أسعار الذهب لكل عيار بالدينار الليبي</caption>
+          <thead><tr><th scope="col">العيار</th><th scope="col">النقاء</th><th scope="col">سعر الجرام</th><th scope="col">الأوقية (31.1 جم)</th><th scope="col">التغيّر اليومي</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="panel-note" id="gold-basis-note"></p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── charts ────────────────────────── -->
+  <section class="wrap section" aria-labelledby="charts-title">
+    <div class="section-head">
+      <h2 id="charts-title"><span class="sec-badge chart">◷</span> المخططات البيانية</h2>
+      <p class="section-sub">تطوّر الأسعار عبر الزمن — مرّر المؤشر فوق المخطط لقراءة أي نقطة</p>
+    </div>
+
+    <div class="range-bar">
+      <div class="seg" role="tablist" aria-label="المدى الزمني" id="range-picker">
+        <button role="tab" class="seg-btn" data-range="1" aria-selected="false">٢٤ ساعة</button>
+        <button role="tab" class="seg-btn" data-range="7" aria-selected="false">٧ أيام</button>
+        <button role="tab" class="seg-btn is-active" data-range="30" aria-selected="true">٣٠ يوماً</button>
+        <button role="tab" class="seg-btn" data-range="0" aria-selected="false">الكل</button>
+      </div>
+    </div>
+
+    <div class="chart-grid" id="chart-grid"></div>
+  </section>
+
+  <!-- ─────────────────────────── converter ───────────────────────── -->
+  <section class="wrap section" aria-labelledby="conv-title">
+    <div class="section-head">
+      <h2 id="conv-title"><span class="sec-badge conv">⇄</span> المحوّل</h2>
+      <p class="section-sub">حوّل أي مبلغ بسعر السوق الموازية أو بالسعر الرسمي</p>
+    </div>
+    <form class="panel converter" id="converter" autocomplete="off">
+      <div class="conv-row">
+        <label class="field">
+          <span>المبلغ</span>
+          <input type="text" inputmode="decimal" id="conv-amount" value="100" aria-describedby="conv-out">
+        </label>
+        <label class="field">
+          <span>العملة</span>
+          <select id="conv-currency">
+            <option value="USD">دولار أمريكي</option>
+            <option value="EUR">يورو</option>
+            <option value="LYD">دينار ليبي</option>
+            <option value="GOLD21">ذهب عيار 21 (جرام)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>السعر المعتمد</span>
+          <select id="conv-basis">
+            <option value="misrata">السوق الموازية — مصراتة</option>
+            <option value="tripoli">السوق الموازية — طرابلس</option>
+            <option value="benghazi">السوق الموازية — بنغازي</option>
+            <option value="official">السعر الرسمي</option>
+          </select>
+        </label>
+      </div>
+      <output class="conv-out" id="conv-out">—</output>
+    </form>
+  </section>
+
+  <!-- ────────────────────────── transparency ─────────────────────── -->
+  <section class="wrap section" aria-labelledby="src-title">
+    <div class="section-head">
+      <h2 id="src-title"><span class="sec-badge src">☰</span> المصادر وحالتها</h2>
+      <p class="section-sub">كل رقم في هذه الصفحة مسحوب آلياً — وهذه حالة كل مصدر في آخر عملية جمع</p>
+    </div>
+    <div class="panel">
+      <div class="table-scroll">
+        <table class="data-table" id="sources-table">
+          <caption class="visually-hidden">حالة مصادر البيانات</caption>
+          <thead><tr><th scope="col">المصدر</th><th scope="col">النوع</th><th scope="col">الحالة</th><th scope="col">التفاصيل</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <details class="method">
+      <summary>كيف تُحسب الأرقام؟</summary>
+      <div class="method-body">
+        <ul>
+          <li><b>السوق الموازية:</b> تُقرأ من عدة مصادر ليبية منشورة، ويؤخذ <b>الوسيط</b> بينها بعد ترجيح المصدر الأقرب للسوق — حتى لا يُفسد مصدرٌ واحدٌ متأخر الرقم.</li>
+          <li><b>السعر الرسمي:</b> من صفحة أسعار الصرف في مصرف ليبيا المركزي، ويُستكمل من مرجع دولي إذا تعذّر الوصول.</li>
+          <li><b>الذهب:</b> سعر الأونصة العالمي (XAU/USD) ÷ 31.1035 جرام × نقاء العيار × سعر الدولار المعتمد. عيار 21 نقاؤه 0.875، وعيار 24 نقاؤه 0.999.</li>
+          <li><b>مدينة بلا رقم خاص:</b> يُعرض سعر السوق العام مع وسم <span class="tag tag-derived">مشتق</span>، ولا يُقدَّم على أنه رصد مستقل للمدينة.</li>
+          <li><b>رقم لم يصل في آخر جمع:</b> يُعرض آخر قيمة معروفة مع وسم <span class="tag tag-stale">قديم</span>.</li>
+        </ul>
+        <p class="disclaimer">هذه الصفحة أداة متابعة إرشادية تجمع أرقاماً منشورة علناً. أسعار السوق الموازية تتغيّر خلال الدقيقة الواحدة وتختلف من صرّاف لآخر — راجع مصدرك قبل أي تحويل فعلي.</p>
+      </div>
+    </details>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <p>مِرصاد · بيانات مجمّعة آلياً من مصادر ليبية منشورة</p>
+    <p id="footer-updated">—</p>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/js/chart.js"></script>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
