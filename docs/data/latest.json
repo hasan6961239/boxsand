@@ -1,43 +1,40 @@
 {
   "schema": 1,
-  "seeded": true,
-  "updatedAt": "2026-09-11T16:00:00.000Z",
+  "updatedAt": "2026-09-12T01:47:43.183Z",
   "official": {
-    "USD": 6.3405,
-    "EUR": null,
-    "GBP": null,
-    "basis": "cbl",
-    "asOf": "2026-09-07"
+    "USD": 6.3271,
+    "EUR": 7.3644,
+    "GBP": 8.577,
+    "basis": "cbl"
   },
   "parallel": {
     "USD": {
-      "tripoli": 9.27,
-      "benghazi": 9.26,
-      "misrata": null,
-      "national": 9.27
+      "national": 9.39,
+      "tripoli": 9.39,
+      "benghazi": 9.39,
+      "misrata": 9.39
     },
     "EUR": {
-      "tripoli": 10.64,
-      "benghazi": null,
-      "misrata": null,
-      "national": 10.64
+      "national": 10.8575,
+      "tripoli": 10.8575,
+      "benghazi": 10.8575,
+      "misrata": 10.8575
     },
-    "GBP": {}
+    "GBP": {
+      "national": 12.4,
+      "tripoli": 12.4,
+      "benghazi": 12.4,
+      "misrata": 12.4
+    }
   },
   "metals": {
-    "XAU": 4347.78,
-    "XAG": 66.62,
+    "XAU": 4349.7,
+    "XAG": 64.622,
     "unit": "USD/oz"
   },
-  "meta": {
-    "derived": [],
-    "carried": [],
-    "seedNote": "قيم أولية موثّقة بتواريخها — تُستبدل تلقائياً عند أول تشغيل للمجمّع."
-  },
-  "sources": [],
   "gold": {
-    "ouncePriceUsd": 4347.78,
-    "gramPriceUsd": 139.7844,
+    "ouncePriceUsd": 4349.7,
+    "gramPriceUsd": 139.8461,
     "karats": [
       {
         "k": 24,
@@ -66,28 +63,140 @@
       }
     ],
     "official": {
-      "14": 518.49,
-      "18": 664.73,
-      "21": 775.51,
-      "22": 811.85,
-      "24": 885.42
+      "14": 517.62,
+      "18": 663.62,
+      "21": 774.22,
+      "22": 810.5,
+      "24": 883.94
     },
     "parallel": {
       "tripoli": {
-        "14": 758.04,
-        "18": 971.85,
-        "21": 1133.83,
-        "22": 1186.95,
-        "24": 1294.51
+        "14": 768.2,
+        "18": 984.87,
+        "21": 1149.01,
+        "22": 1202.85,
+        "24": 1311.84
       },
       "benghazi": {
-        "14": 757.23,
-        "18": 970.8,
-        "21": 1132.6,
-        "22": 1185.67,
-        "24": 1293.11
+        "14": 768.2,
+        "18": 984.87,
+        "21": 1149.01,
+        "22": 1202.85,
+        "24": 1311.84
       },
-      "misrata": null
+      "misrata": {
+        "14": 768.2,
+        "18": 984.87,
+        "21": 1149.01,
+        "22": 1202.85,
+        "24": 1311.84
+      }
     }
-  }
+  },
+  "meta": {
+    "derived": [
+      "USD.tripoli",
+      "USD.benghazi",
+      "USD.misrata",
+      "EUR.tripoli",
+      "EUR.benghazi",
+      "EUR.misrata",
+      "GBP.tripoli",
+      "GBP.benghazi",
+      "GBP.misrata"
+    ],
+    "carried": [],
+    "cities": {
+      "tripoli": {
+        "ar": "طرابلس",
+        "en": "Tripoli",
+        "market": "سوق المشير",
+        "aliases": [
+          "طرابلس",
+          "Tripoli",
+          "المشير"
+        ]
+      },
+      "benghazi": {
+        "ar": "بنغازي",
+        "en": "Benghazi",
+        "market": "سوق فينيسيا",
+        "aliases": [
+          "بنغازي",
+          "Benghazi",
+          "فينيسيا",
+          "بنغاري"
+        ]
+      },
+      "misrata": {
+        "ar": "مصراتة",
+        "en": "Misrata",
+        "market": "سوق مصراتة",
+        "aliases": [
+          "مصراتة",
+          "مصراته",
+          "Misrata",
+          "Misurata"
+        ]
+      }
+    }
+  },
+  "sources": [
+    {
+      "id": "almashhadlibya.com",
+      "label": "almashhadlibya.com",
+      "url": "https://almashhadlibya.com/economic-news/currency-prices",
+      "status": "ok",
+      "detail": "2947 chars",
+      "ms": 224
+    },
+    {
+      "id": "libyaakhbar.com",
+      "label": "libyaakhbar.com",
+      "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
+      "status": "ok",
+      "detail": "11063 chars",
+      "ms": 231
+    },
+    {
+      "id": "er-api",
+      "label": "أسعار الصرف الدولية",
+      "url": "https://open.er-api.com",
+      "status": "ok",
+      "detail": "Sat, 12 Sep 2026 00:02:31 +0000",
+      "ms": 414
+    },
+    {
+      "id": "telegram-lydollar",
+      "label": "قناة سوق المشير (تلغرام)",
+      "url": "https://t.me/s/lydollar",
+      "status": "ok",
+      "detail": "lydollar:19msg",
+      "ms": 646
+    },
+    {
+      "id": "cbl",
+      "label": "مصرف ليبيا المركزي",
+      "url": "https://cbl.gov.ly/currency-exchange-rates/",
+      "status": "ok",
+      "detail": "https://cbl.gov.ly/currency-exchange-rates/",
+      "ms": 807
+    },
+    {
+      "id": "gold-api",
+      "label": "سعر الذهب العالمي",
+      "url": "https://api.gold-api.com",
+      "status": "ok",
+      "detail": "2026-09-12T01:47:29Z",
+      "ms": 862
+    },
+    {
+      "id": "eanlibya.com",
+      "label": "eanlibya.com",
+      "url": "https://www.eanlibya.com/exchangerate/",
+      "status": "ok",
+      "detail": "2520 chars",
+      "ms": 1088
+    }
+  ]
 }
