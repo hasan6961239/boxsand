@@ -5,7 +5,11 @@ const path = require('path');
 const https = require('https');
 
 const OUT = path.join(__dirname, '..', 'assets', 'fonts.css');
-const FAMILIES = ['Readex+Pro:wght@600;700', 'IBM+Plex+Sans+Arabic:wght@400;600'];
+const FAMILIES = [
+  'Readex+Pro:wght@600;700',
+  'IBM+Plex+Sans+Arabic:wght@400;600',
+  'Cairo:wght@400;500;600;700;800'   // خط واجهة المنظومة
+];
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
 
 const get = (url, binary = false) => new Promise((resolve, reject) => {

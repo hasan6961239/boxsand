@@ -30,6 +30,20 @@ const NAV = [
 
 const TITLES = Object.fromEntries(NAV.flatMap((g) => g.items).map((i) => [i.id, i.label]));
 
+/**
+ * جذر الواجهة. نرسم بداخله بدل مسح <body>:
+ * في النسخة المدمجة يكون وسم <style> داخل <body>، ومسح body كان يمسح التنسيقات معه.
+ */
+function appRoot() {
+  let root = document.getElementById('app');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'app';
+    document.body.append(root);
+  }
+  return root;
+}
+
 export const app = {
   current: null,
   badges: { expiry: 0, debt: 0 },
@@ -53,7 +67,8 @@ export const app = {
 
   // ---------- شاشة الدخول ----------
   renderLogin() {
-    document.body.innerHTML = '';
+    const root = appRoot();
+    root.innerHTML = '';
     const err = el('div.alert.alert-danger.hidden');
     const u = el('input.input.input-lg', { name: 'username', placeholder: 'اسم المستخدم', autocomplete: 'username' });
     const p = el('input.input.input-lg', { name: 'password', type: 'password', placeholder: 'كلمة المرور', autocomplete: 'current-password' });
@@ -90,13 +105,14 @@ export const app = {
         'كاشير: <code>cashier</code> / <code>1234</code>' })
     ]);
 
-    document.body.append(el('div.login-wrap', {}, [el('div.login-card', {}, [form])]));
+    root.append(el('div.login-wrap', {}, [el('div.login-card', {}, [form])]));
     setTimeout(() => u.focus(), 80);
   },
 
   // ---------- الهيكل ----------
   renderShell() {
-    document.body.innerHTML = '';
+    const root = appRoot();
+    root.innerHTML = '';
     const nav = el('nav.nav');
     for (const group of NAV) {
       const items = group.items.filter((i) => !i.perm || can(i.perm));
@@ -141,7 +157,7 @@ export const app = {
     ]);
 
     const content = el('main.content', {}, [spinner()]);
-    document.body.append(el('div.layout', {}, [sidebar, el('div.main', {}, [topbar, content])]));
+    root.append(el('div.layout', {}, [sidebar, el('div.main', {}, [topbar, content])]));
     this._els = { content, title, sidebar, nav };
   },
 

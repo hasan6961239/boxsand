@@ -12,7 +12,7 @@ const { PERMISSIONS } = require('../server/auth');
 const ROOT = path.join(__dirname, '..');
 const PUB = path.join(ROOT, 'public');
 const OUT_DIR = process.env.DEMO_OUT || path.join(ROOT, 'demo', 'dist');
-const DAYS = Number(process.env.DEMO_DAYS || 45);
+const DAYS = Number(process.env.DEMO_DAYS || 95);  // يغطي كامل تاريخ البيانات التجريبية
 
 // ---------- 1) استخراج البيانات ----------
 function extract() {
@@ -32,7 +32,7 @@ function extract() {
     purchases: all('SELECT * FROM purchases'),
     purchase_items: all('SELECT * FROM purchase_items'),
     expenses: all('SELECT * FROM expenses'),
-    payments: all('SELECT * FROM payments')
+    payments: all('SELECT * FROM payments WHERE date(date) >= date(?)', cut)
   };
   const users = db.prepare('SELECT id, username, full_name, role FROM users WHERE active = 1').all()
     .map((u) => ({ ...u, password: '1234', permissions: PERMISSIONS[u.role] || [] }));
@@ -109,9 +109,27 @@ function assertNoCollisions(files) {
   }
 }
 
+/**
+ * حارس انحدار: في النسخة المدمجة يكون <style> داخل <body>، فأي شيفرة
+ * تمسح document.body تمسح التنسيقات معها وتظهر الصفحة بلا تنسيق إطلاقاً.
+ */
+function assertBodyNotWiped(files) {
+  const offenders = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    if (/document\.body\.innerHTML\s*=/.test(src)) offenders.push(path.relative(PUB, f));
+  }
+  if (offenders.length) {
+    throw new Error(
+      'مسح document.body يمحو وسم <style> في النسخة المدمجة فتظهر بلا تنسيق.\n' +
+      'ارسم داخل حاوية #app بدلاً من ذلك. الملفات: ' + offenders.join('، '));
+  }
+}
+
 function bundle(entry) {
   const files = collectDeps(entry);
   assertNoCollisions(files);
+  assertBodyNotWiped(files);
   const parts = files.map((f) => {
     const rel = path.relative(PUB, f);
     return `\n/* ==== ${rel} ==== */\n` + stripModuleSyntax(fs.readFileSync(f, 'utf8'));
@@ -124,7 +142,17 @@ function build() {
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const seed = extract();
-  const css = fs.readFileSync(path.join(PUB, 'css', 'app.css'), 'utf8');
+  let css = fs.readFileSync(path.join(PUB, 'css', 'app.css'), 'utf8');
+
+  // ضمّن الخطوط العربية داخل الملف بدل @import، حتى تظهر بشكل صحيح بدون إنترنت
+  const fontsFile = path.join(ROOT, 'assets', 'fonts.css');
+  if (fs.existsSync(fontsFile)) {
+    css = css.replace(/@import\s+url\([^)]*\);?\s*/g, '');
+    css = fs.readFileSync(fontsFile, 'utf8') + '\n' + css;
+    console.log('  (الخطوط مضمّنة داخل الملف)');
+  } else {
+    console.warn('  تنبيه: assets/fonts.css غير موجود — شغّل npm run fonts ليظهر الخط بدون إنترنت');
+  }
 
   const demoMain = path.join(PUB, 'js', '__demo_main.js');
   fs.writeFileSync(demoMain, `
@@ -202,6 +230,14 @@ body.has-demo-bar .sidebar{padding-bottom:52px}
 @media print{ .demo-bar{display:none!important} }
 @media(max-width:700px){ .demo-bar{font-size:12px;padding:8px 12px;gap:8px} .demo-bar .hide-sm{display:none} }
 </style>
+
+<script>
+/* التنسيقات يجب أن تكون في <head>: غلاف الصفحة يضع هذا المحتوى داخل <body> */
+(function () {
+  var st = document.currentScript && document.currentScript.previousElementSibling;
+  if (st && st.tagName === 'STYLE') document.head.appendChild(st);
+})();
+</script>
 
 <script id="demo-seed" type="application/json">${seedJson}</script>
 <script>window.__DEMO_SEED__ = JSON.parse(document.getElementById('demo-seed').textContent);</script>
