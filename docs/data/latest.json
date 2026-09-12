@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updatedAt": "2026-09-12T01:49:18.551Z",
+  "updatedAt": "2026-09-12T06:34:13.944Z",
   "official": {
     "USD": 6.3271,
     "EUR": 7.3644,
@@ -16,8 +16,8 @@
     },
     "EUR": {
       "national": 10.8575,
+      "benghazi": 3,
       "tripoli": 10.8575,
-      "benghazi": 10.8575,
       "misrata": 10.8575
     },
     "GBP": {
@@ -99,7 +99,6 @@
       "USD.benghazi",
       "USD.misrata",
       "EUR.tripoli",
-      "EUR.benghazi",
       "EUR.misrata",
       "GBP.tripoli",
       "GBP.benghazi",
@@ -143,12 +142,28 @@
   },
   "sources": [
     {
+      "id": "telegram-lydollar",
+      "label": "قناة سوق المشير (تلغرام)",
+      "url": "https://t.me/s/lydollar",
+      "status": "ok",
+      "detail": "lydollar:19msg",
+      "ms": 560
+    },
+    {
       "id": "er-api",
       "label": "أسعار الصرف الدولية",
       "url": "https://open.er-api.com",
       "status": "ok",
       "detail": "Sat, 12 Sep 2026 00:02:31 +0000",
-      "ms": 247
+      "ms": 551
+    },
+    {
+      "id": "libyaakhbar.com",
+      "label": "libyaakhbar.com",
+      "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
+      "status": "ok",
+      "detail": "11051 chars",
+      "ms": 640
     },
     {
       "id": "almashhadlibya.com",
@@ -156,39 +171,15 @@
       "url": "https://almashhadlibya.com/economic-news/currency-prices",
       "status": "ok",
       "detail": "2947 chars",
-      "ms": 426
-    },
-    {
-      "id": "libyaakhbar.com",
-      "label": "libyaakhbar.com",
-      "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
-      "status": "ok",
-      "detail": "11063 chars",
-      "ms": 435
+      "ms": 704
     },
     {
       "id": "gold-api",
       "label": "سعر الذهب العالمي",
       "url": "https://api.gold-api.com",
       "status": "ok",
-      "detail": "2026-09-12T01:48:59Z",
-      "ms": 460
-    },
-    {
-      "id": "telegram-lydollar",
-      "label": "قناة سوق المشير (تلغرام)",
-      "url": "https://t.me/s/lydollar",
-      "status": "ok",
-      "detail": "lydollar:19msg",
-      "ms": 680
-    },
-    {
-      "id": "eanlibya.com",
-      "label": "eanlibya.com",
-      "url": "https://www.eanlibya.com/exchangerate/",
-      "status": "ok",
-      "detail": "2520 chars",
-      "ms": 905
+      "detail": "2026-09-12T06:34:00Z",
+      "ms": 846
     },
     {
       "id": "cbl",
@@ -196,7 +187,15 @@
       "url": "https://cbl.gov.ly/currency-exchange-rates/",
       "status": "ok",
       "detail": "https://cbl.gov.ly/currency-exchange-rates/",
-      "ms": 940
+      "ms": 1089
+    },
+    {
+      "id": "eanlibya.com",
+      "label": "eanlibya.com",
+      "url": "https://www.eanlibya.com/exchangerate/",
+      "status": "ok",
+      "detail": "2520 chars",
+      "ms": 1096
     }
   ]
 }
