@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updatedAt": "2026-09-12T07:57:25.926Z",
+  "updatedAt": "2026-09-12T08:01:05.754Z",
   "official": {
     "USD": 6.3271,
     "EUR": 7.3644,
@@ -9,21 +9,21 @@
   },
   "parallel": {
     "USD": {
-      "national": 9.34,
-      "tripoli": 9.66,
+      "national": 9.39,
+      "tripoli": 9.39,
       "benghazi": 9.39,
-      "misrata": 9.23
+      "misrata": 9.39
     },
     "EUR": {
-      "national": 10.89,
-      "tripoli": 10.89,
+      "national": 10.825,
       "benghazi": 10.89,
-      "misrata": 10.89
+      "tripoli": 10.825,
+      "misrata": 10.825
     },
     "GBP": {
       "national": 12.45,
-      "tripoli": 12.45,
       "benghazi": 12.45,
+      "tripoli": 12.45,
       "misrata": 12.45
     }
   },
@@ -76,11 +76,11 @@
     },
     "parallel": {
       "tripoli": {
-        "14": 790.28,
-        "18": 1013.19,
-        "21": 1182.05,
-        "22": 1237.44,
-        "24": 1349.56
+        "14": 768.2,
+        "18": 984.87,
+        "21": 1149.01,
+        "22": 1202.85,
+        "24": 1311.84
       },
       "benghazi": {
         "14": 768.2,
@@ -90,16 +90,20 @@
         "24": 1311.84
       },
       "misrata": {
-        "14": 755.11,
-        "18": 968.08,
-        "21": 1129.43,
-        "22": 1182.35,
-        "24": 1289.49
+        "14": 768.2,
+        "18": 984.87,
+        "21": 1149.01,
+        "22": 1202.85,
+        "24": 1311.84
       }
     }
   },
   "meta": {
     "derived": [
+      "USD.misrata",
+      "EUR.tripoli",
+      "EUR.misrata",
+      "GBP.tripoli",
       "GBP.misrata"
     ],
     "carried": [],
@@ -141,12 +145,12 @@
   },
   "sources": [
     {
-      "id": "almashhadlibya.com",
-      "label": "المشهد الليبي — مقالات الأسعار",
-      "url": "https://almashhadlibya.com/economic-news/currency-prices",
+      "id": "er-api",
+      "label": "أسعار الصرف الدولية",
+      "url": "https://open.er-api.com",
       "status": "ok",
-      "detail": "3 مقال · 3/3 مدن",
-      "ms": 482
+      "detail": "Sat, 12 Sep 2026 00:02:31 +0000",
+      "ms": 554
     },
     {
       "id": "telegram-lydollar",
@@ -154,23 +158,31 @@
       "url": "https://t.me/s/lydollar",
       "status": "ok",
       "detail": "lydollar:19msg · ذهب18 960",
-      "ms": 547
+      "ms": 705
+    },
+    {
+      "id": "gold-api",
+      "label": "سعر الذهب العالمي",
+      "url": "https://api.gold-api.com",
+      "status": "ok",
+      "detail": "2026-09-12T08:01:01Z",
+      "ms": 661
+    },
+    {
+      "id": "almashhadlibya.com",
+      "label": "المشهد الليبي — مقالات الأسعار",
+      "url": "https://almashhadlibya.com/economic-news/currency-prices",
+      "status": "ok",
+      "detail": "4 مقال · 2/3 مدن",
+      "ms": 979
     },
     {
       "id": "libyaakhbar.com",
       "label": "أخبار ليبيا — مقالات الأسعار",
       "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
       "status": "ok",
-      "detail": "3 مقال · 3/3 مدن",
-      "ms": 605
-    },
-    {
-      "id": "er-api",
-      "label": "أسعار الصرف الدولية",
-      "url": "https://open.er-api.com",
-      "status": "ok",
-      "detail": "Sat, 12 Sep 2026 00:02:31 +0000",
-      "ms": 681
+      "detail": "4 مقال · 2/3 مدن",
+      "ms": 995
     },
     {
       "id": "eanlibya.com",
@@ -178,7 +190,7 @@
       "url": "https://www.eanlibya.com/exchangerate/",
       "status": "ok",
       "detail": "2520 chars",
-      "ms": 1121
+      "ms": 1110
     },
     {
       "id": "cbl",
@@ -186,15 +198,7 @@
       "url": "https://cbl.gov.ly/currency-exchange-rates/",
       "status": "ok",
       "detail": "https://cbl.gov.ly/currency-exchange-rates/",
-      "ms": 1225
-    },
-    {
-      "id": "gold-api",
-      "label": "سعر الذهب العالمي",
-      "url": "https://api.gold-api.com",
-      "status": "ok",
-      "detail": "2026-09-12T07:57:01Z",
-      "ms": 1853
+      "ms": 1292
     }
   ]
 }
