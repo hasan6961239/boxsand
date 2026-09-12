@@ -1,53 +1,53 @@
 #!/usr/bin/env node
 /**
- * Diagnostic: prints what each parallel-market source actually publishes
- * around the city names, so the extraction rules can be tuned against real
- * pages instead of guesses. Run it from CI — it only reads.
+ * Diagnostic: prints the exact sentences the article sources publish around
+ * each city name, plus what the extractor makes of them, so the per-city rules
+ * can be tuned against real text. Read-only; run from CI.
  */
 import { fetchText, htmlToText, normalizeArabic } from './lib/util.mjs';
-import { CITIES, extractCityRates, extractNationalRates, PARALLEL_SOURCES } from './sources.mjs';
+import { CITIES, extractCityRates, extractNationalRates } from './sources.mjs';
 
-const CONTEXT = 190;
+const FEEDS = [
+  { id: 'almashhadlibya', listUrl: 'https://almashhadlibya.com/economic-news/currency-prices', match: (u) => /almashhadlibya\.com\/economic-news\/.*\d{5,}/.test(u) },
+  { id: 'libyaakhbar', listUrl: 'https://www.libyaakhbar.com/latestnews/currency-prices', match: (u) => /libyaakhbar\.com\/business-news\/\d+\.html/.test(u) },
+];
 
-async function textOf(source) {
-  if (source.id === 'telegram-lydollar') {
-    const html = await fetchText(source.url);
-    const msgs = [...html.matchAll(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/g)].map((m) => htmlToText(m[1]));
-    return msgs.slice(-6).reverse().join('\n──────\n');
+function absoluteLinks(html, baseUrl) {
+  const out = new Set();
+  for (const m of html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
+    try { out.add(new URL(m[1], baseUrl).toString()); } catch { /* skip */ }
   }
-  return htmlToText(await fetchText(source.url));
+  return [...out];
 }
 
-for (const source of PARALLEL_SOURCES) {
-  console.log(`\n${'='.repeat(78)}\n### ${source.id}  —  ${source.url}\n${'='.repeat(78)}`);
-  let text;
-  try { text = await textOf(source); }
-  catch (err) { console.log('FETCH FAILED:', err.message); continue; }
+for (const feed of FEEDS) {
+  console.log(`\n${'#'.repeat(80)}\n# ${feed.id}\n${'#'.repeat(80)}`);
+  let links;
+  try { links = absoluteLinks(await fetchText(feed.listUrl), feed.listUrl).filter(feed.match).slice(0, 3); }
+  catch (err) { console.log('LIST FAILED:', err.message); continue; }
+  console.log('articles:', links.length);
 
-  console.log(`length: ${text.length} chars`);
-  const hay = normalizeArabic(text);
+  for (const link of links) {
+    console.log(`\n${'─'.repeat(76)}\nARTICLE ${link}`);
+    let text;
+    try { text = htmlToText(await fetchText(link, { retries: 1, timeout: 12000 })); }
+    catch (err) { console.log('  fetch failed:', err.message); continue; }
 
-  let anyCity = false;
-  for (const [key, city] of Object.entries(CITIES)) {
-    const hits = [];
-    for (const alias of city.aliases) {
-      const needle = normalizeArabic(alias);
-      let i = hay.indexOf(needle);
-      while (i !== -1 && hits.length < 3) { hits.push(i); i = hay.indexOf(needle, i + 1); }
+    const hay = normalizeArabic(text);
+    for (const [, city] of Object.entries(CITIES)) {
+      const positions = [];
+      for (const alias of city.aliases) {
+        const needle = normalizeArabic(alias);
+        let i = hay.indexOf(needle);
+        while (i !== -1 && positions.length < 4) { positions.push(i); i = hay.indexOf(needle, i + 1); }
+      }
+      if (!positions.length) { console.log(`  ${city.ar}: NOT MENTIONED`); continue; }
+      console.log(`  ${city.ar}: ${positions.length} mention(s)`);
+      for (const i of positions.slice(0, 3)) {
+        console.log(`    « ${hay.slice(Math.max(0, i - 85), i + 150).replace(/\n/g, ' ⏎ ')} »`);
+      }
     }
-    if (!hits.length) { console.log(`\n-- ${city.ar}: NOT MENTIONED`); continue; }
-    anyCity = true;
-    console.log(`\n-- ${city.ar}: ${hits.length} mention(s)`);
-    for (const i of hits.slice(0, 2)) {
-      console.log(`   …${hay.slice(Math.max(0, i - 60), i + CONTEXT).replace(/\n/g, ' ⏎ ')}…`);
-    }
+    console.log('  -> cities:', JSON.stringify(extractCityRates(text)));
+    console.log('  -> national:', JSON.stringify(extractNationalRates(text)));
   }
-
-  if (!anyCity) {
-    console.log('\n>>> No city is named anywhere on this page. First 700 chars of what we got:');
-    console.log(text.slice(0, 700).replace(/\n/g, ' ⏎ '));
-  }
-
-  console.log('\nextractCityRates ->', JSON.stringify(extractCityRates(text)));
-  console.log('extractNationalRates ->', JSON.stringify(extractNationalRates(text)));
 }
