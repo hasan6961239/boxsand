@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updatedAt": "2026-09-13T18:56:37.922Z",
+  "updatedAt": "2026-09-13T21:23:16.013Z",
   "official": {
     "USD": 6.3354,
     "EUR": 7.348,
@@ -10,21 +10,21 @@
   "parallel": {
     "USD": {
       "national": 9.44,
-      "tripoli": 9.395,
-      "benghazi": 9.4,
+      "tripoli": 9.44,
+      "benghazi": 9.44,
       "misrata": 9.44
     },
     "EUR": {
       "national": 10.87,
-      "benghazi": 10.9,
-      "tripoli": 10.85,
+      "tripoli": 10.87,
+      "benghazi": 10.87,
       "misrata": 10.87
     },
     "GBP": {
-      "national": 12.55,
-      "benghazi": 12.55,
-      "tripoli": 12.3,
-      "misrata": 12.55
+      "national": 12.6,
+      "tripoli": 12.6,
+      "benghazi": 12.6,
+      "misrata": 12.6
     }
   },
   "metals": {
@@ -76,18 +76,18 @@
     },
     "parallel": {
       "tripoli": {
-        "14": 768.6,
-        "18": 985.39,
-        "21": 1149.62,
-        "22": 1203.49,
-        "24": 1312.54
+        "14": 772.29,
+        "18": 990.11,
+        "21": 1155.13,
+        "22": 1209.25,
+        "24": 1318.83
       },
       "benghazi": {
-        "14": 769.01,
-        "18": 985.92,
-        "21": 1150.23,
-        "22": 1204.13,
-        "24": 1313.24
+        "14": 772.29,
+        "18": 990.11,
+        "21": 1155.13,
+        "22": 1209.25,
+        "24": 1318.83
       },
       "misrata": {
         "14": 772.29,
@@ -100,8 +100,14 @@
   },
   "meta": {
     "derived": [
+      "USD.tripoli",
+      "USD.benghazi",
       "USD.misrata",
+      "EUR.tripoli",
+      "EUR.benghazi",
       "EUR.misrata",
+      "GBP.tripoli",
+      "GBP.benghazi",
       "GBP.misrata"
     ],
     "carried": [],
@@ -143,44 +149,36 @@
   },
   "sources": [
     {
-      "id": "er-api",
-      "label": "أسعار الصرف الدولية",
-      "url": "https://open.er-api.com",
-      "status": "ok",
-      "detail": "Sun, 13 Sep 2026 00:02:31 +0000",
-      "ms": 386
-    },
-    {
       "id": "telegram-lydollar",
       "label": "قناة سوق المشير (تلغرام)",
       "url": "https://t.me/s/lydollar",
       "status": "ok",
       "detail": "lydollar:20msg · ذهب18 965",
-      "ms": 574
+      "ms": 647
     },
     {
-      "id": "libyaakhbar.com",
-      "label": "أخبار ليبيا — مقالات الأسعار",
-      "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
+      "id": "er-api",
+      "label": "أسعار الصرف الدولية",
+      "url": "https://open.er-api.com",
       "status": "ok",
-      "detail": "4 مقال · 1/3 مدن",
-      "ms": 618
-    },
-    {
-      "id": "eanlibya.com",
-      "label": "عين ليبيا — أسعار العملات",
-      "url": "https://www.eanlibya.com/exchangerate/",
-      "status": "ok",
-      "detail": "2519 chars",
-      "ms": 718
+      "detail": "Sun, 13 Sep 2026 00:02:31 +0000",
+      "ms": 615
     },
     {
       "id": "gold-api",
       "label": "سعر الذهب العالمي",
       "url": "https://api.gold-api.com",
       "status": "ok",
-      "detail": "2026-09-13T18:56:36Z",
-      "ms": 746
+      "detail": "2026-09-13T21:23:06Z",
+      "ms": 778
+    },
+    {
+      "id": "eanlibya.com",
+      "label": "عين ليبيا — أسعار العملات",
+      "url": "https://www.eanlibya.com/exchangerate/",
+      "status": "ok",
+      "detail": "2518 chars",
+      "ms": 1098
     },
     {
       "id": "cbl",
@@ -188,15 +186,23 @@
       "url": "https://cbl.gov.ly/currency-exchange-rates/",
       "status": "ok",
       "detail": "https://cbl.gov.ly/currency-exchange-rates/",
-      "ms": 879
+      "ms": 1298
     },
     {
       "id": "almashhadlibya.com",
       "label": "المشهد الليبي — مقالات الأسعار",
       "url": "https://almashhadlibya.com/economic-news/currency-prices",
-      "status": "ok",
-      "detail": "4 مقال · 2/3 مدن",
-      "ms": 1409
+      "status": "down",
+      "detail": "HTTP 403",
+      "ms": 2675
+    },
+    {
+      "id": "libyaakhbar.com",
+      "label": "أخبار ليبيا — مقالات الأسعار",
+      "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
+      "status": "down",
+      "detail": "HTTP 403",
+      "ms": 2702
     }
   ]
 }
