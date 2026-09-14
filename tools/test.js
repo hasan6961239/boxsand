@@ -680,6 +680,31 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   }
   check('15 شاشة بلا خطأ JavaScript', errs.length === 0, errs.slice(0, 4).join(' | '));
 
+  console.log('\n== 15أ. أحجام الواجهة الخمسة ==');
+  {
+    await closePage(pg); writeStore(seed()); pg = await open();
+    await pg.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(600);
+    const labels = await pg.$$eval('.seg button', bs => bs.map(b2 => b2.textContent.trim()));
+    ['صغير جداً', 'صغير', 'عادي', 'كبير', 'كبير جداً'].forEach(function (t) {
+      check('يوجد مقاس «' + t + '»', labels.indexOf(t) >= 0, labels.join(' | '));
+    });
+    /* لا يكفي أن يوجد الزر: يجب أن يصغّر الخط فعلاً، وبترتيب صحيح */
+    const px = {};
+    for (const k of ['xs', 'sm', 'md', 'lg', 'xl']) {
+      await pg.evaluate(v => Rep.setSize(v), k); await sleep(250);
+      px[k] = await pg.evaluate(() => parseFloat(getComputedStyle(document.body).fontSize));
+    }
+    check('كل مقاس أكبر مما قبله فعلاً',
+      px.xs < px.sm && px.sm < px.md && px.md < px.lg && px.lg < px.xl,
+      JSON.stringify(px));
+    check('و«صغير جداً» أصغر من «عادي» بوضوح', px.md - px.xs >= 2.5,
+      px.xs + ' مقابل ' + px.md);
+    /* الصنف القديم يجب أن يزول، وإلا تراكمت الأصناف وتغلّب الأكبر */
+    const cls = await pg.evaluate(() => document.body.className);
+    check('صنف واحد فقط على body', (cls.match(/ui-/g) || []).length === 1, cls);
+    await pg.evaluate(() => Rep.setSize('lg')); await sleep(250);
+  }
+
   console.log('\n== 15ب. خطوات الربط تُرى قبل ضبطه ==');
   {
     /* الخلل الذي وقع فعلاً: أزرار الربط كانت تظهر فقط بعد ضبط الربط،
@@ -745,141 +770,33 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     const btn = await pg.$('button:has-text("المشاهدة من التلفون")');
     check('الزر يظهر بعد ضبط الربط', !!btn);
     await btn.click(); await sleep(600);
-    const vals = await pg.evaluate(() => ['pvUrl', 'pvSync', 'pvKey'].map(
+    const vals = await pg.evaluate(() => ['pvSite', 'pvSync', 'pvKey'].map(
       i => { const e = document.getElementById(i); return e ? e.value : null; }));
-    check('يسلّمك رابط العارض', /stock\.html$/.test(vals[0] || ''), vals[0]);
-    check('وعنوان الربط', vals[1] === 'https://maktaba.example.workers.dev', vals[1]);
+    check('حقل رابط الموقع فارغ قبل ضبطه', vals[0] === '', vals[0]);
+    check('ويسلّمك عنوان الربط', vals[1] === 'https://maktaba.example.workers.dev', vals[1]);
     check('وكلمة السر', vals[2] === 'sirr-alrabt', vals[2]);
-    const ro = await pg.evaluate(() => ['pvUrl', 'pvSync', 'pvKey'].every(
-      i => document.getElementById(i).readOnly));
-    check('والحقول للقراءة فقط فلا تُعدَّل بالخطأ', ro === true);
+    const ro = await pg.evaluate(() => ({
+      site: document.getElementById('pvSite').readOnly,
+      sync: document.getElementById('pvSync').readOnly,
+      key: document.getElementById('pvKey').readOnly
+    }));
+    check('بيانات الربط للقراءة فقط فلا تُعدَّل بالخطأ', ro.sync && ro.key, JSON.stringify(ro));
+    check('ورابط الموقع يُكتب لأنه يختلف من محل لمحل', ro.site === false);
+
+    /* رابط Netlify يُحفظ مع بيانات المحل، فلا يُكتب في كل مرة */
+    await pg.fill('#pvSite', 'daralhikma.netlify.app');
+    await pg.click('#modalHost .m-foot button:has-text("حفظ وتحديث اللقطة")');
+    await sleep(700);
+    const saved = await pg.evaluate(() => App.S.sync.site);
+    check('ويُحفظ مع https:// مضافة', saved === 'https://daralhikma.netlify.app', saved);
+    await pg.evaluate(() => Stock.phoneView()); await sleep(600);
+    const back = await pg.evaluate(() => document.getElementById('pvSite').value);
+    check('ويعود ظاهراً في المرة القادمة', back === 'https://daralhikma.netlify.app', back);
     const warns = await pg.evaluate(() => document.querySelector('#modalHost .m-body').textContent);
     check('ويحذّر من نشر كلمة السر', /لا ترسلها/.test(warns));
     check('ويقول إن أسعار الشراء لا تظهر', /الشراء/.test(warns));
+    check('ويدلّك على Netlify', /netlify/i.test(warns));
     await pg.click('#modalHost .m-head button[data-x]'); await sleep(400);
-  }
-
-  console.log('\n== 16. عارض المخزون من التلفون ==');
-  {
-    /* خادم صغير: يقدّم صفحات web/ ويقلّد الـWorker.
-       فرع قديم (٣ أيام) وفرع جديد (١٠ دقائق) — المهم أن يفرّق بينهما
-       بوضوح، فالرقم القديم أخطر من لا رقم لأن صاحبه يظنّه اليوم. */
-    const WEB = path.join(__dirname, '..', 'web');
-    const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript;charset=utf-8',
-                   '.css': 'text/css;charset=utf-8', '.json': 'application/json;charset=utf-8' };
-    const ago = m => new Date(Date.now() - m * 60000).toISOString().slice(0, 16).replace('T', ' ');
-    const payload = { ok: true, branches: [
-      { at: ago(60 * 24 * 3), branch: { id: 'b1', name: 'فرع طرابلس', city: 'طرابلس', phone: '091 234 5678' },
-        items: [
-          { n: 'كتاب الرياضيات', a: 'د. سالم', q: 12, p: 25, m: 5, b: '111', k: 'رياضيات', t: 'book', l: 'D', s: '1' },
-          { n: 'قلم جاف', q: 2, p: 1.5, m: 10, b: '222', t: 'stat', loc: 'رف A' }],
-        whs: [{ id: 'w1', name: 'مخزن طرابلس', place: 'الطابق السفلي', phone: '092-111-2222',
-                items: [{ n: 'كتاب الرياضيات', q: 40, p: 25, b: '111', t: 'book' }] }] },
-      { at: ago(10), branch: { id: 'b2', name: 'فرع مصراتة', city: 'مصراتة' },
-        items: [
-          { n: 'كتاب الرياضيات', a: 'د. سالم', q: 0, p: 25, m: 5, b: '111', t: 'book', l: 'B', s: '2' },
-          { n: 'دفتر 100 ورقة', q: 150, p: 3, m: 20, b: '333', t: 'stat', loc: 'رف C' }], whs: [] }] };
-
-    const srv = require('http').createServer((q, s2) => {
-      const u = new (require('url').URL)(q.url, 'http://x');
-      if (u.pathname === '/w/all') {
-        if (q.headers['x-shop-key'] !== 'sirr') { s2.writeHead(401).end('{}'); return; }
-        s2.writeHead(200, { 'content-type': 'application/json' });
-        s2.end(JSON.stringify(payload)); return;
-      }
-      const f = path.join(WEB, u.pathname === '/' ? 'stock.html' : u.pathname.slice(1));
-      if (!f.startsWith(WEB) || !fs.existsSync(f)) { s2.writeHead(404).end('no'); return; }
-      s2.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'text/plain' });
-      s2.end(fs.readFileSync(f));
-    });
-    await new Promise(r => srv.listen(18790, r));
-
-    const sp = await b.newPage({ viewport: { width: 390, height: 844 } });
-    const sErrs = [];
-    sp.on('pageerror', e => sErrs.push('PAGEERROR: ' + e.message));
-    /* فشل تحميل المورد متوقَّع هنا: نجرّب عمداً مفتاحاً خاطئاً (401)
-       ثم نطفئ الخادم لنختبر وضع انقطاع الإنترنت. يهمّنا خطأ الشيفرة فقط. */
-    sp.on('console', m => {
-      if (m.type() !== 'error') return;
-      if (/Failed to load resource|net::ERR_|favicon/.test(m.text())) return;
-      sErrs.push('console: ' + m.text());
-    });
-
-    await sp.goto('http://127.0.0.1:18790/stock.html', { waitUntil: 'domcontentloaded' });
-
-    /* مفتاح خاطئ: يجب أن يقول ذلك صراحةً لا أن يصمت */
-    await sp.evaluate(() => localStorage.setItem('qi_stock_v1', JSON.stringify(
-      { cfg: { url: 'http://127.0.0.1:18790/w', key: 'ghalat' }, snap: null, q: '', place: '*' })));
-    await sp.reload({ waitUntil: 'domcontentloaded' }); await sleep(900);
-    const badKey = await sp.textContent('#toasts').catch(() => '');
-    check('كلمة سر خاطئة تُقال صراحةً', /غير صحيحة/.test(badKey || ''), JSON.stringify(badKey));
-
-    await sp.evaluate(() => { Stock.closeSheet(); localStorage.setItem('qi_stock_v1', JSON.stringify(
-      { cfg: { url: 'http://127.0.0.1:18790/w', key: 'sirr' }, snap: null, q: '', place: '*' })); });
-    await sp.reload({ waitUntil: 'domcontentloaded' }); await sleep(1000);
-
-    const stats = await sp.$$eval('.stats b', x => x.map(e => e.textContent.trim()));
-    check('الإحصاء: 5 أصناف و204 قطعة و2 نافد/قارب', stats.join(',') === '5,204,2', stats.join(','));
-
-    const totals = await sp.$$eval('.srow', rs => rs.map(r => ({
-      n: r.querySelector('.sr-name').textContent.trim(),
-      t: r.querySelector('.sr-total').textContent.trim() })));
-    const math = totals.find(t => t.n.indexOf('الرياضيات') >= 0);
-    check('الصنف يُجمع عبر الفروع والمخازن (12+40+0=52)', math && math.t === '52',
-      math ? math.t : 'none');
-
-    const fresh = await sp.textContent('#fresh');
-    check('الرأس يفصل أحدث البيانات عن أقدمها', /أحدثها/.test(fresh) && /أقدمها/.test(fresh), fresh);
-
-    const pls = await sp.$$eval('#places button', bs => bs.map(x => (
-      { t: x.textContent.trim(), stale: x.classList.contains('stale') })));
-    const trip = pls.find(x => x.t.indexOf('طرابلس') >= 0 && x.t.indexOf('مخزن') < 0);
-    const misr = pls.find(x => x.t.indexOf('مصراتة') >= 0);
-    const wh = pls.find(x => x.t.indexOf('مخزن طرابلس') >= 0);
-    check('زر الفرع القديم معلَّم ومكتوب عليه عمره', trip && trip.stale && /3 يوم/.test(trip.t),
-      JSON.stringify(trip));
-    check('وزر الفرع الحديث بلا علامة', misr && !misr.stale, JSON.stringify(misr));
-    check('والمخزن يرث قِدَم فرعه', wh && wh.stale, JSON.stringify(wh));
-
-    const chips = await sp.$$eval('.wchip', cs => cs.map(c => (
-      { t: c.textContent.replace(/\s+/g, ' ').trim(), stale: c.classList.contains('stale') })));
-    const cT = chips.filter(c => c.t.indexOf('طرابلس') >= 0);
-    const cM = chips.filter(c => c.t.indexOf('مصراتة') >= 0);
-    check('كل شريحة من الفرع القديم تحمل عمرها', cT.length > 0 && cT.every(c => c.stale && /3 يوم/.test(c.t)),
-      JSON.stringify(cT));
-    check('وشرائح الفرع الحديث نظيفة', cM.length > 0 && cM.every(c => !c.stale), JSON.stringify(cM));
-
-    await sp.fill('#q', 'رياضيات'); await sleep(400);
-    const found = await sp.$$eval('.srow', rs => rs.length);
-    check('البحث بالاسم يصفّي', found === 1, 'rows=' + found);
-    await sp.fill('#q', ''); await sleep(300);
-
-    await sp.evaluate(() => Stock.setPlace(Stock.places().filter(p => p.kind === 'wh')[0].key)); await sleep(400);
-    const only = await sp.$$eval('.srow', rs => rs.length);
-    check('الفلترة على مخزن واحد تعرض محتواه فقط', only === 1, 'rows=' + only);
-    const bar = await sp.$eval('.placebar', e => ({
-      t: e.textContent.replace(/\s+/g, ' ').trim(),
-      stale: e.classList.contains('stale'),
-      tel: (e.querySelector('.pb-call') || {}).getAttribute
-        ? e.querySelector('.pb-call').getAttribute('href') : '' })).catch(() => null);
-    check('شريط المكان يقول اسمه وعمره وتبعيّته', bar && /مخزن طرابلس/.test(bar.t) &&
-      /3 يوم/.test(bar.t) && /يتبع/.test(bar.t), bar ? bar.t : 'none');
-    check('وفيه زر اتصال بالرقم منظّفاً', bar && bar.tel === 'tel:0921112222', bar ? bar.tel : 'none');
-    check('والشريط معلَّم لأن بياناته قديمة', bar && bar.stale, JSON.stringify(bar));
-    await sp.evaluate(() => Stock.setPlace('*')); await sleep(300);
-    const noBar = await sp.$$eval('.placebar', e => e.length);
-    check('ولا يظهر الشريط في عرض «الكل»', noBar === 0, 'bars=' + noBar);
-
-    /* بلا إنترنت: يجب أن يعرض آخر نسخة لا صفحة فارغة */
-    srv.close();
-    await sp.evaluate(() => Stock.refresh()); await sleep(1200);
-    const offline = await sp.$$eval('.srow', rs => rs.length);
-    const warn = await sp.textContent('#toasts').catch(() => '');
-    check('بلا اتصال يعرض آخر نسخة وصلت', offline > 0, 'rows=' + offline);
-    check('ويقول إنها ليست جديدة', /آخر نسخة/.test(warn || ''), JSON.stringify(warn));
-
-    check('العارض بلا خطأ JavaScript', sErrs.length === 0, sErrs.slice(0, 3).join(' | '));
-    await sp.close();
   }
 
   await b.close();

@@ -38,7 +38,7 @@ var App = (function () {
         setupDone: false
       },
       branch: { id: "", name: "", city: "", phone: "", label: "", no: 0 },
-      sync: { url: "", key: "", auto: true, everyMin: 10, lastAt: "", lastOk: false, lastError: "", lastHash: "" },
+      sync: { url: "", key: "", site: "", auto: true, everyMin: 10, lastAt: "", lastOk: false, lastError: "", lastHash: "" },
       notify: {
         enabled: false, server: "https://ntfy.sh", topic: "",
         kinds: { low: true, out: true, sale: false, bigsale: false, debt: true, pay: false, transfer: true, daily: true },
@@ -904,7 +904,7 @@ var App = (function () {
   function applyUiSize() {
     var sz = (S && S.meta && S.meta.uiSize) ? S.meta.uiSize : "lg";
     var b = document.body;
-    b.classList.remove("ui-md", "ui-lg", "ui-xl");
+    b.classList.remove("ui-xs", "ui-sm", "ui-md", "ui-lg", "ui-xl");
     b.classList.add("ui-" + sz);
   }
 

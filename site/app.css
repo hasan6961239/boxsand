@@ -1,0 +1,452 @@
+/* ============================================================
+   مخزون المكتبة — واجهة الموقع
+   ------------------------------------------------------------
+   تُقرأ بيد واحدة على التلفون، وتتّسع للشاشة الكبيرة.
+   اللون من هوية المنظومة نفسها، والحركة خفيفة ومقصودة:
+   تدل على ما تغيّر، ولا تلفت النظر عن الرقم.
+   ============================================================ */
+
+:root{
+  --green:#0E6E62;
+  --green-d:#0B564C;
+  --green-l:#16A08C;
+  --green-wash:#E4F1EE;
+
+  --ink:#12212B;
+  --ink-2:#33475A;
+  --muted:#6C8090;
+  --faint:#9AAAB6;
+
+  --paper:#F2F5F6;
+  --card:#FFFFFF;
+  --line:#E0E7EB;
+  --line-2:#EEF2F4;
+
+  --red:#A4232B;
+  --red-wash:#FBECEC;
+  --amber:#8E5A0B;
+  --amber-wash:#FBF2E0;
+  --ok:#1C6B48;
+  --ok-wash:#E4F1EA;
+
+  --r:14px;
+  --r-sm:10px;
+  --tap:48px;
+
+  --sh-1:0 1px 2px rgba(18,33,43,.05), 0 1px 3px rgba(18,33,43,.04);
+  --sh-2:0 4px 16px rgba(18,33,43,.08);
+  --sh-3:0 18px 48px rgba(18,33,43,.18);
+
+  --ease:cubic-bezier(.32,.72,0,1);
+  --font:"Segoe UI","Noto Kufi Arabic","Tahoma",system-ui,sans-serif;
+  --num:"SF Mono","Consolas","Menlo",monospace;
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--font);font-size:15.5px;line-height:1.65;
+  overflow-wrap:anywhere;
+}
+.num,input.ltr{font-family:var(--num);font-variant-numeric:tabular-nums}
+.ltr{direction:ltr;text-align:left}
+
+/* ============================================================
+   شاشة الربط
+   ============================================================ */
+/* [hidden] من متصفّح المستخدم يعطي display:none، لكن أي قاعدة display
+   في ملفنا تغلبه — فتبقى الشاشة فوق التطبيق تبتلع كل لمسة.
+   هذا السطر يمنع ذلك، وكذلك نظيره تحت #sheet. */
+.gate[hidden],#app[hidden]{display:none !important}
+.gate{
+  min-height:100dvh;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;padding:28px 18px;gap:26px;
+  background:
+    radial-gradient(1100px 520px at 50% -8%, #E9F3F1 0%, transparent 62%),
+    var(--paper);
+}
+.gate-art{animation:rise .7s var(--ease) both}
+.gate-mark{width:88px;height:88px;display:block}
+.gate-box{
+  width:100%;max-width:410px;background:var(--card);
+  border:1px solid var(--line);border-radius:20px;
+  padding:26px 22px;box-shadow:var(--sh-2);
+  animation:rise .7s .06s var(--ease) both;
+}
+.gate-box h1{font-size:24px;margin:0 0 8px;letter-spacing:-.3px}
+.gate-sub{color:var(--ink-2);font-size:14.5px;line-height:1.85;margin:0 0 22px}
+.gate-where{font-size:13.5px;color:var(--ink-2);line-height:1.85;margin:18px 0 0;
+  padding-top:16px;border-top:1px solid var(--line-2)}
+.gate-priv{font-size:12.5px;color:var(--muted);line-height:1.8;margin:8px 0 0}
+
+.fld{display:block;margin-bottom:14px}
+.fld > span{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:7px}
+.fld-note{
+  font-size:13.5px;color:var(--red);background:var(--red-wash);
+  border-radius:var(--r-sm);padding:10px 13px;margin:0 0 14px;line-height:1.7;
+  animation:shake .4s var(--ease);
+}
+
+.inp{
+  width:100%;min-height:var(--tap);padding:12px 14px;
+  border:1.5px solid var(--line);border-radius:var(--r-sm);
+  font:inherit;font-size:16px;background:var(--card);color:var(--ink);
+  transition:border-color .15s, box-shadow .15s;
+}
+.inp:focus{
+  outline:none;border-color:var(--green);
+  box-shadow:0 0 0 3px var(--green-wash);
+}
+
+/* ============================================================
+   الأزرار
+   ============================================================ */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  min-height:var(--tap);padding:12px 18px;
+  border:1.5px solid var(--line);border-radius:var(--r-sm);background:var(--card);
+  font:inherit;font-size:15px;font-weight:600;color:var(--ink);
+  cursor:pointer;text-decoration:none;
+  transition:transform .12s var(--ease), background .15s, border-color .15s, box-shadow .15s;
+}
+.btn:active{transform:scale(.975)}
+.btn.primary{background:var(--green);border-color:var(--green);color:#fff}
+.btn.primary:hover{background:var(--green-d);border-color:var(--green-d)}
+.btn.lg{width:100%;min-height:54px;font-size:16.5px}
+.btn.sm{min-height:38px;padding:7px 13px;font-size:13.5px}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--green)}
+.btn.danger{color:var(--red);border-color:#E9BFBF;background:var(--red-wash)}
+.btn[disabled],.btn.busy{opacity:.62;pointer-events:none}
+.btn.busy .btn-label{opacity:.5}
+
+/* ============================================================
+   الرأس
+   ============================================================ */
+#top{
+  position:sticky;top:0;z-index:50;
+  background:var(--green);color:#fff;
+  display:flex;align-items:center;gap:8px;
+  padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top));
+  box-shadow:0 1px 0 rgba(0,0,0,.08);
+}
+.top-brand{
+  flex:1;min-width:0;display:flex;align-items:center;gap:10px;
+  background:none;border:0;color:inherit;font:inherit;cursor:pointer;
+  padding:4px;border-radius:10px;text-align:start;
+}
+.brand-mark{width:26px;height:26px;flex-shrink:0;color:#fff}
+.brand-text{min-width:0;line-height:1.3}
+.brand-text b{display:block;font-size:15.5px;font-weight:700;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand-text small{display:block;font-size:11.5px;opacity:.82;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand-text small.stale{opacity:1;color:#FFD9D9;font-weight:600}
+
+.icon-btn{
+  flex-shrink:0;width:40px;height:40px;border:0;border-radius:10px;
+  background:rgba(255,255,255,.15);color:#fff;cursor:pointer;
+  display:grid;place-items:center;transition:background .15s, transform .12s;
+}
+.icon-btn:hover{background:rgba(255,255,255,.26)}
+.icon-btn:active{transform:scale(.93)}
+.icon-btn svg{width:20px;height:20px}
+.icon-btn.spin svg{animation:spin .9s linear infinite}
+
+/* ============================================================
+   البحث
+   ============================================================ */
+#searchWrap{
+  position:sticky;top:calc(60px + env(safe-area-inset-top));z-index:45;
+  background:var(--paper);padding:12px 14px 8px;
+  border-bottom:1px solid var(--line);
+}
+.search{position:relative;max-width:760px;margin:0 auto}
+.search-ico{
+  position:absolute;inset-inline-start:14px;top:50%;transform:translateY(-50%);
+  width:19px;height:19px;color:var(--faint);pointer-events:none;
+}
+.search-inp{
+  width:100%;min-height:50px;
+  padding:13px 44px 13px 44px;
+  border:1.5px solid var(--line);border-radius:12px;background:var(--card);
+  font:inherit;font-size:16px;color:var(--ink);box-shadow:var(--sh-1);
+  transition:border-color .15s, box-shadow .15s;
+}
+.search-inp::-webkit-search-cancel-button{display:none}
+.search-inp:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px var(--green-wash)}
+.search-x{
+  position:absolute;inset-inline-end:8px;top:50%;transform:translateY(-50%);
+  width:32px;height:32px;border:0;border-radius:8px;background:var(--line-2);
+  color:var(--muted);font-size:14px;cursor:pointer;
+}
+
+.chips{
+  display:flex;gap:7px;overflow-x:auto;padding:10px 0 2px;
+  max-width:760px;margin:0 auto;
+  scrollbar-width:none;-ms-overflow-style:none;
+}
+.chips::-webkit-scrollbar{display:none}
+.chip{
+  flex:0 0 auto;border:1px solid var(--line);background:var(--card);
+  color:var(--ink-2);font:inherit;font-size:13px;font-weight:600;
+  padding:7px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  transition:background .15s, border-color .15s, color .15s, transform .12s;
+}
+.chip:active{transform:scale(.95)}
+.chip.on{background:var(--green);border-color:var(--green);color:#fff}
+.chip .c-n{opacity:.72;font-weight:500;margin-inline-start:4px;font-size:12px}
+.chip.on .c-n{opacity:.85}
+
+/* ============================================================
+   المحتوى
+   ============================================================ */
+main{max-width:760px;margin:0 auto;padding:16px 14px 40px}
+
+.sec-head{
+  display:flex;align-items:baseline;gap:10px;margin:22px 4px 12px;
+}
+.sec-head:first-child{margin-top:4px}
+.sec-head h2{font-size:15px;margin:0;font-weight:700;letter-spacing:-.2px}
+.sec-head .n{font-size:12.5px;color:var(--muted);font-family:var(--num)}
+.sec-head .more{margin-inline-start:auto}
+
+/* ---------- لوحة الأرقام ---------- */
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:6px}
+@media (min-width:560px){.tiles{grid-template-columns:repeat(4,1fr)}}
+.tile{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px 14px 12px;box-shadow:var(--sh-1);
+  animation:rise .5s var(--ease) both;
+}
+.tile:nth-child(2){animation-delay:.04s}
+.tile:nth-child(3){animation-delay:.08s}
+.tile:nth-child(4){animation-delay:.12s}
+.tile b{display:block;font-size:25px;line-height:1.15;font-family:var(--num);
+  font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.tile span{display:block;font-size:12px;color:var(--muted);margin-top:3px}
+.tile.warn b{color:var(--amber)}
+.tile.bad b{color:var(--red)}
+.tile.tap{cursor:pointer;text-align:start;width:100%;font:inherit;color:inherit;
+  transition:transform .12s var(--ease), box-shadow .15s}
+.tile.tap:active{transform:scale(.98)}
+.tile.tap:hover{box-shadow:var(--sh-2)}
+
+/* ---------- صف الصنف ---------- */
+.rows{display:flex;flex-direction:column;gap:8px}
+.row{
+  display:flex;align-items:stretch;gap:12px;width:100%;text-align:start;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:13px 14px;cursor:pointer;font:inherit;color:inherit;
+  box-shadow:var(--sh-1);
+  transition:transform .12s var(--ease), box-shadow .15s, border-color .15s;
+  animation:rise .38s var(--ease) both;
+}
+.row:hover{box-shadow:var(--sh-2);border-color:#CFDBE2}
+.row:active{transform:scale(.99)}
+.row.out{border-color:#EBCACA;background:#FFFDFD}
+
+.row-main{flex:1;min-width:0}
+.row-name{
+  font-size:15px;font-weight:650;line-height:1.5;margin:0 0 2px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.row-sub{
+  font-size:12.5px;color:var(--muted);line-height:1.6;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.row-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+
+.row-side{
+  flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;
+  justify-content:center;gap:3px;text-align:center;
+}
+.pill{
+  font-family:var(--num);font-variant-numeric:tabular-nums;font-weight:700;
+  font-size:16px;padding:5px 11px;border-radius:9px;min-width:50px;
+  background:var(--green-wash);color:var(--green);
+}
+.pill.warn{background:var(--amber-wash);color:var(--amber)}
+.pill.bad{background:var(--red-wash);color:var(--red)}
+.row-price{font-size:12.5px;color:var(--muted);font-family:var(--num);white-space:nowrap}
+
+.tag{
+  font-size:11px;padding:2.5px 8px;border-radius:999px;white-space:nowrap;
+  background:var(--line-2);color:var(--ink-2);font-weight:600;
+}
+.tag.g{background:var(--green-wash);color:var(--green)}
+.tag.a{background:var(--amber-wash);color:var(--amber)}
+.tag.r{background:var(--red-wash);color:var(--red)}
+.tag.ltr{font-family:var(--num);direction:ltr}
+
+/* ---------- الحالات الفارغة ---------- */
+.empty{
+  text-align:center;padding:52px 22px;color:var(--muted);
+  animation:rise .45s var(--ease) both;
+}
+.empty svg{width:52px;height:52px;opacity:.3;margin-bottom:12px}
+.empty h3{margin:0 0 6px;color:var(--ink);font-size:16.5px}
+.empty p{margin:0 auto;font-size:14px;line-height:1.85;max-width:330px}
+.empty .btn{margin-top:18px}
+
+/* ---------- هيكل التحميل ---------- */
+.skel{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px;margin-bottom:8px;display:flex;gap:12px;align-items:center;
+}
+.skel i{display:block;border-radius:6px;background:var(--line-2);
+  animation:pulse 1.35s ease-in-out infinite}
+.skel .s1{flex:1}
+.skel .s1 i:first-child{height:13px;width:72%;margin-bottom:8px}
+.skel .s1 i:last-child{height:10px;width:44%}
+.skel .s2{width:52px;height:30px;border-radius:9px;background:var(--line-2);
+  animation:pulse 1.35s ease-in-out infinite}
+
+/* ============================================================
+   صفحة الصنف
+   ============================================================ */
+#sheet{
+  position:fixed;inset:0;z-index:90;background:rgba(18,33,43,.45);
+  display:flex;align-items:flex-end;justify-content:center;
+  animation:fade .2s var(--ease);
+  backdrop-filter:blur(2px);
+}
+#sheet[hidden]{display:none}
+#sheet .inner{
+  background:var(--card);width:100%;max-width:560px;max-height:92dvh;overflow:auto;
+  border-radius:20px 20px 0 0;padding:8px 18px 24px;
+  padding-bottom:calc(24px + env(safe-area-inset-bottom));
+  animation:slideUp .32s var(--ease);
+  overscroll-behavior:contain;
+}
+@media (min-width:600px){
+  #sheet{align-items:center}
+  #sheet .inner{border-radius:20px;max-height:86dvh;padding-bottom:24px}
+}
+.grab{width:40px;height:4px;border-radius:99px;background:var(--line);
+  margin:6px auto 16px}
+
+.det-head{margin-bottom:16px}
+.det-head h2{font-size:19px;margin:0 0 5px;line-height:1.45;letter-spacing:-.2px}
+.det-head .by{font-size:13.5px;color:var(--muted);margin:0}
+.det-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+
+.det-big{
+  display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;
+}
+.det-big > div{
+  background:var(--paper);border-radius:var(--r-sm);padding:13px 14px;text-align:center;
+}
+.det-big b{display:block;font-size:24px;font-family:var(--num);line-height:1.2;
+  font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.det-big span{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+.det-big .bad b{color:var(--red)}
+.det-big .warn b{color:var(--amber)}
+
+.det-rows{border-top:1px solid var(--line-2);margin-top:4px}
+.det-row{
+  display:flex;gap:14px;padding:11px 2px;border-bottom:1px solid var(--line-2);
+  font-size:14px;align-items:baseline;
+}
+.det-row dt{color:var(--muted);font-size:13px;flex:0 0 96px}
+.det-row dd{margin:0;flex:1;min-width:0;font-weight:600}
+.det-row dd.ltr{font-family:var(--num);direction:ltr;text-align:start}
+.det-note{
+  background:var(--green-wash);border-radius:var(--r-sm);padding:12px 14px;
+  font-size:13.5px;line-height:1.85;color:var(--ink-2);margin:14px 0 0;
+  white-space:pre-wrap;
+}
+.det-where{margin-top:16px}
+.det-where h3{font-size:13px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.wrow{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:var(--paper);border-radius:var(--r-sm);margin-bottom:7px;font-size:13.5px;
+}
+.wrow.stale{background:var(--red-wash)}
+.wrow b{font-family:var(--num);font-size:15.5px;min-width:38px}
+.wrow .wn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrow .wa{font-size:11.5px;color:var(--red);font-weight:700;flex-shrink:0}
+.wrow .wl{font-size:11.5px;color:var(--muted);flex-shrink:0}
+
+/* ============================================================
+   الإعدادات
+   ============================================================ */
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px;margin-bottom:12px;box-shadow:var(--sh-1);
+  animation:rise .4s var(--ease) both;
+}
+.card h2{font-size:16px;margin:0 0 5px}
+.card .sub{color:var(--muted);font-size:13.5px;line-height:1.8;margin:0 0 14px}
+.card .btn{width:100%;margin-bottom:8px}
+.card .btn:last-child{margin-bottom:0}
+.kv{display:flex;gap:10px;font-size:13.5px;padding:8px 0;border-bottom:1px solid var(--line-2)}
+.kv:last-child{border-bottom:0}
+.kv dt{color:var(--muted);flex:0 0 104px}
+.kv dd{margin:0;flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+
+/* ============================================================
+   التنبيهات والتذييل
+   ============================================================ */
+#toasts{
+  position:fixed;inset-inline:0;bottom:20px;z-index:110;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  pointer-events:none;padding:0 16px;
+}
+.toast{
+  background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;
+  font-size:14px;max-width:100%;text-align:center;box-shadow:var(--sh-3);
+  animation:toastIn .3s var(--ease);
+}
+.toast.bad{background:var(--red)}
+.toast.warn{background:var(--amber)}
+.toast.ok{background:var(--ok)}
+
+#foot{
+  text-align:center;padding:18px 16px 30px;
+  padding-bottom:calc(30px + env(safe-area-inset-bottom));
+  font-size:12px;color:var(--faint);line-height:1.8;
+}
+
+/* ============================================================
+   الحركة — خفيفة، ومقصودة، وتُطفأ لمن يطلب ذلك
+   ============================================================ */
+@keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(22px)}to{transform:none}}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes shake{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-4px)}
+  75%{transform:translateX(4px)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;scroll-behavior:auto !important}
+}
+
+/* ============================================================
+   الوضع الليلي — يتبع إعداد الجهاز
+   ============================================================ */
+@media (prefers-color-scheme:dark){
+  :root{
+    --ink:#E8EEF1; --ink-2:#BCCAD3; --muted:#8A9CA8; --faint:#6B7D89;
+    --paper:#10181D; --card:#18242B; --line:#27363F; --line-2:#223038;
+    --green-wash:#14332E; --red-wash:#3A1D1F; --amber-wash:#34281420;
+    --ok-wash:#14301F;
+    --sh-1:0 1px 2px rgba(0,0,0,.3);
+    --sh-2:0 4px 16px rgba(0,0,0,.34);
+    --sh-3:0 18px 48px rgba(0,0,0,.5);
+  }
+  .gate{background:radial-gradient(1100px 520px at 50% -8%, #14302B 0%, transparent 62%), var(--paper)}
+  .row.out{background:#1E1618;border-color:#4A2A2C}
+  .tag{background:var(--line-2);color:var(--ink-2)}
+  .tag.a{background:#33280F;color:#E5B66A}
+  .pill.warn{background:#33280F;color:#E5B66A}
+  .det-big > div,.wrow{background:#121D23}
+  .toast{background:#25343D}
+}

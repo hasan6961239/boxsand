@@ -1,0 +1,34 @@
+# ============================================================
+#  رفع الموقع على Netlify
+#  ------------------------------------------------------------
+#  صفحات ثابتة: لا بناء ولا تنصيب. اسحب هذا المجلد إلى
+#  app.netlify.com/drop، أو اربط المستودع واجعل:
+#     Base directory    = site
+#     Build command     = (اتركه فارغاً)
+#     Publish directory = site
+# ============================================================
+
+[build]
+  publish = "."
+  command = ""
+
+# الصفحة تتصل بالـWorker الخاص بك وحده، ولا تُحمَّل من أي جهة أخرى.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+    Content-Security-Policy = "default-src 'self'; connect-src *; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+# الأصول ثابتة الاسم — لا تُخزَّن طويلاً حتى يصل التحديث فوراً.
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E6E62">
+<meta name="description" content="بحث في مخزون المكتبة — الكتب والقرطاسية، بالاسم أو المؤلف أو الباركود.">
+<title>مخزون المكتبة</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ============ الشاشة الأولى: الربط ============ -->
+<section id="gate" class="gate" hidden>
+  <div class="gate-art" aria-hidden="true">
+    <svg viewBox="0 0 120 120" class="gate-mark">
+      <defs>
+        <linearGradient id="gm" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#16A08C"/><stop offset="1" stop-color="#0B564C"/>
+        </linearGradient>
+      </defs>
+      <rect x="20" y="30" width="20" height="62" rx="3" fill="url(#gm)"/>
+      <rect x="45" y="22" width="18" height="70" rx="3" fill="url(#gm)" opacity=".72"/>
+      <rect x="69" y="32" width="18" height="60" rx="3" fill="url(#gm)" opacity=".5"
+            transform="rotate(13 78 92)"/>
+      <rect x="14" y="92" width="92" height="7" rx="3.5" fill="#0B564C"/>
+    </svg>
+  </div>
+  <div class="gate-box">
+    <h1>مخزون المكتبة</h1>
+    <p class="gate-sub">ابحث في بضاعتك من أي مكان: بالاسم، أو المؤلف، أو الباركود.
+      اربطها مرة واحدة ببيانات الربط نفسها التي في البرنامج.</p>
+
+    <form id="gateForm" novalidate>
+      <label class="fld">
+        <span>عنوان الربط</span>
+        <input class="inp ltr" id="gUrl" type="url" inputmode="url" autocomplete="off"
+               spellcheck="false" placeholder="https://maktaba-sync.xxx.workers.dev" required>
+      </label>
+      <label class="fld">
+        <span>كلمة سر الربط</span>
+        <input class="inp ltr" id="gKey" type="password" autocomplete="off"
+               spellcheck="false" required>
+      </label>
+      <p class="fld-note" id="gateErr" role="alert" hidden></p>
+      <button class="btn primary lg" id="gateBtn" type="submit">
+        <span class="btn-label">اتصل واعرض المخزون</span>
+      </button>
+    </form>
+
+    <p class="gate-where">تجدهما في البرنامج على الكمبيوتر:
+      <b>المخزون والفروع ← إعدادات الربط</b></p>
+    <p class="gate-priv">يُحفظان على هذا الجهاز وحده. لا حساب، ولا خادم لنا.
+      ولا تظهر هنا أسعار الشراء ولا الأرباح — لا تُرفع أصلاً.</p>
+  </div>
+</section>
+
+<!-- ============ التطبيق ============ -->
+<div id="app" hidden>
+
+  <header id="top">
+    <button class="top-brand" onclick="UI.go('home')" aria-label="الصفحة الأولى">
+      <svg viewBox="0 0 120 120" class="brand-mark" aria-hidden="true">
+        <rect x="20" y="30" width="20" height="62" rx="3" fill="currentColor"/>
+        <rect x="45" y="22" width="18" height="70" rx="3" fill="currentColor" opacity=".72"/>
+        <rect x="69" y="32" width="18" height="60" rx="3" fill="currentColor" opacity=".48"
+              transform="rotate(13 78 92)"/>
+        <rect x="14" y="92" width="92" height="7" rx="3.5" fill="currentColor"/>
+      </svg>
+      <span class="brand-text">
+        <b id="shopName">مخزون المكتبة</b>
+        <small id="freshLine">—</small>
+      </span>
+    </button>
+    <button class="icon-btn" id="btnRefresh" onclick="UI.refresh()" aria-label="تحديث">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button class="icon-btn" onclick="UI.go('settings')" aria-label="الإعدادات">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none"
+        stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10.6 3.09V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 16.11 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09A1.65 1.65 0 0 0 21 10.6h.09a2 2 0 1 1 0 4H21a1.65 1.65 0 0 0-1.51 1z"
+        fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+  </header>
+
+  <div id="searchWrap">
+    <div class="search">
+      <svg viewBox="0 0 24 24" class="search-ico" aria-hidden="true"><circle cx="11" cy="11" r="7"
+        fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="q" class="search-inp" type="search" enterkeyhint="search"
+             placeholder="اسم الكتاب، أو المؤلف، أو الباركود…"
+             autocomplete="off" spellcheck="false" aria-label="بحث">
+      <button class="search-x" id="qx" hidden onclick="UI.clearQ()" aria-label="مسح">✕</button>
+    </div>
+    <div id="chips" class="chips"></div>
+  </div>
+
+  <main id="view"></main>
+
+  <footer id="foot"></footer>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<div id="sheet" hidden></div>
+
+<script src="app.js"></script>
+<script>UI.boot();</script>
+</body>
+</html>

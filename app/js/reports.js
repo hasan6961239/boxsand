@@ -628,12 +628,15 @@ var Rep = (function () {
         return '<button class="theme-dot' + (m.theme === t2.k ? " on" : "") + '" title="' + App.esc(t2.t) +
           '" style="background:' + t2.c + '" onclick="Rep.setTheme(\'' + t2.k + '\')"></button>';
       }).join("") + '</div><div class="hint">اضغط اللون الذي يعجبك — يُطبَّق فوراً</div></div>' +
-      '<div class="field full"><label>حجم الواجهة (لشاشات اللمس)</label>' +
-      '<div class="seg" style="max-width:420px">' +
+      '<div class="field full"><label>حجم الواجهة</label>' +
+      '<div class="seg" style="max-width:560px">' +
+      '<button class="' + (m.uiSize === "xs" ? "on" : "") + '" onclick="Rep.setSize(\'xs\')">صغير جداً</button>' +
+      '<button class="' + (m.uiSize === "sm" ? "on" : "") + '" onclick="Rep.setSize(\'sm\')">صغير</button>' +
       '<button class="' + (m.uiSize === "md" ? "on" : "") + '" onclick="Rep.setSize(\'md\')">عادي</button>' +
       '<button class="' + (m.uiSize === "lg" ? "on" : "") + '" onclick="Rep.setSize(\'lg\')">كبير</button>' +
       '<button class="' + (m.uiSize === "xl" ? "on" : "") + '" onclick="Rep.setSize(\'xl\')">كبير جداً</button>' +
-      '</div><div class="hint">يكبّر الخط والأزرار وصفوف الجداول</div></div>' +
+      '</div><div class="hint">يكبّر الخط والأزرار وصفوف الجداول أو يصغّرها — ' +
+      'الصغير يعرض صفوفاً أكثر في الشاشة الواحدة.</div></div>' +
       "</div></div></div>";
 
     h += '<div class="card"><div class="card-head"><h3>المكتبات والرفوف</h3></div><div class="card-body">' +

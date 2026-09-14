@@ -28,7 +28,10 @@ var Stock = (function () {
           k: it.code || "", t: x.type, n: App.itemName(it), a: it.author || "",
           b: it.barcode || "", c: it.cat || "",
           q: App.num(it.qty), p: App.num(it.price), m: App.num(it.min),
-          l: it.lib || "", s: it.shelf || "", loc: it.loc || ""
+          l: it.lib || "", s: it.shelf || "", loc: it.loc || "",
+          /* الناشر والملاحظة يظهران في صفحة الكتاب على الموقع.
+             سعر الشراء والربح لا يُرفعان أبداً. */
+          d: it.publisher || "", nt: it.note || "", u: it.unit || ""
         };
       }),
       /* المخازن اليدوية ترافق اللقطة بأسماء أصنافها محلولة، ليعرضها
@@ -1082,10 +1085,9 @@ var Stock = (function () {
 
   /* ---------- المشاهدة من التلفون ---------- */
 
-  /* صفحة قراءة فقط تفتحها من متصفح التلفون فترى المخزون كله.
-     تقرأ نفس اللقطة المرفوعة للربط، فلا خادم جديد. هذه النافذة
-     تسلّمك العنوان وكلمة السر لتنسخهما إلى التلفون بلا بحث. */
-  var VIEWER = "https://hasan6961239.github.io/boxsand/stock.html";
+  /* الموقع يُرفع على Netlify باسم يختاره صاحب المحل، فلا عنوان
+     ثابتاً نكتبه هنا: يُحفظ في بيانات المحل ويُعرض للنسخ. */
+  function viewerUrl() { return String(S().sync.site || "").trim(); }
 
   function phoneView() {
     if (!configured()) {
@@ -1093,12 +1095,14 @@ var Stock = (function () {
       setupLink();
       return;
     }
-    var fld = function (label, val, id, hint) {
+    var fld = function (label, val, id, hint, editable) {
       return '<div style="margin-bottom:14px">' +
         '<div class="muted small" style="margin-bottom:5px">' + App.esc(label) + "</div>" +
         '<div style="display:flex;gap:8px;align-items:stretch">' +
-        '<input class="inp" id="' + id + '" readonly value="' + App.esc(val) +
-        '" style="flex:1;font-family:monospace;direction:ltr;text-align:left">' +
+        '<input class="inp" id="' + id + '"' + (editable ? "" : " readonly") +
+        ' value="' + App.esc(val) +
+        '" style="flex:1;font-family:monospace;direction:ltr;text-align:left"' +
+        (editable ? ' placeholder="https://esmak.netlify.app"' : "") + ">" +
         '<button class="btn sm" onclick="Stock.copyBox(\'' + id + '\')">نسخ</button></div>' +
         (hint ? '<div class="muted small" style="margin-top:5px">' + hint + "</div>" : "") +
         "</div>";
@@ -1108,21 +1112,34 @@ var Stock = (function () {
       size: "wide",
       body:
         '<p class="muted small" style="line-height:1.9;margin:0 0 16px">' +
-        "افتح الرابط الأول من متصفح تلفونك، اضغط ⚙ فيه، والصق العنوان وكلمة السر. " +
-        "بعدها ترى كل بضاعتك وأين هي — في هذا الفرع وفي الفروع الأخرى وفي المخازن. " +
-        "<b>للعرض فقط:</b> لا بيع ولا تعديل ولا حذف من التلفون، ولا تظهر فيه أسعار " +
-        "الشراء ولا أرباحك.</p>" +
-        fld("١. رابط العارض (افتحه في التلفون)", VIEWER, "pvUrl") +
+        "موقعك الخاص: تفتحه من أي متصفح فتبحث في بضاعتك بالاسم أو المؤلف أو " +
+        "الباركود، وترى الكمية والسعر وأين الصنف في الفروع والمخازن. " +
+        "<b>للعرض فقط:</b> لا بيع ولا تعديل ولا حذف منه، ولا تظهر فيه أسعار " +
+        "الشراء ولا أرباحك.<br>" +
+        "ارفع مجلد <span class=\"num\">site</span> على " +
+        "<b>app.netlify.com/drop</b> (سحب وإفلات)، ثم افتح الرابط في التلفون " +
+        "والصق فيه العنوان وكلمة السر.</p>" +
+        fld("١. رابط موقعك (من Netlify)", viewerUrl(), "pvSite",
+          "ارفع مجلد site على Netlify والصق الرابط هنا ليُحفظ.", true) +
         fld("٢. عنوان الربط", S().sync.url, "pvSync") +
         fld("٣. كلمة سر الربط", S().sync.key, "pvKey",
           "لا ترسلها في مجموعة عامة. من يملكها يرى مخزونك.") +
         '<p class="muted small" style="line-height:1.9;margin:4px 0 0">' +
-        "يُحفظ الاثنان على ذلك التلفون وحده. ما يظهر هناك هو <b>آخر لقطة مرفوعة</b>، " +
+        "يُحفظان على ذلك الجهاز وحده. ما يظهر هناك هو <b>آخر لقطة مرفوعة</b>، " +
         "فإن كان جهاز فرع مطفأً فخبره قديم — والعارض يكتب عمر البيانات بالأحمر " +
         "بجانب اسم الفرع حتى لا تثق برقم قديم وأنت تظنه اليوم.</p>",
       actions: [{
-        label: "حدّث اللقطة الآن", kind: "primary",
-        click: function (close) { close(); sync(true); }
+        label: "حفظ وتحديث اللقطة", kind: "primary",
+        click: function (close) {
+          var e = document.getElementById("pvSite");
+          if (e) {
+            var u = e.value.trim();
+            if (u && !/^https?:\/\//i.test(u)) u = "https://" + u;
+            S().sync.site = u;
+            App.saveNow();
+          }
+          close(); sync(true);
+        }
       }]
     });
   }
