@@ -290,7 +290,9 @@ var App = (function () {
     gear: "M12 15a3 3 0 100-6 3 3 0 000 6zm8-3l2-1-2-4-2 .6a8 8 0 00-2-1.2L15.5 4h-4L11 6.4a8 8 0 00-2 1.2L7 7l-2 4 2 1a8 8 0 000 2l-2 1 2 4 2-.6a8 8 0 002 1.2l.5 2.4h4l.5-2.4a8 8 0 002-1.2l2 .6 2-4-2-1a8 8 0 000-2z",
     cash: "M2 7h20v10H2V7zm10 5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM5 10v.01M19 14v.01",
     card: "M2 6h20v12H2V6zm0 4h20M6 15h4",
-    clock: "M12 21a9 9 0 100-18 9 9 0 000 18zm0-14v5l3 2"
+    clock: "M12 21a9 9 0 100-18 9 9 0 000 18zm0-14v5l3 2",
+    stale: "M12 21a9 9 0 100-18 9 9 0 000 18zm0-14v5l3 2M3 3l18 18",
+    tag: "M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01"
   };
 
   function icon(name, size) {
@@ -833,6 +835,8 @@ var App = (function () {
     { k: "stock", t: "المخزون والفروع", ic: "▦", f: function () { return Stock.page(); }, badge2: true },
     { k: "purchases", t: "إدخال بضاعة", ic: "goods", f: function () { return Inv.goods(); } },
     { k: "alerts", t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true },
+    { k: "stale", t: "البضاعة الراكدة", ic: "stale", f: function () { return Stale.page(); }, badge4: true },
+    { k: "labels", t: "طباعة اللاصقات", ic: "tag", f: function () { return Labels.page(); } },
     { g: "الحسابات" },
     { k: "customers", t: "الزبائن والديون", ic: "people", f: function () { return People.customers(); } },
     { k: "consign", t: "كتب على المباع", ic: "consign", f: function () { return Consign.page(); }, badge3: true },
@@ -853,6 +857,7 @@ var App = (function () {
         (p.badge ? '<span class="count" data-lowcount hidden></span>' : "") +
         (p.badge2 ? '<span class="count" data-reqcount hidden></span>' : "") +
         (p.badge3 ? '<span class="count" data-conscount hidden></span>' : "") +
+        (p.badge4 ? '<span class="count" data-stalecount hidden></span>' : "") +
         "</button>";
     });
     nav.innerHTML = h;
@@ -922,6 +927,11 @@ var App = (function () {
     var pend = (typeof Stock !== "undefined") ? Stock.pendingCount() : 0;
     document.querySelectorAll("[data-reqcount]").forEach(function (e) {
       if (pend > 0) { e.hidden = false; e.textContent = pend; } else e.hidden = true;
+    });
+    var staleN = 0;
+    try { staleN = (typeof Stale !== "undefined") ? Stale.count() : 0; } catch (e) { }
+    document.querySelectorAll("[data-stalecount]").forEach(function (e) {
+      if (staleN > 0) { e.hidden = false; e.textContent = staleN; } else e.hidden = true;
     });
   }
 

@@ -544,6 +544,10 @@ var Sales = (function () {
       if (it) {
         it.qty = App.num(it.qty) - App.num(l.qty);
         it.updated = App.nowStamp();
+        /* آخر بيع محفوظ على الصنف نفسه، لا محسوباً من الفواتير:
+           الفواتير تُؤرشف بعد سنة، وتقرير الراكد يحتاج التاريخ بعدها. */
+        it.lastSold = inv.date;
+        it.soldTotal = App.num(it.soldTotal) + App.num(l.qty);
         if (it.consId && typeof Consign !== "undefined") {
           try { Consign.recordSale(it.id, App.num(l.qty)); } catch (e) { }
         }

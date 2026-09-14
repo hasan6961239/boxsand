@@ -480,6 +480,311 @@ var Inv = (function () {
     return out;
   }
 
+
+  /* ============================================================
+     لصق دفعة كتب — عدة كتب من ردّ واحد
+     ------------------------------------------------------------
+     تصوير كتاب واحد وإرساله ونسخ الرد ولصقه، مضروبة في 300 كتاب،
+     هي العمل كله. هنا تصوّر رفّاً كاملاً وتلصق الرد مرة واحدة.
+     يفهم ثلاث صيغ: أسطر مفصولة بـ | ، وجدول CSV، وفقرات معنونة
+     مفصولة بسطر فارغ أو --- .
+     ============================================================ */
+
+  var BULK_PROMPT =
+    "هذه صور كتب من رف واحد في مكتبة. لكل كتاب في الصور، أعطني سطراً واحداً بهذا الترتيب " +
+    "مفصولاً بعلامة | وبلا أي كلام إضافي وبلا ترقيم:\n\n" +
+    "اسم الكتاب | المؤلف | دار النشر | التصنيف | الرقم الدولي ISBN إن ظهر\n\n" +
+    "قواعد:\n" +
+    "- سطر واحد لكل كتاب، ولا تكتب عناوين أعمدة.\n" +
+    "- إن لم تجد معلومة اتركها فارغة بين علامتي | متتاليتين.\n" +
+    "- اكتب ISBN أرقاماً فقط بلا شرطات.\n" +
+    "- لا تكرر كتاباً ظهر في أكثر من صورة.";
+
+  function bulkSplitFields(line) {
+    if (line.indexOf("|") >= 0) return line.split("|");
+    if (line.indexOf("\t") >= 0) return line.split("\t");
+    if ((line.match(/,/g) || []).length >= 2) return line.split(",");
+    return [line];
+  }
+
+  /* فقرة معنونة (نفس صيغة اللصق المفرد) — نعيد استعمال parsePasted */
+  function bulkParseBlock(block) {
+    var got = parsePasted(block);
+    if (got && got.title) return got;
+    return null;
+  }
+
+  function parseBulk(text) {
+    var raw = String(text || "").replace(/\r/g, "").trim();
+    if (!raw) return [];
+
+    // فقرات مفصولة بـ --- أو سطر فارغ، وفيها عناوين حقول
+    if (/(^|\n)\s*(-{3,}|={3,})\s*(\n|$)/.test(raw) ||
+      (/\n\s*\n/.test(raw) && /[:：]/.test(raw))) {
+      var blocks = raw.split(/\n\s*(?:-{3,}|={3,})\s*\n|\n\s*\n/);
+      var outB = [];
+      blocks.forEach(function (b) {
+        var g = bulkParseBlock(b);
+        if (g) outB.push(g);
+      });
+      if (outB.length) return outB;
+    }
+
+    // سطر لكل كتاب
+    var out = [];
+    raw.split("\n").forEach(function (line) {
+      var t = line.trim();
+      if (!t) return;
+      t = t.replace(/^\s*\d+\s*[-.)،]\s*/, "");          // ترقيم في أول السطر
+      if (/^(اسم الكتاب|العنوان|title)\s*\|/i.test(t)) return;   // صف عناوين
+      var f = bulkSplitFields(t).map(function (x) { return String(x).trim(); });
+      if (!f[0]) return;
+      out.push({
+        title: f[0], author: f[1] || "", publisher: f[2] || "",
+        cat: f[3] || "", barcode: (f[4] || "").replace(/[^0-9Xx]/g, "")
+      });
+    });
+    return out;
+  }
+
+  var bulkRows = [];
+
+  function bulkPaste() {
+    bulkRows = [];
+    var lb = S().meta.lastBook || {};
+    var box = document.createElement("div");
+    box.innerHTML =
+      '<div class="row" style="gap:10px;margin-bottom:12px;flex-wrap:wrap">' +
+      '<button class="btn" onclick="Inv.copyBulkPrompt()">نسخ سؤال جيميناي</button>' +
+      '<span class="muted small" style="align-self:center">صوّر الرف كله، الصق هذا السؤال مع الصور، ثم الصق الرد هنا.</span>' +
+      "</div>" +
+      '<textarea class="inp" id="bulkBox" style="min-height:190px;font-size:13px" ' +
+      'placeholder="أساسيات الهندسة لتقنيات الورش | أحمد علي | دار الفكر | جامعي | 9781234567890&#10;' +
+      'الرياضيات للصف التاسع | وزارة التعليم | | مدرسي |"></textarea>' +
+      '<div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap">' +
+      '<div class="field"><label class="small">المكتبة</label>' +
+      '<select class="inp" id="bulkLib">' +
+      S().meta.libraries.map(function (L) {
+        return '<option' + (L === lb.lib ? " selected" : "") + ">" + App.esc(L) + "</option>";
+      }).join("") + "</select></div>" +
+      '<div class="field"><label class="small">الرف</label>' +
+      '<select class="inp" id="bulkShelf">' + shelfOptions().map(function (o) {
+        var v = (typeof o === "object") ? o.v : o, t = (typeof o === "object") ? o.t : o;
+        return '<option value="' + App.esc(v) + '"' + (String(v) === String(lb.shelf) ? " selected" : "") +
+          ">" + App.esc(t) + "</option>";
+      }).join("") + "</select></div>" +
+      '<div class="field"><label class="small">كمية كل كتاب</label>' +
+      '<input class="inp num" id="bulkQty" type="text" inputmode="numeric" value="' + (App.num(lb.qty) || 1) + '"></div>' +
+      "</div>" +
+      '<p class="muted small" style="margin:10px 0 0;line-height:1.8">تضبط الأسعار والكميات لكل كتاب في الخطوة التالية.</p>';
+
+    App.modal({
+      title: "لصق دفعة كتب",
+      size: "wide",
+      body: box,
+      cancelLabel: "إلغاء",
+      actions: [{
+        label: "التالي — معاينة", kind: "primary", click: function (close, ov) {
+          var txt = ov.querySelector("#bulkBox").value;
+          var got = parseBulk(txt);
+          if (!got.length) { App.toast("لم أتعرّف على أي كتاب في النص.", "warn"); return; }
+          var lib = ov.querySelector("#bulkLib").value;
+          var shelf = ov.querySelector("#bulkShelf").value;
+          var qty = Math.max(0, Math.round(App.num(ov.querySelector("#bulkQty").value)));
+          bulkRows = got.map(function (g) {
+            return {
+              title: g.title, author: g.author || "", publisher: g.publisher || "",
+              cat: g.cat || "", barcode: g.barcode || "", note: g.note || "",
+              lib: lib, shelf: shelf, qty: qty, cost: 0, price: 0, min: 0,
+              dupe: !!findByTitle(g.title)
+            };
+          });
+          close();
+          bulkReview();
+        }
+      }]
+    });
+  }
+
+  function copyBulkPrompt() {
+    var ta = document.createElement("textarea");
+    ta.value = BULK_PROMPT;
+    ta.style.position = "fixed"; ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); App.toast("نُسخ السؤال — الصقه في جيميناي مع الصور."); }
+    catch (e) { App.toast("انسخه يدوياً من المربع.", "warn"); }
+    document.body.removeChild(ta);
+  }
+
+  function findByTitle(t) {
+    var n = App.norm(t), hit = null;
+    S().books.forEach(function (b) { if (App.norm(b.title) === n) hit = b; });
+    return hit;
+  }
+
+  function bulkSet(i, k, v) {
+    if (!bulkRows[i]) return;
+    if (k === "qty" || k === "min") bulkRows[i][k] = Math.max(0, Math.round(App.num(v)));
+    else if (k === "cost" || k === "price") bulkRows[i][k] = Math.max(0, App.num(v));
+    else bulkRows[i][k] = v;
+    if (k === "title") bulkRows[i].dupe = !!findByTitle(v);
+    bulkPaintReview();
+  }
+  function bulkDel(i) { bulkRows.splice(i, 1); bulkPaintReview(); }
+
+  /* تطبيق سعر أو كمية على كل الصفوف دفعة واحدة */
+  function bulkAll(k, v) {
+    bulkRows.forEach(function (r) {
+      if (k === "qty" || k === "min") r[k] = Math.max(0, Math.round(App.num(v)));
+      else r[k] = Math.max(0, App.num(v));
+    });
+    bulkPaintReview();
+  }
+
+  function bulkReview() {
+    App.modal({
+      title: "مراجعة قبل الحفظ",
+      size: "wide",
+      body: '<div id="bulkPrev"></div>',
+      cancelLabel: "رجوع",
+      actions: [{
+        label: "حفظ كل الكتب", kind: "primary", click: function (close) { bulkSave(close); }
+      }]
+    });
+    setTimeout(bulkPaintReview, 0);
+  }
+
+  function bulkPaintReview() {
+    var host = document.getElementById("bulkPrev");
+    if (!host) return;
+    var dupes = bulkRows.filter(function (r) { return r.dupe; }).length;
+    var noPrice = bulkRows.filter(function (r) { return App.num(r.price) <= 0; }).length;
+
+    var h = '<div class="row" style="gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">' +
+      '<span class="badge ok">' + bulkRows.length + " كتاب</span>" +
+      (dupes ? '<span class="badge warn">' + dupes + " موجود مسبقاً (سيُحدَّث)</span>" : "") +
+      (noPrice ? '<span class="badge bad">' + noPrice + " بلا سعر بيع</span>" : "") +
+      '<div class="spacer"></div>' +
+      '<div class="field"><label class="small">سعر بيع للكل</label>' +
+      '<input class="inp num" style="width:110px" type="text" inputmode="decimal" placeholder="—" ' +
+      'onchange="Inv.bulkAll(\'price\',this.value)"></div>' +
+      '<div class="field"><label class="small">سعر شراء للكل</label>' +
+      '<input class="inp num" style="width:110px" type="text" inputmode="decimal" placeholder="—" ' +
+      'onchange="Inv.bulkAll(\'cost\',this.value)"></div>' +
+      '<div class="field"><label class="small">كمية للكل</label>' +
+      '<input class="inp num" style="width:90px" type="text" inputmode="numeric" placeholder="—" ' +
+      'onchange="Inv.bulkAll(\'qty\',this.value)"></div>' +
+      "</div>";
+
+    h += '<div style="max-height:46vh;overflow:auto">' + App.table([
+      { h: "#", cls: "num", c: function (r, i) { return i + 1; } },
+      {
+        h: "اسم الكتاب", c: function (r, i) {
+          return '<input class="inp" style="min-width:200px" value="' + App.esc(r.title) +
+            '" onchange="Inv.bulkSet(' + i + ',\'title\',this.value)">' +
+            (r.dupe ? '<div class="sub" style="color:var(--warn,#9C5A0E)">موجود — ستُضاف الكمية للموجود</div>' : "");
+        }
+      },
+      {
+        h: "المؤلف", c: function (r, i) {
+          return '<input class="inp" style="min-width:130px" value="' + App.esc(r.author) +
+            '" onchange="Inv.bulkSet(' + i + ',\'author\',this.value)">';
+        }
+      },
+      {
+        h: "الباركود", c: function (r, i) {
+          return '<input class="inp num" style="width:130px" value="' + App.esc(r.barcode) +
+            '" placeholder="امسحه" onchange="Inv.bulkSet(' + i + ',\'barcode\',this.value)">';
+        }
+      },
+      {
+        h: "شراء", cls: "num", c: function (r, i) {
+          return '<input class="inp num" style="width:80px" type="text" inputmode="decimal" value="' + r.cost +
+            '" onchange="Inv.bulkSet(' + i + ',\'cost\',this.value)">';
+        }
+      },
+      {
+        h: "بيع", cls: "num", c: function (r, i) {
+          return '<input class="inp num" style="width:80px" type="text" inputmode="decimal" value="' + r.price +
+            '" onchange="Inv.bulkSet(' + i + ',\'price\',this.value)">';
+        }
+      },
+      {
+        h: "كمية", cls: "num", c: function (r, i) {
+          return '<input class="inp num" style="width:70px" type="text" inputmode="numeric" value="' + r.qty +
+            '" onchange="Inv.bulkSet(' + i + ',\'qty\',this.value)">';
+        }
+      },
+      {
+        h: "", cls: "act", c: function (r, i) {
+          return '<button class="btn sm ghost" onclick="Inv.bulkDel(' + i + ')">حذف</button>';
+        }
+      }
+    ], bulkRows, { emptyTitle: "لا كتب", emptyText: "ارجع والصق النص من جديد." }) + "</div>";
+
+    host.innerHTML = h;
+  }
+
+  function bulkSave(close) {
+    if (!bulkRows.length) { App.toast("لا كتب للحفظ.", "warn"); return; }
+    var added = 0, upd = 0, ids = [];
+
+    bulkRows.forEach(function (r) {
+      if (!String(r.title).trim()) return;
+      var ex = findByTitle(r.title);
+      if (ex) {
+        // كتاب موجود: نضيف الكمية ولا ندهس أسعاره إلا إن كتبت جديدة
+        ex.qty = App.num(ex.qty) + App.num(r.qty);
+        if (App.num(r.cost) > 0) ex.cost = App.num(r.cost);
+        if (App.num(r.price) > 0) ex.price = App.num(r.price);
+        if (r.barcode && !ex.barcode) ex.barcode = r.barcode;
+        ex.updated = App.nowStamp();
+        ids.push(ex.id);
+        upd++;
+        return;
+      }
+      var o = {
+        id: App.uid(), code: App.nextCode("book"),
+        title: String(r.title).trim(), author: r.author || "", publisher: r.publisher || "",
+        supplierId: "", lib: r.lib || "", shelf: r.shelf || "", cat: r.cat || "",
+        barcode: r.barcode || "", cost: App.num(r.cost), price: App.num(r.price),
+        priceW: 0, qty: App.num(r.qty), min: App.num(r.min), note: r.note || "",
+        created: App.nowStamp(), updated: App.nowStamp()
+      };
+      if (r.cat) addCatIfNew("bookCats", r.cat);
+      S().books.push(o);
+      ids.push(o.id);
+      added++;
+    });
+
+    App.log("لصق دفعة", "أضيف " + added + " وحُدّث " + upd + " كتاباً");
+    App.save();
+    if (close) close();
+    App.rerender();
+    App.toast("حُفظ: " + added + " جديد، " + upd + " محدَّث.");
+
+    // الخطوة التالية طبيعياً: اللاصقات لمن يحتاجها
+    if (ids.length && typeof Labels !== "undefined") {
+      var need = ids.filter(function (id) {
+        var it = App.findItem("book", id);
+        return it && !Labels.hasPrinted(it);
+      });
+      if (need.length) {
+        App.confirm(need.length + " من الكتب ليس عليها باركود مطبوع وتحتاج لاصقات.\n\n" +
+          "هل نطبعها الآن؟", function () { Labels.forItems(need); }, { yes: "اطبع اللاصقات" });
+      } else {
+        App.toast("كل الكتب لها باركود مطبوع — لا تحتاج لاصقات.");
+      }
+    }
+    bulkRows = [];
+  }
+
+  function addCatIfNew(listKey, val) {
+    var arr = S().meta[listKey];
+    if (Array.isArray(arr) && val && arr.indexOf(val) < 0) arr.push(val);
+  }
+
   function smartPaste() {
     var box = document.createElement("div");
     box.innerHTML =
@@ -876,6 +1181,7 @@ var Inv = (function () {
       (isB ? "اختر دار النشر ليُحسب سعر البيع تلقائياً من سعر الشراء." : "سجّل الصنف وسعره ومكانه في المحل.") + "</p>" +
       '<button class="btn primary lg" onclick="' + (isB ? "Inv.editBook()" : "Inv.editStat()") + '">+ ' +
       (isB ? "كتاب جديد" : "صنف جديد") + "</button> " +
+      (isB ? '<button class="btn" onclick="Inv.bulkPaste()">لصق دفعة كتب</button> ' : "") +
       '<button class="btn" onclick="Inv.importItems(\'' + (isB ? "book" : "stat") + '\')">استيراد من ملف</button> ' +
       '<button class="btn" onclick="Inv.exportGoods()">تصدير جدول Excel</button>' +
       "</div></div>";
@@ -1253,6 +1559,8 @@ var Inv = (function () {
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
     pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint,
     newPublisher: newPublisher, newSupplier: newSupplier,
-    smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes
+    smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes,
+    bulkPaste: bulkPaste, parseBulk: parseBulk, copyBulkPrompt: copyBulkPrompt,
+    bulkSet: bulkSet, bulkDel: bulkDel, bulkAll: bulkAll
   };
 })();

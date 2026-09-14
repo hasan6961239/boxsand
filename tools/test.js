@@ -34,7 +34,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     pg.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
     pg.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
     await pg.goto(URL, { waitUntil: 'domcontentloaded' });
-    await pg.waitForFunction(() => window.App && App.S, null, { timeout: 30000 });
+    await pg.waitForFunction(() => window.App && App.S && window.Stale && window.Labels, null, { timeout: 30000 });
     await sleep(600);
     return pg;
   };
@@ -238,13 +238,132 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('سنة غير صالحة تُرفض', bad && bad.ok === false);
   }
 
-  console.log('\n== 12. سلامة التطبيق عموماً ==');
+  console.log('\n== 12. البضاعة الراكدة ==');
+  {
+    const ago = d => { const x = new Date(); x.setDate(x.getDate() - d); return x.toISOString().slice(0, 10); };
+    const st = seed();
+    st.books = [
+      { id: 'h1', code: 'K1', title: 'كتاب يتحرّك', lib: 'A', shelf: '1', barcode: '9781111111111', cost: 10, price: 15, qty: 5, min: 2, created: ago(400), lastSold: ago(3), soldTotal: 40 },
+      { id: 'h2', code: 'K2', title: 'أساسيات الهندسة لتقنيات الورش الميكانيكية', lib: 'D', shelf: '1', barcode: 'K2', cost: 40, price: 60, qty: 8, min: 1, created: ago(500), lastSold: ago(200), soldTotal: 2 },
+      { id: 'h3', code: 'K3', title: 'لم يُبَع قط', lib: 'D', shelf: '2', barcode: '', cost: 25, price: 35, qty: 10, min: 1, created: ago(300), soldTotal: 0 },
+      { id: 'h4', code: 'K4', title: 'نفدت كميته', lib: 'A', shelf: '2', barcode: '', cost: 30, price: 45, qty: 0, min: 1, created: ago(400), soldTotal: 1 }
+    ];
+    st.stationery = [{ id: 'q1', code: 'Q1', name: 'قلم راكد', cat: 'أقلام', unit: 'قطعة', barcode: 'Q1', cost: 2, price: 4, qty: 50, min: 5, created: ago(400), lastSold: ago(150), soldTotal: 3 }];
+    await closePage(pg); writeStore(st); pg = await open();
+
+    const r = await pg.evaluate(() => Stale.rows().map(x => ({ id: x.it.id, idle: x.idle, never: x.never, frozen: x.frozen })));
+    const ids = r.map(x => x.id);
+    check('الراكد يلتقط الكتاب البطيء', ids.indexOf('h2') >= 0);
+    check('ويلتقط ما لم يُبَع قط', ids.indexOf('h3') >= 0 && r.find(x => x.id === 'h3').never === true);
+    check('ويستثني ما يتحرّك', ids.indexOf('h1') < 0);
+    check('ويستثني ما نفدت كميته', ids.indexOf('h4') < 0, 'ids=' + ids.join(','));
+    check('المال المجمّد = كمية × سعر الشراء', r.find(x => x.id === 'h2').frozen === 320);
+    check('الإجمالي صحيح', await pg.evaluate(() => Stale.frozenTotal()) === 670);
+
+    // المدة قابلة للضبط لكل نوع
+    await pg.evaluate(() => { App.S.meta.stale.bookDays = 250; App.save(); }); await sleep(400);
+    const r2 = await pg.evaluate(() => Stale.rows().map(x => x.it.id));
+    check('رفع مدة الكتب يُخرج الكتاب الأقل ركوداً', r2.indexOf('h2') < 0 && r2.indexOf('h3') >= 0, 'ids=' + r2.join(','));
+
+    // الاستثناء اليدوي
+    await pg.evaluate(() => Stale.ignore('h3')); await sleep(500);
+    check('التجاهل يُخرج الصنف', (await pg.evaluate(() => Stale.rows().map(x => x.it.id))).indexOf('h3') < 0);
+    await pg.evaluate(() => Stale.clearIgnored()); await sleep(400);
+    check('وإلغاء التجاهل يعيده', (await pg.evaluate(() => Stale.rows().map(x => x.it.id))).indexOf('h3') >= 0);
+
+    // آخر بيع يُسجَّل على الصنف عند البيع، فينجو من أرشفة الفواتير
+    await pg.evaluate(() => { App.S.meta.stale.bookDays = 120; App.save(); }); await sleep(300);
+    await pg.evaluate(() => { location.hash = '#/pos'; App.route(); }); await sleep(500);
+    await pg.fill('#scan', 'K2'); await sleep(300); await pg.keyboard.press('Enter'); await sleep(400);
+    await pg.click('button:has-text("إتمام البيع")'); await sleep(500);
+    await pg.click('button:has-text("نقداً")'); await sleep(1400);
+    const sold = await pg.evaluate(() => { const b = App.S.books.find(x => x.id === 'h2'); return { last: b.lastSold, total: b.soldTotal }; });
+    check('البيع يحدّث آخر بيع على الصنف', sold.last === new Date().toISOString().slice(0, 10), 'lastSold=' + sold.last);
+    check('ويزيد إجمالي المبيع', sold.total === 3, 'soldTotal=' + sold.total);
+    check('فيخرج من الراكد فوراً', (await pg.evaluate(() => Stale.rows().map(x => x.it.id))).indexOf('h2') < 0);
+    // وبعد أرشفة الفواتير يبقى التاريخ
+    await pg.evaluate(() => { App.S.invoices = []; App.save(); }); await sleep(500);
+    check('ويبقى بعد أرشفة الفواتير', await pg.evaluate(() => App.S.books.find(x => x.id === 'h2').lastSold) === new Date().toISOString().slice(0, 10));
+  }
+
+  console.log('\n== 13. اللصق المتعدد ==');
+  {
+    await closePage(pg); writeStore(seed()); pg = await open();
+    const p1 = await pg.evaluate(() => Inv.parseBulk(
+      'أساسيات الهندسة | أحمد علي | دار الفكر | جامعي | 978-123-456-789-0\n' +
+      'الرياضيات | وزارة التعليم | | مدرسي |\n' +
+      '3. الفيزياء | سالم | دار النور | جامعي | 9789991234567'));
+    check('يقرأ ثلاثة كتب من ثلاثة أسطر', p1.length === 3, 'got ' + p1.length);
+    check('ويوزّع الحقول صحيحاً', p1[0].title === 'أساسيات الهندسة' && p1[0].author === 'أحمد علي' && p1[0].cat === 'جامعي');
+    check('وينظّف ISBN من الشرطات', p1[0].barcode === '9781234567890', 'got ' + p1[0].barcode);
+    check('ويزيل الترقيم من أول السطر', p1[2].title === 'الفيزياء', 'got ' + p1[2].title);
+    const p2 = await pg.evaluate(() => Inv.parseBulk('اسم الكتاب: كتاب أ\nالمؤلف: فلان\n---\nاسم الكتاب: كتاب ب\nالمؤلف: علان'));
+    check('ويفهم الفقرات المعنونة أيضاً', p2.length === 2, 'got ' + p2.length);
+
+    // التدفّق الكامل
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(500);
+    await pg.click('button:has-text("لصق دفعة كتب")'); await sleep(600);
+    await pg.fill('#bulkBox', 'تاريخ ليبيا | محمد | دار الكتاب | متنوع |\nالجبر | سالم | | مدرسي | 9789991234567');
+    await pg.fill('#bulkQty', '٥');                       // أرقام عربية
+    await pg.click('#modalHost button:has-text("التالي")'); await sleep(900);
+    check('المعاينة تعرض الكتابين', await pg.evaluate(() => document.querySelectorAll('#bulkPrev tbody tr').length) === 2);
+    await pg.evaluate(() => { Inv.bulkAll('price', 20); Inv.bulkAll('cost', 12); }); await sleep(400);
+    await pg.click('#modalHost button:has-text("حفظ كل الكتب")'); await sleep(1800);
+    const saved = await pg.evaluate(() => App.S.books.slice(-2).map(x => ({ t: x.title, q: x.qty, p: x.price, c: x.cost, lib: x.lib })));
+    check('حُفظ الكتابان', saved.length === 2 && saved[0].t === 'تاريخ ليبيا');
+    check('والكمية بالأرقام العربية قُرئت 5', saved[0].q === 5 && saved[1].q === 5, JSON.stringify(saved.map(x => x.q)));
+    check('والسعر الموحّد طُبّق على الكل', saved.every(x => x.p === 20 && x.c === 12));
+    const dlg = await pg.$eval('#modalHost', e => e.innerText).catch(() => '');
+    check('ويعرض طباعة اللاصقات لمن يحتاجها فقط', dlg.indexOf('1 من الكتب') >= 0, dlg.slice(0, 80).replace(/\n/g, ' '));
+    await pg.click('#modalHost button:has-text("إلغاء")').catch(() => { });
+    await sleep(400);
+  }
+
+  console.log('\n== 14. لاصقات الباركود ==');
+  {
+    const shorts = await pg.evaluate(() => [
+      Labels.shortName('أساسيات الهندسة لتقنيات الورش الميكانيكية', 22),
+      Labels.shortName('الرياضيات', 22),
+      Labels.shortName('Introduction to Modern Physics for Engineers', 22)
+    ]);
+    check('الاسم الطويل يُختصر عند كلمة كاملة', shorts[0] === 'أساسيات الهندسة', 'got "' + shorts[0] + '"');
+    check('والقصير يبقى كما هو', shorts[1] === 'الرياضيات');
+    check('ولا يقطع وسط كلمة إنجليزية', shorts[2] === 'Introduction to Modern', 'got "' + shorts[2] + '"');
+
+    const printed = await pg.evaluate(() => ({
+      isbn13: Labels.hasPrinted({ barcode: '9781111111111' }),
+      isbnDash: Labels.hasPrinted({ barcode: '978-1-234-5678-90' }),
+      own: Labels.hasPrinted({ barcode: 'K0002' }),
+      none: Labels.hasPrinted({ barcode: '' })
+    }));
+    check('يميّز باركود ISBN المطبوع', printed.isbn13 === true && printed.isbnDash === true);
+    check('ولا يخلطه بكود المنظومة', printed.own === false && printed.none === false);
+
+    await pg.evaluate(() => { location.hash = '#/labels'; App.route(); }); await sleep(700);
+    await pg.evaluate(() => {
+      const ids = App.S.books.filter(x => !Labels.hasPrinted(x)).slice(0, 2).map(x => x.id);
+      ids.forEach(id => Labels.toggle(id, 2));
+    }); await sleep(500);
+    await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1500);
+    const lab = await pg.evaluate(() => ({
+      n: document.querySelectorAll('#modalHost .lbl-one').length,
+      svg: document.querySelectorAll('#modalHost .lbl-one svg rect').length,
+      names: [...document.querySelectorAll('#modalHost .lbl-name')].map(e => e.textContent)
+    }));
+    check('تُرسم 4 لاصقات (صنفان × نسختان)', lab.n === 4, 'got ' + lab.n);
+    check('وكل لاصقة فيها باركود مرسوم', lab.svg > 40, 'rects=' + lab.svg);
+    check('والاسم مطبوع فوق الباركود', lab.names.length === 4 && lab.names[0].length > 0, JSON.stringify(lab.names[0]));
+    await pg.click('#modalHost button:has-text("إغلاق")').catch(() => { });
+    await sleep(300);
+  }
+
+  console.log('\n== 15. سلامة التطبيق عموماً ==');
   writeStore(seed());
   await closePage(pg); pg = await open();
-  for (const k of ['dash','pos','invoices','stocktake','stock','purchases','alerts','customers','consign','suppliers','profits','notify','settings']) {
+  for (const k of ['dash','pos','invoices','stocktake','stock','purchases','alerts','stale','labels','customers','consign','suppliers','profits','notify','settings']) {
     await pg.evaluate(x => { location.hash = '#/' + x; App.route(); }, k); await sleep(300);
   }
-  check('13 شاشة بلا خطأ JavaScript', errs.length === 0, errs.slice(0, 4).join(' | '));
+  check('15 شاشة بلا خطأ JavaScript', errs.length === 0, errs.slice(0, 4).join(' | '));
 
   await b.close();
   console.log('\n' + '='.repeat(50));
