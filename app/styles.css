@@ -756,9 +756,57 @@ body.th-slate  #rail { background:#1B222A; }
   .block-bar .spacer{display:none}
 }
 
-/* نقطة الصنف الذي لم تُطبع لاصقته بعد */
+/* نقطة الصنف الذي لم تُطبع لاصقته بعد — واضحة بلا أن تصرخ */
 .lbl-dot{
-  color:#A4232B;font-size:11px;margin-inline-end:6px;
-  vertical-align:middle;line-height:1;
+  display:inline-block;width:9px;height:9px;border-radius:50%;
+  background:#D32F2F;box-shadow:0 0 0 2px rgba(211,47,47,.18);
+  margin-inline-end:7px;vertical-align:middle;
+  font-size:0;line-height:0;flex-shrink:0;
 }
 .nav-item .count.bad{background:#A4232B;color:#fff}
+
+/* ---------- عرض البطاقات في المخزون ---------- */
+.item-cards{
+  display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+}
+.item-card{
+  border:1px solid var(--line,#D9E0E5);border-radius:var(--r,12px);
+  padding:13px 14px;background:var(--card,#fff);
+  display:flex;flex-direction:column;gap:7px;
+}
+.item-card.low{border-color:#E8D5A8;background:#FFFDF7}
+.item-card.out{border-color:#E8B4B4;background:#FFFAFA}
+.item-card .ic-top{display:flex;align-items:center;gap:0}
+.item-card .ic-name{
+  font-size:15px;font-weight:700;line-height:1.45;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.item-card .ic-sub{
+  font-size:12.5px;color:var(--muted,#6B7A87);line-height:1.6;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.item-card .ic-chips{display:flex;flex-wrap:wrap;gap:5px}
+.item-card .ic-nums{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+  background:var(--line,#D9E0E5);border:1px solid var(--line,#D9E0E5);
+  border-radius:8px;overflow:hidden;margin-top:2px;
+}
+.item-card .ic-nums div{
+  background:var(--card,#fff);padding:7px 6px;text-align:center;min-width:0;
+}
+.item-card .ic-nums span{
+  display:block;font-size:10.5px;color:var(--muted,#6B7A87);margin-bottom:2px;
+}
+.item-card .ic-nums b{
+  font-size:14px;display:block;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.item-card .ic-nums b.sm{font-size:11.5px}
+.item-card .ic-acts{
+  display:flex;gap:6px;flex-wrap:wrap;
+  border-top:1px solid var(--line-soft,#EEF1F3);padding-top:9px;margin-top:2px;
+}
+@media(max-width:640px){
+  .item-cards{grid-template-columns:1fr}
+}

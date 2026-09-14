@@ -47,7 +47,7 @@ var Inv = (function () {
     var libs = S().meta.libraries;
     var h = '<div class="row" style="margin-bottom:14px">' +
       '<div class="search-wrap"><span class="mag">⌕</span>' +
-      '<input class="inp" id="bq" placeholder="ابحث باسم الكتاب أو المؤلف أو الباركود…" value="' + App.esc(f.q) + '" oninput="Inv.setF(\'q\',this.value)"></div>' +
+      '<input class="inp" id="bq" placeholder="ابحث أو امسح الباركود…" value="' + App.esc(f.q) + '" oninput="Inv.setF(\'q\',this.value)"></div>' +
 
       '<select class="inp" style="width:auto" onchange="Inv.setF(\'lib\',this.value)"><option value="">كل المكتبات</option>' +
       libs.map(function (l) { return '<option value="' + App.esc(l) + '"' + (f.lib === l ? " selected" : "") + ">مكتبة " + App.esc(l) + "</option>"; }).join("") + "</select>" +
@@ -62,8 +62,9 @@ var Inv = (function () {
       "</select>" +
 
       '<div class="spacer"></div>' +
-      '<div class="seg" style="width:210px">' +
+      '<div class="seg" style="width:290px">' +
       '<button class="' + (f.view === "table" ? "on" : "") + '" onclick="Inv.setF(\'view\',\'table\')">جدول</button>' +
+      '<button class="' + (f.view === "cards" ? "on" : "") + '" onclick="Inv.setF(\'view\',\'cards\')">بطاقات</button>' +
       '<button class="' + (f.view === "map" ? "on" : "") + '" onclick="Inv.setF(\'view\',\'map\')">خريطة الرفوف</button>' +
       "</div>" +
       '<button class="btn" onclick="Inv.exportGoods(\'book\')">تصدير Excel</button>' +
@@ -72,8 +73,16 @@ var Inv = (function () {
       "</div>" +
       '<div class="card"><div id="invBody"></div></div>';
 
-    setTimeout(paintBooks, 0);
+    setTimeout(function () { paintBooks(); bindScan("bq"); }, 0);
     return h;
+  }
+
+  /* حقل البحث يتعامل مع مكينة قارئ الباركود: الرمز الجديد يمسح القديم */
+  function bindScan(id) {
+    var el = document.getElementById(id);
+    if (el && App.scanField) App.scanField(el, function (v) {
+      if (id === "bq") setF("q", v); else setG("q", v);
+    });
   }
 
   /* نقطة حمراء بجانب اسم الصنف الذي لم تُطبع لاصقته بعد */
@@ -102,10 +111,52 @@ var Inv = (function () {
     });
   }
 
+  /* ---------- عرض البطاقات ----------
+     الجدول أكثف، والبطاقات أوضح للعين على شاشة كبيرة أو عند المرور
+     السريع على الرف. الاختيار محفوظ فلا يُعاد كل مرة. */
+  function cardsHtml(rows, type) {
+    if (!rows.length) {
+      return '<div class="empty"><div class="big">▣</div><h4>لا نتائج</h4>' +
+        "<p>غيّر البحث أو الفلتر.</p></div>";
+    }
+    var isB = type === "book";
+    var h = '<div class="item-cards">';
+    rows.forEach(function (x) {
+      var st = App.stockState(x);
+      h += '<div class="item-card ' + (st === "out" ? "out" : (st === "low" ? "low" : "")) + '">' +
+        '<div class="ic-top">' + lblMark(x) +
+        '<b class="ic-name">' + App.esc(App.itemName(x)) + "</b></div>" +
+        '<div class="ic-sub">' + App.esc(x.author || x.brand || "—") +
+        (x.publisher ? " · " + App.esc(x.publisher) : "") + "</div>" +
+        '<div class="ic-chips">' +
+        (isB ? App.locChip(x) : '<span class="badge">' + App.esc(x.loc || "—") + "</span>") +
+        (x.cat ? '<span class="badge">' + App.esc(x.cat) + "</span>" : "") +
+        App.stockBadge(x) +
+        "</div>" +
+        '<div class="ic-nums">' +
+        '<div><span>البيع</span><b>' + App.money0(x.price) + "</b></div>" +
+        '<div><span>الكمية</span><b>' + App.num(x.qty) + "</b></div>" +
+        '<div><span>الرمز</span><b class="num sm">' +
+        App.esc(x.barcode || x.code || "—") + "</b></div>" +
+        "</div>" +
+        '<div class="ic-acts">' +
+        '<button class="btn sm" onclick="Inv.addStock(\'' + type + "','" + x.id + '\')">+ كمية</button>' +
+        '<button class="btn sm" onclick="Inv.' + (isB ? "editBook" : "editStat") + "('" + x.id + '\')">تعديل</button>' +
+        '<button class="btn sm ghost" onclick="Labels.one(\'' + type + "','" + x.id + '\')">⌷ لاصقة</button>' +
+        '<button class="btn sm ghost" onclick="Inv.del(\'' + type + "','" + x.id + '\')">حذف</button>' +
+        "</div></div>";
+    });
+    return h + "</div>";
+  }
+
   function paintBooks() {
     var host = document.getElementById("invBody");
     if (!host) return;
     if (f.view === "map") { host.innerHTML = '<div class="card-body">' + shelfMap() + "</div>"; return; }
+    if (f.view === "cards") {
+      host.innerHTML = '<div class="card-body">' + cardsHtml(filteredBooks(), "book") + "</div>";
+      return;
+    }
 
     var rows = filteredBooks();
     host.innerHTML = App.table([
@@ -326,7 +377,9 @@ var Inv = (function () {
         { k: "lib", label: "المكتبة (الخزانة)", type: "select", options: S().meta.libraries },
         { k: "shelf", label: "رقم الرف", type: "select", options: shelfOptions() },
         { k: "cat", label: "التصنيف", type: "select", options: catOptions("book", lb.cat) },
-        { k: "barcode", label: "الباركود", required: true, hint: "امسحه بالقارئ داخل الحقل" },
+        /* ليس إلزامياً: يُسجَّل الكتاب بلا باركود، ويُولَّد له رمز عند
+           طباعة لاصقته من تبويب «طباعة اللاصقات». */
+        { k: "barcode", label: "الباركود", hint: "امسحه بالقارئ، أو اتركه فارغاً ليُولَّد عند طباعة اللاصقة" },
         { k: "cost", label: "سعر الشراء من المورّد", type: "money", min: 0 },
         { k: "price", label: "سعر البيع قطاعي", type: "money", min: 0, required: true, hint: "اكتبه واختر دار النشر ليُحسب سعر الجملة" },
         { k: "priceW", label: "سعر البيع جملة", type: "money", min: 0, hint: "يُحسب تلقائياً من نسبة دار النشر — أو اكتبه بيدك" },
@@ -941,7 +994,7 @@ var Inv = (function () {
   function stationery() {
     var h = '<div class="row" style="margin-bottom:14px">' +
       '<div class="search-wrap"><span class="mag">⌕</span>' +
-      '<input class="inp" placeholder="ابحث باسم الصنف أو الماركة أو الباركود…" value="' + App.esc(g.q) + '" oninput="Inv.setG(\'q\',this.value)"></div>' +
+      '<input class="inp" id="sq" placeholder="ابحث أو امسح الباركود…" value="' + App.esc(g.q) + '" oninput="Inv.setG(\'q\',this.value)"></div>' +
 
       '<select class="inp" style="width:auto" onchange="Inv.setG(\'cat\',this.value)"><option value="">كل التصنيفات</option>' +
       S().meta.statCats.map(function (c) { return '<option value="' + App.esc(c) + '"' + (g.cat === c ? " selected" : "") + ">" + App.esc(c) + "</option>"; }).join("") + "</select>" +
@@ -952,12 +1005,16 @@ var Inv = (function () {
       '<option value="out"' + (g.st === "out" ? " selected" : "") + ">نفدت</option></select>" +
 
       '<div class="spacer"></div>' +
+      '<div class="seg" style="width:190px">' +
+      '<button class="' + (g.view !== "cards" ? "on" : "") + '" onclick="Inv.setG(\'view\',\'table\')">جدول</button>' +
+      '<button class="' + (g.view === "cards" ? "on" : "") + '" onclick="Inv.setG(\'view\',\'cards\')">بطاقات</button>' +
+      "</div>" +
       '<button class="btn" onclick="Inv.exportGoods(\'stat\')">تصدير Excel</button>' +
       '<button class="btn" onclick="Inv.importItems(\'stat\')">استيراد</button>' +
       '<button class="btn primary" onclick="Inv.editStat()">+ صنف جديد</button>' +
       "</div>" +
       '<div class="card"><div id="invBody"></div></div>';
-    setTimeout(paintStat, 0);
+    setTimeout(function () { paintStat(); bindScan("sq"); }, 0);
     return h;
   }
 
@@ -974,6 +1031,11 @@ var Inv = (function () {
       }
       return true;
     });
+
+    if (g.view === "cards") {
+      host.innerHTML = '<div class="card-body">' + cardsHtml(rows, "stat") + "</div>";
+      return;
+    }
 
     host.innerHTML = App.table([
       {
@@ -1032,7 +1094,9 @@ var Inv = (function () {
         },
         { k: "unit", label: "وحدة البيع", type: "select", options: S().meta.units },
         { k: "loc", label: "المكان في المحل", list: uniq(S().stationery, "loc"), hint: "مثال: الرف الزجاجي / الدرج 2" },
-        { k: "barcode", label: "الباركود", required: true, hint: "امسحه بالقارئ داخل الحقل" },
+        /* ليس إلزامياً: يُسجَّل الكتاب بلا باركود، ويُولَّد له رمز عند
+           طباعة لاصقته من تبويب «طباعة اللاصقات». */
+        { k: "barcode", label: "الباركود", hint: "امسحه بالقارئ، أو اتركه فارغاً ليُولَّد عند طباعة اللاصقة" },
         { k: "cost", label: "سعر الشراء من المورّد", type: "money", min: 0 },
         { k: "price", label: "سعر البيع قطاعي", type: "money", min: 0, required: true, hint: "اكتبه واختر دار النشر ليُحسب سعر الجملة" },
         { k: "priceW", label: "سعر البيع جملة", type: "money", min: 0, hint: "يُحسب تلقائياً من نسبة دار النشر — أو اكتبه بيدك" },

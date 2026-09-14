@@ -995,6 +995,34 @@ var App = (function () {
 
   function rerender() { route(); paintBlockBar(); }
 
+  /* ---------- حقل بحث يفهم قارئ الباركود ----------
+     القارئ يكتب الرمز دفعة سريعة ثم Enter. بلا هذا يبقى الرمز السابق
+     في الحقل فيلتصق به الجديد ولا يطابق شيئاً. هنا: بعد Enter — أو بعد
+     سكون يعقبه إدخال جديد — يُمسح القديم وحده. */
+  function scanField(el, onEnter) {
+    if (!el || el.__scan) return;
+    el.__scan = true;
+    var lastAt = 0, done = false;
+
+    el.addEventListener("keydown", function (e) {
+      var now = Date.now();
+      var typing = e.key && e.key.length === 1;
+
+      if (typing && el.value) {
+        // إدخال مكتمل سابقاً، أو بداية دفعة جديدة بعد سكون
+        if (done || now - lastAt > 700) { el.value = ""; done = false; }
+      }
+      if (typing) lastAt = now;
+
+      if (e.key === "Enter") {
+        e.preventDefault();
+        done = true;
+        if (onEnter) onEnter(el.value.trim(), el);
+      }
+    });
+    el.addEventListener("focus", function () { try { el.select(); } catch (x) { } });
+  }
+
   /* ---------- الساعة ---------- */
 
   function tickClock() {
@@ -1181,7 +1209,7 @@ var App = (function () {
     money: money, money0: money0, norm: norm,
     api: api, apiJson: apiJson,
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
-    paintBlockBar: paintBlockBar, setProfitCode: setProfitCode,
+    paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,
     today: today, nowStamp: nowStamp, dateAr: dateAr, log: log,
     listOf: listOf, itemName: itemName, findItem: findItem, allItems: allItems,
     stockState: stockState, stockBadge: stockBadge, lowCount: lowCount, sellPrice: sellPrice,

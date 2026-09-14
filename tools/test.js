@@ -482,7 +482,8 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await pg.evaluate(() => Labels.toggle('n1', 1)); await sleep(400);
     await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1500);
     const bc1 = await pg.evaluate(() => App.S.books.find(b => b.id === 'n1').barcode);
-    check('وُلِّد باركود وحُفظ على الكتاب', /^LIB-\d{6}$/.test(bc1), 'barcode=' + bc1);
+    // الصيغة صارت رقمية بحتة ليضغطها CODE128 وتُقرأ على اللاصقات الصغيرة
+    check('وُلِّد باركود وحُفظ على الكتاب', /^\d{8}$/.test(bc1), 'barcode=' + bc1);
     const onLabel = await pg.evaluate(() =>
       [...document.querySelectorAll('#modalHost .lbl-bc svg text')].map(t => t.textContent).join('|'));
     check('ونفس الباركود مطبوع على اللاصقة', onLabel.indexOf(bc1) >= 0, 'label=' + onLabel);
@@ -504,7 +505,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await pg.evaluate(() => Labels.markOne('n3')); await sleep(700);
     const n3 = await pg.evaluate(() => App.S.books.find(b => b.id === 'n3'));
     check('زر السطر يعلّمه كمطبوع', !!n3.labelPrinted);
-    check('ويولّد له باركود أيضاً', /^LIB-\d{6}$/.test(n3.barcode), 'barcode=' + n3.barcode);
+    check('ويولّد له باركود أيضاً', /^\d{8}$/.test(n3.barcode), 'barcode=' + n3.barcode);
 
     // تعليم الكل جماعياً
     check('بقي واحد فقط بلا طباعة', await pg.evaluate(() => Labels.pendingCount()) === 1);
@@ -513,6 +514,112 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('الزر الجماعي يفرّغ القائمة', await pg.evaluate(() => Labels.pendingCount()) === 0);
     check('وكل كتاب صار له باركود', await pg.evaluate(() =>
       App.S.books.every(b => String(b.barcode || '').trim().length > 0)));
+  }
+
+  console.log('\n== 14ب2ب. لاصقة 30×25 وقابلية القراءة ==');
+  {
+    await closePage(pg); writeStore(seed()); pg = await open();
+
+    /* عرض الوحدة هو ما يحكم قراءة القارئ. الرمز الحرفي على لاصقة 30 مم
+       ينزل تحت الحد الآمن، والرقمي لا — لأن CODE128 يضغط الأرقام. */
+    const f = await pg.evaluate(() => ({
+      num30: Labels.fit('47392015', 30),
+      alpha30: Labels.fit('LIB-473920', 30),
+      num50: Labels.fit('47392015', 50),
+      isbn30: Labels.fit('9780323672658', 30)
+    }));
+    check('الرمز الرقمي يُقرأ على 30 مم', f.num30.safe === true, f.num30.mm.toFixed(3) + ' mm');
+    check('والحرفي لا يُقرأ عليها', f.alpha30.safe === false, f.alpha30.mm.toFixed(3) + ' mm');
+    check('والرقمي أعرض عموداً من الحرفي', f.num30.mm > f.alpha30.mm * 1.5);
+    check('واللاصقة الأوسع أريح', f.num50.mm > f.num30.mm);
+    check('وISBN يمرّ على 30 مم', f.isbn30.safe === true, f.isbn30.mm.toFixed(3) + ' mm');
+
+    const gen = await pg.evaluate(() => { const t = {}; return [0, 1, 2].map(() => Labels.newBarcode(t)); });
+    check('الباركود المولَّد أرقام فقط', gen.every(c => /^\d+$/.test(c)), gen.join(','));
+    check('وطوله 8 أرقام فلا يلتبس بـISBN', gen.every(c => c.length === 8), gen.join(','));
+    check('ولا يتكرر', new Set(gen).size === 3);
+
+    // اللاصقة نفسها
+    await pg.evaluate(() => {
+      App.S.meta.label = { w: 30, h: 25, maxChars: 18, showPrice: true, showLoc: false, prefix: '' };
+      App.S.books = [{ id: 'z1', code: 'K1', title: 'كتاب اختبار اللاصقة الصغيرة', lib: 'A', shelf: '1', barcode: '', cost: 10, price: 25, qty: 3, min: 1 }];
+      App.saveNow();
+    }); await sleep(700);
+    await pg.evaluate(() => { location.hash = '#/labels'; App.route(); }); await sleep(700);
+    await pg.evaluate(() => Labels.toggle('z1', 1)); await sleep(400);
+    await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1500);
+    const lab = await pg.evaluate(() => ({
+      n: document.querySelectorAll('#modalHost .lbl-one').length,
+      price: (document.querySelector('#modalHost .lbl-price') || {}).textContent || '',
+      name: (document.querySelector('#modalHost .lbl-name') || {}).textContent || '',
+      bars: document.querySelectorAll('#modalHost .lbl-bc svg rect').length,
+      bc: App.S.books[0].barcode
+    }));
+    check('اللاصقة فيها السعر', lab.price.indexOf('25') >= 0, JSON.stringify(lab.price));
+    check('وفيها الاسم فوق الباركود', lab.name.length > 0, JSON.stringify(lab.name));
+    // JsBarcode يدمج الوحدات المتجاورة في مستطيل واحد، والرمز الرقمي
+    // المضغوط يحتاج أعمدة أقل من الحرفي — 23 مستطيلاً لثمانية أرقام
+    check('والباركود مرسوم', lab.bars > 15, 'rects=' + lab.bars);
+    check('ووُلِّد رقمياً وحُفظ', /^\d{8}$/.test(lab.bc), 'bc=' + lab.bc);
+    await pg.click('#modalHost button:has-text("إغلاق")').catch(() => { });
+    await sleep(300);
+  }
+
+  console.log('\n== 14ب2ج. تسجيل كتاب بلا باركود ==');
+  {
+    await pg.evaluate(() => { App.S.books = []; App.saveNow(); }); await sleep(500);
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(600);
+    await pg.click('button:has-text("+ كتاب جديد")'); await sleep(600);
+    await pg.fill('#f_title', 'كتاب بلا باركود');
+    await pg.fill('#f_price', '25');
+    await pg.fill('#f_qty', '4');
+    await pg.click('#modalHost button:has-text("حفظ")'); await sleep(1300);
+    const b = await pg.evaluate(() => App.S.books[0] || null);
+    check('يُحفظ الكتاب بخانة باركود فارغة', !!b && b.title === 'كتاب بلا باركود', b ? b.title : 'لم يُحفظ');
+    check('والباركود فارغ فعلاً', b && !String(b.barcode || '').trim(), b ? JSON.stringify(b.barcode) : '');
+    // العدّاد يشمل القرطاسية أيضاً، فنحصر الفحص على الكتب
+    const bookPending = await pg.evaluate(() =>
+      App.S.books.filter(x => Labels.needsLabel(x)).length);
+    check('ويظهر في قائمة اللاصقات', bookPending === 1, 'pending=' + bookPending);
+  }
+
+  console.log('\n== 14ب2د. البطاقات وحقل المسح ==');
+  {
+    await pg.evaluate(() => {
+      App.S.books = [
+        { id: 'c1', code: 'K1', title: 'كتاب بلا لاصقة', lib: 'A', shelf: '1', barcode: '', cost: 10, price: 15, qty: 5, min: 1 },
+        { id: 'c2', code: 'K2', title: 'كتاب بباركود', lib: 'A', shelf: '2', barcode: '47392015', cost: 10, price: 15, qty: 7, min: 1 }
+      ];
+      App.saveNow();
+    }); await sleep(600);
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(500);
+    await pg.click('#view button:has-text("عرض وتعديل")'); await sleep(700);
+
+    await pg.click('#view button:has-text("بطاقات")'); await sleep(800);
+    const cards = await pg.evaluate(() => ({
+      n: document.querySelectorAll('.item-card').length,
+      dots: document.querySelectorAll('.item-card .lbl-dot').length,
+      hasPrice: !!document.querySelector('.item-card .ic-nums')
+    }));
+    check('عرض البطاقات يرسم بطاقة لكل صنف', cards.n === 2, 'cards=' + cards.n);
+    /* النقطتان صحيحتان: النقطة تعني «لم تُطبع لاصقته»، وc2 له باركود
+       لكن لاصقته لم تُطبع بعد. الذي لا يحمل نقطة هو ما عليه باركود
+       الناشر أو ما عُلّم كمطبوع. */
+    check('والنقطة الحمراء داخل البطاقة', cards.dots === 2, 'dots=' + cards.dots);
+    check('وفيها السعر والكمية', cards.hasPrice === true);
+
+    await pg.click('#view button:has-text("جدول")'); await sleep(700);
+    check('والرجوع للجدول يعمل', await pg.evaluate(() => document.querySelectorAll('#invBody tbody tr').length) === 2);
+
+    // مكينة القارئ: الرمز الجديد يمسح القديم
+    await pg.click('#bq');
+    await pg.keyboard.type('47392015', { delay: 12 });
+    await pg.keyboard.press('Enter'); await sleep(450);
+    const v1 = await pg.$eval('#bq', e => e.value);
+    await pg.keyboard.type('99887766', { delay: 12 }); await sleep(450);
+    const v2 = await pg.$eval('#bq', e => e.value);
+    check('المسح الأول يبقى في الحقل', v1 === '47392015', JSON.stringify(v1));
+    check('والمسح الثاني يمسحه ولا يلتصق به', v2 === '99887766', JSON.stringify(v2));
   }
 
   console.log('\n== 14ب3. النقطة الحمراء في كل القوائم ==');
