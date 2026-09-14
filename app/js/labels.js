@@ -308,6 +308,31 @@ var Labels = (function () {
     });
   }
 
+  /* لاصقة صنف واحد من سطره في المخزون — بلا مرور بصفحة اللاصقات */
+  function one(type, id) {
+    var it = App.findItem(type, id);
+    if (!it) return;
+    if (!codeOf(it)) { App.toast("هذا الصنف بلا باركود ولا كود — عدّله أولاً.", "warn"); return; }
+    var L = cfg();
+    App.form({
+      title: "طباعة لاصقة — " + App.itemName(it),
+      size: "narrow",
+      values: { n: 1 },
+      fields: [{
+        k: "n", label: "عدد اللاصقات", type: "number", min: 1, full: true,
+        hint: hasPrinted(it)
+          ? "هذا الصنف عليه باركود مطبوع من الناشر — الغالب أنه لا يحتاج لاصقة."
+          : "سيُطبع «" + shortName(App.itemName(it), L.maxChars) + "» فوق الباركود."
+      }],
+      saveLabel: "معاينة وطباعة",
+      onSave: function (v) {
+        sel = {};
+        sel[id] = Math.max(1, Math.round(App.num(v.n)));
+        preview();
+      }
+    });
+  }
+
   /* يُستدعى بعد إضافة دفعة كتب: يختار الجدد ويفتح المعاينة مباشرة */
   function forItems(ids) {
     sel = {};
@@ -326,7 +351,7 @@ var Labels = (function () {
   return {
     page: page, setV: setV, more: more, settings: settings,
     toggle: toggle, setCount: setCount, selectAll: selectAll, clearSel: clearSel,
-    preview: preview, forItems: forItems,
+    preview: preview, forItems: forItems, one: one,
     shortName: shortName, hasPrinted: hasPrinted, codeOf: codeOf
   };
 })();

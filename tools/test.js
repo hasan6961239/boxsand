@@ -319,6 +319,53 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await sleep(400);
   }
 
+  console.log('\n== 13ب. كمية مستقلة لكل كتاب ==');
+  {
+    const q = await pg.evaluate(() => Inv.parseBulk(
+      'أ | مؤلف | دار | جامعي | 9781234567890 | 15\n' +
+      'ب | مؤلف | | مدرسي | | 8\n' +
+      'ج ×3 | مؤلف | دار | متنوع |\n' +
+      'د (12) | مؤلف | | أطفال |\n' +
+      'هـ | مؤلف | | متنوع |').map(x => ({ t: x.title, q: x.qty })));
+    check('الكمية من العمود السادس', q[0].q === 15 && q[1].q === 8, JSON.stringify(q.slice(0, 2)));
+    check('والكمية بصيغة ×3 مع حذفها من الاسم', q[2].q === 3 && q[2].t === 'ج', JSON.stringify(q[2]));
+    check('والكمية بصيغة (12)', q[3].q === 12 && q[3].t === 'د', JSON.stringify(q[3]));
+    check('وبلا عدد تبقى فارغة', q[4].q === null);
+
+    await pg.evaluate(() => { App.S.books = []; App.saveNow(); }); await sleep(500);
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(500);
+    await pg.click('button:has-text("لصق دفعة كتب")'); await sleep(600);
+    await pg.fill('#bulkBox', 'أ | م | د | جامعي | 9781234567890 | 15\nب ×8 | م | | مدرسي |\nج | م | | متنوع |');
+    await pg.fill('#bulkQty', '2');
+    await pg.click('#modalHost button:has-text("التالي")'); await sleep(900);
+    const shown = await pg.evaluate(() => [...document.querySelectorAll('.bulk-qty')].map(e => e.value));
+    check('كل كتاب بكميته، والافتراضية للباقي فقط', shown.join(',') === '15,8,2', 'got ' + shown.join(','));
+
+    // التنقّل بلوحة المفاتيح
+    await pg.evaluate(() => Inv.bulkFocusQty()); await sleep(300);
+    const f0 = await pg.evaluate(() => document.activeElement.getAttribute('data-i'));
+    await pg.keyboard.type('20'); await pg.keyboard.press('Enter'); await sleep(250);
+    const f1 = await pg.evaluate(() => document.activeElement.getAttribute('data-i'));
+    await pg.keyboard.type('7'); await pg.keyboard.press('Enter'); await sleep(250);
+    await pg.keyboard.type('4'); await pg.keyboard.press('Enter'); await sleep(350);
+    check('Enter ينتقل لخانة الكمية التالية', f0 === '0' && f1 === '1', f0 + '→' + f1);
+    const typed = await pg.evaluate(() => [...document.querySelectorAll('.bulk-qty')].map(e => e.value));
+    check('والكميات المكتوبة تُحفظ كما هي', typed.join(',') === '20,7,4', 'got ' + typed.join(','));
+
+    const bc = await pg.evaluate(() => {
+      const el = [...document.querySelectorAll('#bulkPrev input')].find(x => /^\d{5,}$/.test(x.value));
+      return el ? { v: el.value, fits: el.scrollWidth <= el.offsetWidth + 1 } : null;
+    });
+    check('خانة الباركود تسع 13 رقماً كاملة', bc && bc.v === '9781234567890' && bc.fits, JSON.stringify(bc));
+
+    await pg.evaluate(() => { Inv.bulkAll('price', 20); Inv.bulkAll('cost', 12); }); await sleep(300);
+    await pg.click('#modalHost button:has-text("حفظ كل الكتب")'); await sleep(1800);
+    const saved = await pg.evaluate(() => App.S.books.map(x => x.qty));
+    check('وتُحفظ مختلفة لكل كتاب', saved.join(',') === '20,7,4', 'got ' + saved.join(','));
+    await pg.click('#modalHost button:has-text("إلغاء")').catch(() => { });
+    await sleep(400);
+  }
+
   console.log('\n== 14. لاصقات الباركود ==');
   {
     const shorts = await pg.evaluate(() => [
@@ -355,6 +402,19 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('والاسم مطبوع فوق الباركود', lab.names.length === 4 && lab.names[0].length > 0, JSON.stringify(lab.names[0]));
     await pg.click('#modalHost button:has-text("إغلاق")').catch(() => { });
     await sleep(300);
+
+    // زر اللاصقة من سطر الصنف مباشرة
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(500);
+    await pg.click('#view button:has-text("عرض وتعديل")'); await sleep(700);
+    const nBtn = await pg.$$eval('#view button', e => e.filter(x => x.textContent.indexOf('لاصقة') >= 0).length);
+    check('كل صنف عليه زر «لاصقة» في سطره', nBtn > 0, 'buttons=' + nBtn);
+    if (nBtn) {
+      await pg.click('#view button:has-text("لاصقة")'); await sleep(700);
+      const dlg = await pg.$eval('#modalHost', e => e.innerText).catch(() => '');
+      check('ويفتح نافذة عدد اللاصقات', dlg.indexOf('عدد اللاصقات') >= 0, dlg.slice(0, 60).replace(/\n/g, ' '));
+      await pg.click('#modalHost button:has-text("إلغاء")').catch(() => { });
+      await sleep(300);
+    }
   }
 
   console.log('\n== 15. سلامة التطبيق عموماً ==');

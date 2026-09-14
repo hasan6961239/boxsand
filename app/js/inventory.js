@@ -121,6 +121,7 @@ var Inv = (function () {
         h: "", cls: "act", c: function (b) {
           return '<button class="btn sm" onclick="Inv.addStock(\'book\',\'' + b.id + '\')">+ كمية</button> ' +
             '<button class="btn sm" onclick="Inv.editBook(\'' + b.id + '\')">تعديل</button> ' +
+            '<button class="btn sm ghost" onclick="Labels.one(\'book\',\'' + b.id + '\')" title="طباعة لاصقة باركود">⌷ لاصقة</button> ' +
             '<button class="btn sm ghost" onclick="Inv.del(\'book\',\'' + b.id + '\')">حذف</button>';
         }
       }
@@ -438,7 +439,8 @@ var Inv = (function () {
     { k: "publisher", pats: ["دار النشر", "الناشر", "publisher"] },
     { k: "cat", pats: ["تصنيف الكتاب", "التصنيف", "الفئة", "category"] },
     { k: "barcode", pats: ["الباركود", "الرقم الدولي", "isbn", "barcode"] },
-    { k: "note", pats: ["ملاحظة", "ملاحظات", "الوصف", "note", "notes", "description"] }
+    { k: "note", pats: ["ملاحظة", "ملاحظات", "الوصف", "note", "notes", "description"] },
+    { k: "qty", pats: ["عدد النسخ", "الكمية", "العدد", "quantity", "qty", "copies"] }
   ];
 
   function parsePasted(text) {
@@ -493,12 +495,14 @@ var Inv = (function () {
   var BULK_PROMPT =
     "هذه صور كتب من رف واحد في مكتبة. لكل كتاب في الصور، أعطني سطراً واحداً بهذا الترتيب " +
     "مفصولاً بعلامة | وبلا أي كلام إضافي وبلا ترقيم:\n\n" +
-    "اسم الكتاب | المؤلف | دار النشر | التصنيف | الرقم الدولي ISBN إن ظهر\n\n" +
+    "اسم الكتاب | المؤلف | دار النشر | التصنيف | الرقم الدولي ISBN إن ظهر | عدد النسخ\n\n" +
     "قواعد:\n" +
     "- سطر واحد لكل كتاب، ولا تكتب عناوين أعمدة.\n" +
     "- إن لم تجد معلومة اتركها فارغة بين علامتي | متتاليتين.\n" +
     "- اكتب ISBN أرقاماً فقط بلا شرطات.\n" +
-    "- لا تكرر كتاباً ظهر في أكثر من صورة.";
+    "- عدد النسخ: اعدد كم نسخة من الكتاب نفسه ظاهرة في الصور، واترك الخانة " +
+    "فارغة إن لم تستطع العدّ بثقة.\n" +
+    "- لا تكرر الكتاب الواحد في أكثر من سطر ولو ظهر في عدة صور — اجمع نسخه في سطر واحد.";
 
   function bulkSplitFields(line) {
     if (line.indexOf("|") >= 0) return line.split("|");
@@ -539,9 +543,18 @@ var Inv = (function () {
       if (/^(اسم الكتاب|العنوان|title)\s*\|/i.test(t)) return;   // صف عناوين
       var f = bulkSplitFields(t).map(function (x) { return String(x).trim(); });
       if (!f[0]) return;
+
+      /* الكمية من العمود السادس، أو من لاحقة في آخر الاسم مثل
+         "الرياضيات ×5" أو "الرياضيات (5)" — كلاهما طبيعي عند العدّ على الرف. */
+      var title = f[0], qty = null;
+      var m = title.match(/[\s]*[x×*]\s*(\d+)\s*$/i) || title.match(/[\s]*\((\d+)\)\s*$/);
+      if (m) { qty = App.num(m[1]); title = title.slice(0, m.index).trim(); }
+      if (f[5] !== undefined && App.hasNumber(f[5])) qty = App.num(f[5]);
+
       out.push({
-        title: f[0], author: f[1] || "", publisher: f[2] || "",
-        cat: f[3] || "", barcode: (f[4] || "").replace(/[^0-9Xx]/g, "")
+        title: title, author: f[1] || "", publisher: f[2] || "",
+        cat: f[3] || "", barcode: (f[4] || "").replace(/[^0-9Xx]/g, ""),
+        qty: qty
       });
     });
     return out;
@@ -573,10 +586,13 @@ var Inv = (function () {
         return '<option value="' + App.esc(v) + '"' + (String(v) === String(lb.shelf) ? " selected" : "") +
           ">" + App.esc(t) + "</option>";
       }).join("") + "</select></div>" +
-      '<div class="field"><label class="small">كمية كل كتاب</label>' +
+      '<div class="field"><label class="small">كمية افتراضية</label>' +
       '<input class="inp num" id="bulkQty" type="text" inputmode="numeric" value="' + (App.num(lb.qty) || 1) + '"></div>' +
       "</div>" +
-      '<p class="muted small" style="margin:10px 0 0;line-height:1.8">تضبط الأسعار والكميات لكل كتاب في الخطوة التالية.</p>';
+      '<p class="muted small" style="margin:10px 0 0;line-height:1.9">' +
+      '<b>كل كتاب وكميته:</b> اكتب العدد في آخر السطر بعد علامة | الأخيرة، ' +
+      'أو ألصقه بالاسم هكذا: <span class="num">الرياضيات ×5</span>. ' +
+      'ما لا تكتب له عدداً يأخذ الكمية الافتراضية، وتعدّلها كلها في الخطوة التالية.</p>';
 
     App.modal({
       title: "لصق دفعة كتب",
@@ -592,10 +608,14 @@ var Inv = (function () {
           var shelf = ov.querySelector("#bulkShelf").value;
           var qty = Math.max(0, Math.round(App.num(ov.querySelector("#bulkQty").value)));
           bulkRows = got.map(function (g) {
+            // كمية مكتوبة مع الكتاب تغلب الافتراضية دائماً
+            var q = (g.qty !== null && g.qty !== undefined && App.num(g.qty) > 0)
+              ? App.num(g.qty) : qty;
             return {
               title: g.title, author: g.author || "", publisher: g.publisher || "",
               cat: g.cat || "", barcode: g.barcode || "", note: g.note || "",
-              lib: lib, shelf: shelf, qty: qty, cost: 0, price: 0, min: 0,
+              lib: lib, shelf: shelf, qty: q, cost: 0, price: 0, min: 0,
+              fromText: (g.qty !== null && g.qty !== undefined && App.num(g.qty) > 0),
               dupe: !!findByTitle(g.title)
             };
           });
@@ -632,6 +652,25 @@ var Inv = (function () {
     bulkPaintReview();
   }
   function bulkDel(i) { bulkRows.splice(i, 1); bulkPaintReview(); }
+
+  /* Enter / الأسهم تتنقّل بين خانات الكمية بلا فأرة */
+  function bulkQtyKey(e, i) {
+    var step = 0;
+    if (e.key === "Enter" || e.key === "ArrowDown") step = 1;
+    else if (e.key === "ArrowUp") step = -1;
+    else return;
+    e.preventDefault();
+    bulkSet(i, "qty", e.target.value);
+    setTimeout(function () {
+      var next = document.querySelector('.bulk-qty[data-i="' + (i + step) + '"]');
+      if (next) { next.focus(); next.select(); }
+    }, 0);
+  }
+
+  function bulkFocusQty() {
+    var first = document.querySelector('.bulk-qty[data-i="0"]');
+    if (first) { first.focus(); first.select(); }
+  }
 
   /* تطبيق سعر أو كمية على كل الصفوف دفعة واحدة */
   function bulkAll(k, v) {
@@ -675,7 +714,11 @@ var Inv = (function () {
       '<div class="field"><label class="small">كمية للكل</label>' +
       '<input class="inp num" style="width:90px" type="text" inputmode="numeric" placeholder="—" ' +
       'onchange="Inv.bulkAll(\'qty\',this.value)"></div>' +
-      "</div>";
+      '<button class="btn" onclick="Inv.bulkFocusQty()">اكتب الكميات</button>' +
+      "</div>" +
+      '<p class="muted small" style="margin:-4px 0 12px;line-height:1.8">' +
+      'اضغط «اكتب الكميات» ثم اكتب عدد كل كتاب واضغط Enter للانتقال للتالي. ' +
+      'الخانات الخضراء جاء عددها مع النص الملصوق.</p>';
 
     h += '<div style="max-height:46vh;overflow:auto">' + App.table([
       { h: "#", cls: "num", c: function (r, i) { return i + 1; } },
@@ -694,7 +737,8 @@ var Inv = (function () {
       },
       {
         h: "الباركود", c: function (r, i) {
-          return '<input class="inp num" style="width:130px" value="' + App.esc(r.barcode) +
+          // 13 رقم ISBN يحتاج هذا العرض كاملاً وإلا بدا مقصوصاً
+          return '<input class="inp num" style="width:152px" value="' + App.esc(r.barcode) +
             '" placeholder="امسحه" onchange="Inv.bulkSet(' + i + ',\'barcode\',this.value)">';
         }
       },
@@ -711,9 +755,14 @@ var Inv = (function () {
         }
       },
       {
+        /* عمود الكمية هو ما يُملأ يدوياً غالباً، فـEnter ينتقل للصف التالي
+           ويحدّد محتواه — تكتب 15 ثم Enter ثم 8 ثم Enter بلا لمس الفأرة. */
         h: "كمية", cls: "num", c: function (r, i) {
-          return '<input class="inp num" style="width:70px" type="text" inputmode="numeric" value="' + r.qty +
-            '" onchange="Inv.bulkSet(' + i + ',\'qty\',this.value)">';
+          return '<input class="inp num bulk-qty" data-i="' + i + '" style="width:74px' +
+            (r.fromText ? ';border-color:var(--ok,#1F6F4A)' : '') + '" type="text" inputmode="numeric" value="' + r.qty +
+            '" title="' + (r.fromText ? 'العدد جاء مع النص' : 'الكمية الافتراضية') +
+            '" onchange="Inv.bulkSet(' + i + ',\'qty\',this.value)"' +
+            ' onkeydown="Inv.bulkQtyKey(event,' + i + ')">';
         }
       },
       {
@@ -939,6 +988,7 @@ var Inv = (function () {
         h: "", cls: "act", c: function (p) {
           return '<button class="btn sm" onclick="Inv.addStock(\'stat\',\'' + p.id + '\')">+ كمية</button> ' +
             '<button class="btn sm" onclick="Inv.editStat(\'' + p.id + '\')">تعديل</button> ' +
+            '<button class="btn sm ghost" onclick="Labels.one(\'stat\',\'' + p.id + '\')" title="طباعة لاصقة باركود">⌷ لاصقة</button> ' +
             '<button class="btn sm ghost" onclick="Inv.del(\'stat\',\'' + p.id + '\')">حذف</button>';
         }
       }
@@ -1561,6 +1611,7 @@ var Inv = (function () {
     newPublisher: newPublisher, newSupplier: newSupplier,
     smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes,
     bulkPaste: bulkPaste, parseBulk: parseBulk, copyBulkPrompt: copyBulkPrompt,
-    bulkSet: bulkSet, bulkDel: bulkDel, bulkAll: bulkAll
+    bulkSet: bulkSet, bulkDel: bulkDel, bulkAll: bulkAll,
+    bulkQtyKey: bulkQtyKey, bulkFocusQty: bulkFocusQty
   };
 })();
