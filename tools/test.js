@@ -680,10 +680,55 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   }
   check('15 شاشة بلا خطأ JavaScript', errs.length === 0, errs.slice(0, 4).join(' | '));
 
-  console.log('\n== 15ب. نافذة «المشاهدة من التلفون» ==');
+  console.log('\n== 15ب. خطوات الربط تُرى قبل ضبطه ==');
   {
+    /* الخلل الذي وقع فعلاً: أزرار الربط كانت تظهر فقط بعد ضبط الربط،
+       فلا يجدها من لم يضبطه بعد — وهو بالضبط من يحتاجها. */
     await closePage(pg); writeStore(seed()); pg = await open();
-    await pg.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(600);
+    await pg.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(700);
+    const unconfigured = await pg.evaluate(() => Stock.configured());
+    check('الحالة: الربط غير مضبوط', unconfigured === false);
+    const startBtn = await pg.$('#view button:has-text("ابدأ — خطوات الربط")');
+    check('زر «ابدأ — خطوات الربط» ظاهر قبل الضبط', !!startBtn);
+
+    await startBtn.click(); await sleep(700);
+    const body = await pg.evaluate(() => {
+      const e = document.querySelector('#modalHost .m-body');
+      return e ? e.textContent : '';
+    });
+    check('الخطوات تذكر Cloudflare وأنه مجاني بلا بطاقة',
+      /Cloudflare/.test(body) && /بلا بطاقة/.test(body), body.slice(0, 80));
+    check('وتذكر SHOP_DATA وSHOP_SECRET',
+      /SHOP_DATA/.test(body) && /SHOP_SECRET/.test(body));
+    check('وتقول إن المبيعات والأرباح لا تمر عبره',
+      /لا يمر عبره/.test(body) && /أرباحك/.test(body));
+    check('وتذكر البديل بلا إنترنت (واتساب)', /واتساب/.test(body));
+    check('وتذكر الحل إن كان workers.dev محجوباً', /محجوب/.test(body));
+
+    /* زر النسخ يجب أن يجد كوداً حقيقياً لا 404 */
+    const code = await pg.evaluate(() => fetch('worker.js', { cache: 'no-store' })
+      .then(r => r.ok ? r.text() : null).catch(() => null));
+    check('كود الـWorker يُقرأ من داخل البرنامج', !!code && code.length > 500,
+      code ? ('len=' + code.length) : 'null');
+    check('وهو الكود الصحيح لا ملف آخر',
+      !!code && /SHOP_SECRET/.test(code) && /branch:/.test(code) && /expirationTtl/.test(code));
+
+    /* زر النسخ فعلاً: نمنح إذن الحافظة ثم نقرأ ما وُضع فيها */
+    await pg.context().grantPermissions(['clipboard-read', 'clipboard-write'],
+      { origin: URL.replace(/\/$/, '') }).catch(() => { });
+    await pg.click('#modalHost button:has-text("نسخ كود الـWorker")'); await sleep(700);
+    const clip = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+    check('زر النسخ يضع الكود في الحافظة فعلاً',
+      /SHOP_SECRET/.test(clip) && clip.length > 500, 'len=' + (clip || '').length);
+    const note = await pg.evaluate(() => {
+      const e = document.getElementById('wkNote'); return e ? e.textContent : '';
+    });
+    check('ويقول لك ماذا تفعل بعد النسخ', /Edit code/.test(note), note);
+    await pg.click('#modalHost .m-head button[data-x]'); await sleep(400);
+  }
+
+  console.log('\n== 15ج. نافذة «المشاهدة من التلفون» ==');
+  {
     /* بلا ربط: يجب أن يقودك لإعداده لا أن يعطيك عنواناً فارغاً */
     await pg.evaluate(() => Stock.phoneView()); await sleep(600);
     const guided = await pg.$('#modalHost .modal h3');

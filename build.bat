@@ -46,6 +46,8 @@ REM --- الواجهة تُدمج داخل الملف التنفيذي، فلا 
 set RES=/resource:app\index.html,index.html
 set RES=!RES! /resource:app\styles.css,styles.css
 set RES=!RES! /resource:app\icon.png,icon.png
+REM كود الـWorker يُنسخ من داخل البرنامج، فيبقى أصلاً واحداً لا نسختين
+set RES=!RES! /resource:cloud\worker.js,worker.js
 for %%f in (jsbarcode core inventory branches notify consign count sales people stale labels reports) do (
   set RES=!RES! /resource:app\js\%%f.js,js/%%f.js
 )

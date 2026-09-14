@@ -137,6 +137,11 @@ http.createServer((req, res) => {
 
     if (p === '/') p = '/index.html';
     if (p.includes('..')) { res.writeHead(400); return res.end('bad path'); }
+    /* كود الـWorker مدمج في الـEXE باسم worker.js — نقلّد ذلك هنا */
+    if (p === '/worker.js') {
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+      return res.end(fs.readFileSync(path.join(ROOT, 'cloud', 'worker.js')));
+    }
     const root = APP + path.sep;
     const file = path.resolve(path.join(APP, p.replace(/^\/+/, '')));
     if (!file.startsWith(root)) { res.writeHead(400); return res.end('bad path'); }

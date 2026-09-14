@@ -415,9 +415,12 @@ var Stock = (function () {
 
     if (!configured()) {
       h += '<div class="card" style="margin-top:18px;border-inline-start:3px solid var(--amber)"><div class="card-body">' +
-        '<h3 style="margin:0 0 6px">اربط فرعك بالفروع الأخرى</h3>' +
-        '<p class="muted small" style="line-height:1.8;margin:0 0 12px">البيع والمخزون يعملان بدون هذا. الربط يضيف شيئاً واحداً: رؤية مخزون الفروع الأخرى وطلب تحويل البضاعة. يعمل على شكل تحديث كل بضع دقائق، وإذا انقطع الإنترنت لا يتوقف شيء.</p>' +
-        '<button class="btn primary" onclick="Stock.setupLink()">إعداد الربط</button> ' +
+        '<h3 style="margin:0 0 6px">اربط فرعك — ترى مخزونك من التلفون، وتربط فروعك</h3>' +
+        '<p class="muted small" style="line-height:1.8;margin:0 0 12px">البيع والمخزون يعملان بدون هذا. الربط يضيف شيئين: ' +
+        '<b>مشاهدة مخزونك من تلفونك</b> ولو كان محلك فرعاً واحداً، ورؤية مخزون الفروع الأخرى وطلب تحويل البضاعة. ' +
+        "يعمل على شكل تحديث كل بضع دقائق، وإذا انقطع الإنترنت لا يتوقف شيء.</p>" +
+        '<button class="btn primary" onclick="Stock.workerSetup()">ابدأ — خطوات الربط</button> ' +
+        '<button class="btn" onclick="Stock.setupLink()">عندي العنوان وكلمة السر</button> ' +
         '<button class="btn" onclick="Stock.manualExport()">تصدير لقطة مخزون</button> ' +
         '<button class="btn" onclick="Stock.manualImport()">استيراد لقطة فرع</button>' +
         "</div></div>";
@@ -425,6 +428,7 @@ var Stock = (function () {
       h += '<div class="row" style="margin-top:16px">' +
         '<button class="btn sm ghost" onclick="Stock.setupLink()">إعدادات الربط</button>' +
         '<button class="btn sm ghost" onclick="Stock.phoneView()">المشاهدة من التلفون</button>' +
+        '<button class="btn sm ghost" onclick="Stock.workerSetup()">خطوات الربط</button>' +
         '<button class="btn sm ghost" onclick="Stock.manualExport()">تصدير لقطة (واتساب)</button>' +
         '<button class="btn sm ghost" onclick="Stock.manualImport()">استيراد لقطة</button></div>';
     }
@@ -993,6 +997,89 @@ var Stock = (function () {
     });
   }
 
+  /* ---------- خطوات الربط (الـWorker) ---------- */
+
+  /* الكود نفسه مدمج في الملف التنفيذي باسم worker.js، فيُقرأ من هنا
+     ولا تُكتب منه نسخة ثانية تتخلّف عن الأصل. */
+  function workerSetup() {
+    var steps =
+      '<p class="muted small" style="line-height:1.9;margin:0 0 14px">' +
+      "لتشاهد مخزونك من التلفون تحتاج «صندوق بريد» على الإنترنت يرفع إليه " +
+      "جهازك لقطة المخزون كل بضع دقائق. أرخص وأبسط ما وجدته: " +
+      "<b>Cloudflare Workers</b> — مجاني تماماً في حدودك، بلا بطاقة ائتمان. " +
+      "تضبطه <b>مرة واحدة</b> في نحو عشر دقائق.</p>" +
+
+      '<p class="muted small" style="line-height:1.9;margin:0 0 14px;padding:10px 12px;' +
+      'background:var(--accent-wash);border-radius:8px;border-inline-start:3px solid var(--accent)">' +
+      "<b>لا يمر عبره شيء عن مبيعاتك أو زبائنك أو أرباحك.</b> فقط أسماء " +
+      "الأصناف وكمياتها وأسعار بيعها ومواقعها. سعر الشراء وأرباحك لا تغادر هذا الجهاز.</p>" +
+
+      '<ol style="line-height:2;padding-inline-start:20px;margin:0 0 16px">' +
+      "<li>سجّل في <b>dash.cloudflare.com</b> — مجاناً وبلا بطاقة.</li>" +
+      "<li><b>Storage &amp; Databases ← KV ← Create a namespace</b><br>" +
+      '<span class="muted small">سمّه بالضبط: <code>SHOP_DATA</code></span></li>' +
+      "<li><b>Compute (Workers) ← Create ← Start from Hello World</b><br>" +
+      '<span class="muted small">سمّه مثلاً <code>maktaba-sync</code> ثم Deploy</span></li>' +
+      "<li>افتح الـWorker ← <b>Edit code</b> ← امسح كل الموجود ← " +
+      "الصق الكود من الزر تحت ← <b>Deploy</b></li>" +
+      "<li><b>Settings ← Bindings ← Add ← KV Namespace</b><br>" +
+      '<span class="muted small">Variable name: <code>SHOP</code> · ' +
+      "KV namespace: <code>SHOP_DATA</code></span><br>" +
+      "ثم <b>Add ← Secret</b><br>" +
+      '<span class="muted small">Variable name: <code>SHOP_SECRET</code> · ' +
+      "Value: كلمة سر طويلة تختارها أنت</span><br>ثم Deploy مرة أخرى.</li>" +
+      "<li>انسخ عنوان الـWorker (شكله <code>https://maktaba-sync.اسمك.workers.dev</code>) " +
+      "وضعه هنا مع نفس كلمة السر من زر <b>«عندي العنوان وكلمة السر»</b>.</li>" +
+      "</ol>" +
+
+      '<div style="margin-bottom:12px">' +
+      '<button class="btn primary" onclick="Stock.copyWorker()">نسخ كود الـWorker</button> ' +
+      '<button class="btn" onclick="Stock.setupLink()">عندي العنوان وكلمة السر</button>' +
+      '<div class="muted small" id="wkNote" style="margin-top:8px"></div>' +
+      "</div>" +
+
+      '<p class="muted small" style="line-height:1.9;margin:0">' +
+      "<b>إن كان workers.dev محجوباً عند مزوّد الإنترنت عندك:</b> اربط نطاقاً " +
+      "خاصاً بك على نفس الـWorker من Settings ← Domains، وضع عنوان النطاق بدل " +
+      "عنوان workers.dev.</p>" +
+      '<p class="muted small" style="line-height:1.9;margin:8px 0 0">' +
+      "لا تريد إنترنت أصلاً؟ «تصدير لقطة مخزون» يعطيك ملفاً ترسله بواتساب، " +
+      "والفرع الآخر يستورده. يعمل بلا حساب ولا اشتراك، لكن بيدك في كل مرة.</p>";
+
+    App.modal({ title: "خطوات الربط — مرة واحدة", size: "wide", body: steps });
+  }
+
+  function copyWorker() {
+    var note = function (t, bad) {
+      var e = document.getElementById("wkNote");
+      if (e) { e.textContent = t; e.style.color = bad ? "var(--stamp)" : "var(--accent)"; }
+    };
+    fetch("worker.js", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.text();
+      })
+      .then(function (code) {
+        var ta = document.createElement("textarea");
+        ta.value = code;
+        ta.style.position = "fixed"; ta.style.top = "-2000px";
+        document.body.appendChild(ta);
+        ta.select();
+        var done = false;
+        try { done = document.execCommand("copy"); } catch (e) { done = false; }
+        document.body.removeChild(ta);
+        if (done) {
+          App.toast("نُسخ كود الـWorker — الصقه في Edit code.");
+          note("نُسخ. افتح الـWorker ← Edit code ← امسح كل الموجود ← الصق ← Deploy.");
+        } else {
+          throw new Error("copy");
+        }
+      })
+      .catch(function () {
+        note("تعذّر النسخ. الكود موجود في ملف cloud/worker.js داخل مجلد المشروع.", true);
+      });
+  }
+
   /* ---------- المشاهدة من التلفون ---------- */
 
   /* صفحة قراءة فقط تفتحها من متصفح التلفون فترى المخزون كله.
@@ -1118,6 +1205,7 @@ var Stock = (function () {
     delWhLine: delWhLine, delWarehouse: delWarehouse,
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,
+    workerSetup: workerSetup, copyWorker: copyWorker,
     snapshot: snapshot
   };
 })();
