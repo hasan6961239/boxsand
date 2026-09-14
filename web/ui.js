@@ -596,6 +596,13 @@ var UI = (function () {
       '<p class="sub">كل شيء محفوظ على هذا التلفون وحده. مسح بيانات المتصفح يمسحها.</p>' +
       '<button class="btn" onclick="UI.exportAll()">تصدير كل القائمة</button>' +
       '<button class="btn danger" onclick="UI.askWipe()">مسح القائمة كاملة</button>' +
+      "</div>" +
+
+      '<div class="card">' +
+      "<h2>عارض المخزون</h2>" +
+      '<p class="sub">صفحة أخرى في نفس الموقع: ترى فيها بضاعتك وأين هي ' +
+      "في الفروع والمخازن. للعرض فقط.</p>" +
+      '<a class="btn" href="stock.html">افتح عارض المخزون</a>' +
       "</div>";
   }
 

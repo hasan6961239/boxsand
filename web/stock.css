@@ -1,0 +1,103 @@
+/* ============================================================
+   stock.css — عارض المخزون
+   ============================================================ */
+
+#top .brand span.ok{color:#B9F0DC}
+#top .brand span.warn{color:#FFE2B0}
+#top .brand span.bad{color:#FFC9C9;font-weight:700}
+
+.icon-btn.spin{animation:sp .9s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.icon-btn.spin{animation:none;opacity:.5}}
+
+/* ---------- شريط البحث ---------- */
+#searchBar{
+  position:sticky;top:0;z-index:35;
+  background:var(--card);border-bottom:1px solid var(--line);
+  padding:10px 16px;
+}
+#searchBar .inp{min-height:46px}
+
+/* ---------- شرائح الأماكن ---------- */
+#places{
+  display:flex;gap:8px;overflow-x:auto;padding:11px 16px;
+  background:var(--card);border-bottom:1px solid var(--line);
+  scrollbar-width:none;
+}
+#places::-webkit-scrollbar{display:none}
+#places button{
+  flex:0 0 auto;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);font:inherit;font-size:13.5px;font-weight:600;
+  padding:8px 15px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  min-height:38px;
+}
+#places button.on{background:var(--green);border-color:var(--green);color:#fff}
+
+/* ---------- صف الصنف ---------- */
+.srow{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:13px 14px;margin-bottom:10px;
+}
+.srow.out{border-color:#E8B4B4;background:#FFFCFC}
+.sr-head{display:flex;align-items:flex-start;gap:12px}
+.sr-name{
+  flex:1;font-size:15.5px;line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.sr-total{
+  flex-shrink:0;background:var(--green-soft);color:var(--green);
+  font-weight:700;font-size:17px;padding:4px 12px;border-radius:9px;
+  font-variant-numeric:tabular-nums;min-width:46px;text-align:center;
+}
+.sr-total.bad{background:var(--bad-soft);color:var(--bad)}
+.sr-sub{font-size:12.5px;color:var(--muted);margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-where{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.wchip{
+  font-size:12.5px;padding:5px 10px;border-radius:8px;
+  background:var(--line-soft);color:var(--ink);line-height:1.4;
+}
+.wchip b{font-variant-numeric:tabular-nums;margin-inline-end:3px}
+.wchip.ok{background:var(--ok-soft);color:var(--ok)}
+.wchip.warn{background:var(--warn-soft);color:var(--warn)}
+.wchip.bad{background:var(--bad-soft);color:var(--bad)}
+.wchip .wloc{opacity:.75;font-size:11.5px}
+.sr-foot{
+  display:flex;gap:12px;flex-wrap:wrap;margin-top:9px;padding-top:8px;
+  border-top:1px solid var(--line-soft);
+  font-size:12.5px;color:var(--muted);
+}
+.center{text-align:center}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+
+/* ---------- تمييز البيانات القديمة ---------- */
+#places button.stale{border-color:#E8B4B4;color:var(--bad)}
+#places button.stale.on{background:var(--bad);border-color:var(--bad);color:#fff}
+#places button .age{
+  font-size:11px;opacity:.85;margin-inline-start:6px;font-weight:400;
+}
+.wchip.stale{
+  outline:1px dashed #C97B7B;outline-offset:-1px;
+}
+.wchip .wold{font-size:11px;color:var(--bad);font-weight:700}
+.wchip.bad .wold{color:inherit}
+
+/* ---------- شريط المكان عند الفلترة عليه ---------- */
+.placebar{
+  display:flex;align-items:center;gap:12px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:11px 14px;margin-bottom:12px;
+}
+.placebar.stale{border-color:#E8B4B4;background:#FFFCFC}
+.placebar > div{flex:1;min-width:0;line-height:1.45}
+.placebar b{display:block;font-size:15px}
+.placebar .pb-sub{
+  display:block;font-size:12.5px;color:var(--muted);
+}
+.placebar.stale .pb-sub{color:var(--bad)}
+.pb-call{
+  flex-shrink:0;background:var(--green);color:#fff;text-decoration:none;
+  font-size:14px;font-weight:600;padding:10px 16px;border-radius:9px;
+  min-height:42px;display:flex;align-items:center;
+}

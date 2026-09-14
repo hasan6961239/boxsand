@@ -27,8 +27,24 @@ var Stock = (function () {
         return {
           k: it.code || "", t: x.type, n: App.itemName(it), a: it.author || "",
           b: it.barcode || "", c: it.cat || "",
-          q: App.num(it.qty), p: App.num(it.price),
+          q: App.num(it.qty), p: App.num(it.price), m: App.num(it.min),
           l: it.lib || "", s: it.shelf || "", loc: it.loc || ""
+        };
+      }),
+      /* المخازن اليدوية ترافق اللقطة بأسماء أصنافها محلولة، ليعرضها
+         عارض التلفون بلا حاجة للرجوع إلى جهاز المحل. */
+      whs: (S().warehouses || []).map(function (w) {
+        return {
+          id: w.id, name: w.name || "", place: w.place || "", phone: w.phone || "",
+          items: (w.stock || []).map(function (st) {
+            var it = App.findItem(st.type, st.itemId);
+            return {
+              n: it ? App.itemName(it) : "(صنف محذوف)",
+              t: st.type, q: App.num(st.qty),
+              p: it ? App.num(it.price) : 0,
+              b: it ? (it.barcode || it.code || "") : ""
+            };
+          })
         };
       }),
       msgs: S().outbox.slice(0, 400)
@@ -408,6 +424,7 @@ var Stock = (function () {
     } else {
       h += '<div class="row" style="margin-top:16px">' +
         '<button class="btn sm ghost" onclick="Stock.setupLink()">إعدادات الربط</button>' +
+        '<button class="btn sm ghost" onclick="Stock.phoneView()">المشاهدة من التلفون</button>' +
         '<button class="btn sm ghost" onclick="Stock.manualExport()">تصدير لقطة (واتساب)</button>' +
         '<button class="btn sm ghost" onclick="Stock.manualImport()">استيراد لقطة</button></div>';
     }
@@ -976,6 +993,63 @@ var Stock = (function () {
     });
   }
 
+  /* ---------- المشاهدة من التلفون ---------- */
+
+  /* صفحة قراءة فقط تفتحها من متصفح التلفون فترى المخزون كله.
+     تقرأ نفس اللقطة المرفوعة للربط، فلا خادم جديد. هذه النافذة
+     تسلّمك العنوان وكلمة السر لتنسخهما إلى التلفون بلا بحث. */
+  var VIEWER = "https://hasan6961239.github.io/boxsand/stock.html";
+
+  function phoneView() {
+    if (!configured()) {
+      App.toast("اضبط الربط أولاً — العارض يقرأ من نفس العنوان.", "warn");
+      setupLink();
+      return;
+    }
+    var fld = function (label, val, id, hint) {
+      return '<div style="margin-bottom:14px">' +
+        '<div class="muted small" style="margin-bottom:5px">' + App.esc(label) + "</div>" +
+        '<div style="display:flex;gap:8px;align-items:stretch">' +
+        '<input class="inp" id="' + id + '" readonly value="' + App.esc(val) +
+        '" style="flex:1;font-family:monospace;direction:ltr;text-align:left">' +
+        '<button class="btn sm" onclick="Stock.copyBox(\'' + id + '\')">نسخ</button></div>' +
+        (hint ? '<div class="muted small" style="margin-top:5px">' + hint + "</div>" : "") +
+        "</div>";
+    };
+    App.modal({
+      title: "المشاهدة من التلفون",
+      size: "wide",
+      body:
+        '<p class="muted small" style="line-height:1.9;margin:0 0 16px">' +
+        "افتح الرابط الأول من متصفح تلفونك، اضغط ⚙ فيه، والصق العنوان وكلمة السر. " +
+        "بعدها ترى كل بضاعتك وأين هي — في هذا الفرع وفي الفروع الأخرى وفي المخازن. " +
+        "<b>للعرض فقط:</b> لا بيع ولا تعديل ولا حذف من التلفون، ولا تظهر فيه أسعار " +
+        "الشراء ولا أرباحك.</p>" +
+        fld("١. رابط العارض (افتحه في التلفون)", VIEWER, "pvUrl") +
+        fld("٢. عنوان الربط", S().sync.url, "pvSync") +
+        fld("٣. كلمة سر الربط", S().sync.key, "pvKey",
+          "لا ترسلها في مجموعة عامة. من يملكها يرى مخزونك.") +
+        '<p class="muted small" style="line-height:1.9;margin:4px 0 0">' +
+        "يُحفظ الاثنان على ذلك التلفون وحده. ما يظهر هناك هو <b>آخر لقطة مرفوعة</b>، " +
+        "فإن كان جهاز فرع مطفأً فخبره قديم — والعارض يكتب عمر البيانات بالأحمر " +
+        "بجانب اسم الفرع حتى لا تثق برقم قديم وأنت تظنه اليوم.</p>",
+      actions: [{
+        label: "حدّث اللقطة الآن", kind: "primary",
+        click: function (close) { close(); sync(true); }
+      }]
+    });
+  }
+
+  function copyBox(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    try {
+      el.focus(); el.select();
+      document.execCommand("copy");
+      App.toast("نُسخ.");
+    } catch (e) { App.toast("حدّده وانسخه بالفأرة.", "warn"); }
+  }
+
   /* ---------- التبادل اليدوي (بلا إنترنت) ---------- */
 
   function manualExport() {
@@ -1043,6 +1117,7 @@ var Stock = (function () {
     addWarehouse: addWarehouse, addToWarehouse: addToWarehouse, editWhQty: editWhQty,
     delWhLine: delWhLine, delWarehouse: delWarehouse,
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
+    phoneView: phoneView, copyBox: copyBox,
     snapshot: snapshot
   };
 })();
