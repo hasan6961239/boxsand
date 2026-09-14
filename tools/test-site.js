@@ -5,6 +5,22 @@ const http = require('http'), fs = require('fs'), path = require('path');
 const SITE = path.join(__dirname, '..', 'site');
 const EXE = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const MIME = {'.html':'text/html;charset=utf-8','.js':'text/javascript;charset=utf-8','.css':'text/css;charset=utf-8','.json':'application/json;charset=utf-8','.png':'image/png','.svg':'image/svg+xml'};
+
+/* الترويسات من netlify.toml نفسه، لا مكتوبة هنا بيدنا.
+   بدونها كان الاختبار يفحص الملفات لا الموقع المنشور: سياسة الأمان
+   منعت السكربت السطري على Netlify فظهرت صفحة بيضاء، والاختبار
+   يمرّ لأن خادمه لم يكن يرسل السياسة أصلاً. */
+function tomlHeaders(file) {
+  const t = fs.readFileSync(file, 'utf8');
+  const out = {};
+  for (const b of t.split(/\[\[headers\]\]/).slice(1)) {
+    const m = b.match(/for\s*=\s*"([^"]+)"/);
+    if (!m || m[1] !== '/*') continue;
+    for (const h of b.matchAll(/^\s{4}([A-Za-z-]+)\s*=\s*"([^"]*)"/gm)) out[h[1]] = h[2];
+  }
+  return out;
+}
+const HEADERS = tomlHeaders(path.join(SITE, 'netlify.toml'));
 const ago = m => new Date(Date.now()-m*60000).toISOString().slice(0,16).replace('T',' ');
 
 const PAYLOAD = { ok:true, branches:[
@@ -31,7 +47,7 @@ const srv = http.createServer((q,s)=>{
   }
   const f = path.join(SITE, u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
   if (!f.startsWith(SITE) || !fs.existsSync(f)) { s.writeHead(404); return s.end('no'); }
-  s.writeHead(200,{'content-type':MIME[path.extname(f)]||'text/plain'});
+  s.writeHead(200, Object.assign({'content-type':MIME[path.extname(f)]||'text/plain'}, HEADERS));
   s.end(fs.readFileSync(f));
 });
 
@@ -41,13 +57,32 @@ const srv = http.createServer((q,s)=>{
   const pg = await b.newPage({viewport:{width:390,height:844}});
   const errs=[]; 
   pg.on('pageerror',e=>errs.push('PAGEERROR: '+e.message));
-  pg.on('console',m=>{ if(m.type()==='error' && !/favicon|404|Failed to load resource/.test(m.text())) errs.push('console: '+m.text()); });
+  pg.on('console',m=>{
+    const t = m.text();
+    if (/Content Security Policy|Refused to/.test(t)) { errs.push('CSP: ' + t.slice(0,120)); return; }
+    if (m.type()==='error' && !/favicon|404|Failed to load resource/.test(t)) errs.push('console: '+t);
+  });
   let fail=0;
   const ok=(n,c,d)=>{console.log((c?'✓':'✗')+' '+n+(c?'':'  ← '+(d||''))); if(!c)fail++;};
   const SHOT = process.env.SHOT_DIR ? (process.env.SHOT_DIR + '/') : null;
 
   await pg.goto('http://127.0.0.1:18800/');
   await pg.waitForTimeout(500);
+
+  // 0) الترويسات تصل فعلاً، وسياسة الأمان صارمة
+  ok('سياسة الأمان مُرسَلة وصارمة',
+     /script-src 'self'/.test(HEADERS['Content-Security-Policy']||'') &&
+     !/unsafe-inline/.test(HEADERS['Content-Security-Policy']||''),
+     HEADERS['Content-Security-Policy']);
+  const inlineFree = await pg.evaluate(() => ({
+    scripts: Array.from(document.querySelectorAll('script')).filter(s2 => !s2.src).length,
+    handlers: document.querySelectorAll('[onclick],[oninput],[onchange],[onsubmit]').length
+  }));
+  ok('لا سكربت سطري في الصفحة', inlineFree.scripts === 0, JSON.stringify(inlineFree));
+  ok('ولا معالج سطري', inlineFree.handlers === 0, JSON.stringify(inlineFree));
+  ok('ولا نمط سطري (style-src صارم أيضاً)',
+     /style-src 'self'/.test(HEADERS['Content-Security-Policy']||''),
+     HEADERS['Content-Security-Policy']);
 
   // 1) شاشة الربط
   ok('شاشة الربط تظهر أولاً', await pg.isVisible('#gate') && !(await pg.isVisible('#app')));
@@ -167,7 +202,12 @@ const srv = http.createServer((q,s)=>{
   ok('يتذكّر الربط والبيانات بعد إعادة الفتح',
      await pg.isVisible('#app') && (await pg.$$eval('.row', e=>e.length))===4);
 
-  ok('لا أخطاء JavaScript', errs.length===0, errs.slice(0,3).join(' | '));
+  /* النمط السطري يُمنع بصمت: لا خطأ في التنفيذ، فقط تنسيق لا يُطبَّق.
+     لذلك نفحص الصفحة نفسها بعد أن امتلأت. */
+  const inlineStyles = await pg.$$eval('[style]', e => e.length);
+  ok('لا عنصر يحمل style سطرياً بعد الرسم', inlineStyles === 0, 'count=' + inlineStyles);
+
+  ok('لا أخطاء JavaScript ولا انتهاك لسياسة الأمان', errs.length===0, errs.slice(0,3).join(' | '));
 
   await b.close(); srv2.close();
   console.log('\n' + '='.repeat(46));

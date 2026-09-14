@@ -333,7 +333,7 @@ var UI = (function () {
     el("chips").innerHTML = defs.filter(function (d) { return d.n > 0 || d.k === ""; })
       .map(function (d) {
         return '<button class="chip' + (S.filter === d.k ? " on" : "") +
-          '" onclick="UI.setFilter(' + JSON.stringify(d.k).replace(/"/g, "&quot;") + ')">' +
+          '" data-act="filter" data-arg="' + esc(d.k) + '">' +
           esc(d.t) + '<span class="c-n">' + d.n + "</span></button>";
       }).join("");
   }
@@ -346,7 +346,7 @@ var UI = (function () {
       v.innerHTML = emptyBox("box",
         "لا توجد بيانات بعد",
         "جهاز المحل لم يرفع لقطة المخزون بعد. افتح البرنامج على الكمبيوتر واضغط «تحديث الآن» في المخزون والفروع.",
-        '<button class="btn primary" onclick="UI.refresh()">حاول مرة أخرى</button>');
+        '<button class="btn primary" data-act="refresh">حاول مرة أخرى</button>');
       el("foot").innerHTML = "";
       return;
     }
@@ -365,9 +365,9 @@ var UI = (function () {
       h += '<div class="tiles">' +
         "<div class=\"tile\"><b>" + all.length + "</b><span>صنف</span></div>" +
         "<div class=\"tile\"><b>" + pieces + "</b><span>قطعة</span></div>" +
-        '<button class="tile tap' + (low ? " warn" : "") + '" onclick="UI.setFilter(\'low\')">' +
+        '<button class="tile tap' + (low ? " warn" : "") + '" data-act="filter" data-arg="low">' +
         "<b>" + low + "</b><span>قارب على النفاد</span></button>" +
-        '<button class="tile tap' + (out ? " bad" : "") + '" onclick="UI.setFilter(\'out\')">' +
+        '<button class="tile tap' + (out ? " bad" : "") + '" data-act="filter" data-arg="out">' +
         "<b>" + out + "</b><span>نفد</span></button>" +
         "</div>";
     }
@@ -376,7 +376,7 @@ var UI = (function () {
       h += emptyBox("search", "لا نتائج",
         S.q ? "لا يوجد صنف يطابق «" + esc(S.q) + "». جرّب كلمة واحدة، أو الباركود، أو اسم المؤلف."
             : "لا يوجد صنف في هذا التصنيف.",
-        '<button class="btn" onclick="UI.reset()">اعرض الكل</button>');
+        '<button class="btn" data-act="reset">اعرض الكل</button>');
       v.innerHTML = h;
       el("foot").innerHTML = "";
       return;
@@ -390,7 +390,7 @@ var UI = (function () {
     h += '<div class="rows">' + page.map(rowHtml).join("") + "</div>";
 
     if (list.length > S.shown) {
-      h += '<button class="btn" style="width:100%;margin-top:12px" onclick="UI.more()">' +
+      h += '<button class="btn wide mt" data-act="more">' +
         "اعرض " + Math.min(PAGE, list.length - S.shown) + " أكثر " +
         '<span class="num">(' + S.shown + " من " + list.length + ")</span></button>";
     }
@@ -421,9 +421,10 @@ var UI = (function () {
     else if (g.at[0] && g.at[0].loc) tags += '<span class="tag">' + esc(g.at[0].loc) + "</span>";
     if (!g.b) tags += '<span class="tag a">بلا باركود</span>';
 
-    return '<button class="row' + (out ? " out" : "") + '" style="animation-delay:' +
-      Math.min(i * 22, 340) + 'ms" onclick="UI.open(' +
-      JSON.stringify(g.key).replace(/"/g, "&quot;") + ')">' +
+    /* تأخير الظهور يتدرّج بالصنف لا بقيمة سطرية: سياسة الأمان تمنع
+       style=""، والأصناف العشرة الأولى تكفي للإحساس بالتتابع. */
+    return '<button class="row d' + Math.min(i, 9) + (out ? " out" : "") +
+      '" data-act="open" data-arg="' + esc(g.key) + '">' +
       '<div class="row-main">' +
       '<div class="row-name">' + esc(g.n) + "</div>" +
       (sub ? '<div class="row-sub">' + esc(sub) + "</div>" : "") +
@@ -492,10 +493,10 @@ var UI = (function () {
 
     var ph = null;
     g.at.forEach(function (w) { if (!ph && w.place.phone) ph = w.place.phone; });
-    h += '<div style="display:flex;gap:8px;margin-top:18px">' +
-      (ph ? '<a class="btn" style="flex:1" href="tel:' +
+    h += '<div class="det-acts">' +
+      (ph ? '<a class="btn" href="tel:' +
         esc(String(ph).replace(/[^\d+]/g, "")) + '">اتصل بالفرع</a>' : "") +
-      '<button class="btn primary" style="flex:1" onclick="UI.closeSheet()">إغلاق</button>' +
+      '<button class="btn primary" data-act="closeSheet">إغلاق</button>' +
       "</div></div>";
 
     var s = el("sheet");
@@ -528,7 +529,7 @@ var UI = (function () {
       '<label class="fld"><span>كلمة سر الربط</span>' +
       '<input class="inp ltr" id="sKey" type="password" spellcheck="false" value="' +
       esc(S.cfg.key) + '"></label>' +
-      '<button class="btn primary" onclick="UI.saveCfg()">حفظ وتحديث</button>' +
+      '<button class="btn primary" data-act="saveCfg">حفظ وتحديث</button>' +
       "</div>";
 
     if (pls.length) {
@@ -551,16 +552,16 @@ var UI = (function () {
       h += '<div class="card"><h2>هذه النسخة</h2>' +
         '<dl class="kv"><dt>وصلت</dt><dd>' + esc(ageOf(S.snap.at).txt) + "</dd></dl>" +
         '<dl class="kv"><dt>الأصناف</dt><dd>' + countItems() + "</dd></dl>" +
-        '<p class="sub" style="margin:12px 0 0">محفوظة على هذا الجهاز وحده، فتعمل الصفحة ' +
+        '<p class="sub tight">محفوظة على هذا الجهاز وحده، فتعمل الصفحة ' +
         "بلا إنترنت. لا تُرسل لأي جهة.</p></div>";
     }
 
     h += '<div class="card"><h2>إزالة الربط</h2>' +
       '<p class="sub">يمسح العنوان وكلمة السر والنسخة المحفوظة من هذا الجهاز. ' +
       "لا يمس بيانات البرنامج على الكمبيوتر إطلاقاً.</p>" +
-      '<button class="btn danger" onclick="UI.wipe()">امسح من هذا الجهاز</button></div>';
+      '<button class="btn danger" data-act="wipe">امسح من هذا الجهاز</button></div>';
 
-    h += '<button class="btn" style="width:100%" onclick="UI.go(\'home\')">رجوع للمخزون</button>';
+    h += '<button class="btn wide" data-act="go" data-arg="home">رجوع للمخزون</button>';
     el("view").innerHTML = h;
     el("foot").innerHTML = "";
   }
@@ -669,8 +670,41 @@ var UI = (function () {
 
   /* ---------- الإقلاع ---------- */
 
+  /* كل زر يقول ما يفعله في data-act، ومستمع واحد يوزّع.
+     سياسة أمان الصفحة تمنع السكربت السطري وonclick، وهي حماية
+     مقصودة: لو تسلّل نص خبيث إلى اسم صنف لما نُفِّذ. */
+  var ACTS = {
+    go: function (a) { go(a); },
+    refresh: function () { refresh(); },
+    filter: function (a) { setFilter(a); },
+    open: function (a) { open(a); },
+    reset: function () { reset(); },
+    more: function () { more(); },
+    clearQ: function () { clearQ(); },
+    closeSheet: function () { closeSheet(); },
+    saveCfg: function () { saveCfg(); },
+    wipe: function () { wipe(); }
+  };
+
+  function onTap(e) {
+    var t = e.target;
+    while (t && t !== document.body) {
+      if (t.getAttribute) {
+        var a = t.getAttribute("data-act");
+        if (a) {
+          var fn = ACTS[a];
+          if (fn) { e.preventDefault(); fn(t.getAttribute("data-arg") || ""); }
+          return;
+        }
+      }
+      t = t.parentNode;
+    }
+  }
+
   function boot() {
     S = load();
+
+    document.addEventListener("click", onTap);
 
     var f = el("gateForm");
     if (f) f.addEventListener("submit", gateSubmit);
@@ -703,6 +737,14 @@ var UI = (function () {
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden && configured() && !busy) refresh(true);
     });
+  }
+
+  /* يبدأ وحده: الوسم <script> في آخر <body> فالمستند جاهز، ومع ذلك
+     ننتظر DOMContentLoaded احتياطاً إن نُقل الوسم يوماً إلى <head>. */
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
   }
 
   return {
