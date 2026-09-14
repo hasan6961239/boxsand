@@ -69,6 +69,48 @@ var Labels = (function () {
     return String(it.barcode || "").trim() || String(it.code || "").trim();
   }
 
+  /* ---------- «لم تُطبع لاصقته» ----------
+     الكتاب الذي عليه باركود الناشر لا يحتاج لاصقة أبداً. ما عداه يحتاج
+     واحدة حتى تُطبع فعلاً — فتُعلَّم بعلامة حمراء في المخزون حتى ذلك. */
+
+  function needsLabel(it) {
+    if (!it) return false;
+    if (hasPrinted(it)) return false;          // باركود الناشر يكفي
+    if (!codeOf(it)) return false;             // بلا كود: مشكلة أخرى، لا لاصقة
+    return !it.labelPrinted;
+  }
+
+  function pendingCount() {
+    var n = 0;
+    App.allItems().forEach(function (x) { if (needsLabel(x.it)) n++; });
+    return n;
+  }
+
+  /* علامة تُعرض بجانب اسم الصنف في قوائم المخزون */
+  function mark(it) {
+    return needsLabel(it)
+      ? '<span class="lbl-dot" title="لم تُطبع لاصقته بعد">●</span>'
+      : "";
+  }
+
+  function markPrinted(ids) {
+    var today = App.today();
+    (ids || []).forEach(function (id) {
+      var it = App.findItem("book", id) || App.findItem("stat", id);
+      if (it) it.labelPrinted = today;
+    });
+    App.save();
+  }
+
+  function unmark(type, id) {
+    var it = App.findItem(type, id);
+    if (!it) return;
+    delete it.labelPrinted;
+    App.save();
+    App.toast("عادت العلامة — الصنف بانتظار طباعة لاصقته.");
+    App.rerender();
+  }
+
   function candidates() {
     var nq = App.norm(view.q);
     var out = [];
@@ -76,8 +118,9 @@ var Labels = (function () {
       var it = x.it;
       if (!codeOf(it)) return;                       // بلا كود لا لاصقة
       var printed = hasPrinted(it);
-      if (view.kind === "need" && printed) return;
+      if (view.kind === "need" && !needsLabel(it)) return;
       if (view.kind === "printed" && !printed) return;
+      if (view.kind === "done" && !it.labelPrinted) return;
       if (nq) {
         var hay = App.norm(App.itemName(it) + " " + (it.author || "") + " " + codeOf(it));
         if (hay.indexOf(nq) < 0) return;
@@ -137,8 +180,9 @@ var Labels = (function () {
       '<input class="inp" placeholder="ابحث عن صنف…" value="' + App.esc(view.q) +
       '" oninput="Labels.setV(\'q\',this.value)"></div>' +
       '<div class="seg" style="max-width:400px">' +
-      '<button class="' + (view.kind === "need" ? "on" : "") + '" onclick="Labels.setV(\'kind\',\'need\')">تحتاج لاصقة</button>' +
-      '<button class="' + (view.kind === "printed" ? "on" : "") + '" onclick="Labels.setV(\'kind\',\'printed\')">لها باركود مطبوع</button>' +
+      '<button class="' + (view.kind === "need" ? "on" : "") + '" onclick="Labels.setV(\'kind\',\'need\')">لم تُطبع</button>' +
+      '<button class="' + (view.kind === "done" ? "on" : "") + '" onclick="Labels.setV(\'kind\',\'done\')">طُبعت</button>' +
+      '<button class="' + (view.kind === "printed" ? "on" : "") + '" onclick="Labels.setV(\'kind\',\'printed\')">باركود الناشر</button>' +
       '<button class="' + (view.kind === "all" ? "on" : "") + '" onclick="Labels.setV(\'kind\',\'all\')">الكل</button>' +
       "</div>" +
       '<div class="spacer"></div>' +
@@ -166,9 +210,13 @@ var Labels = (function () {
       { h: "الكود", c: function (r) { return '<span class="num small">' + App.esc(codeOf(r.it)) + "</span>"; } },
       {
         h: "الحالة", c: function (r) {
-          return r.printed
-            ? '<span class="badge ok">باركود مطبوع — لا تحتاج</span>'
-            : '<span class="badge warn">تحتاج لاصقة</span>';
+          if (r.printed) return '<span class="badge ok">باركود الناشر — لا تحتاج</span>';
+          if (r.it.labelPrinted) {
+            return '<span class="badge ok">طُبعت ' + App.esc(r.it.labelPrinted) + "</span> " +
+              '<button class="btn sm ghost" onclick="Labels.unmark(\'' + r.type + "','" + r.it.id +
+              '\')" title="أعِد العلامة إن لم تُلصق فعلاً">↺</button>';
+          }
+          return '<span class="badge bad">لم تُطبع</span>';
         }
       },
       { h: "بالمخزون", cls: "num", c: function (r) { return App.num(r.it.qty); } },
@@ -302,7 +350,11 @@ var Labels = (function () {
       actions: [{
         label: "طباعة الآن", kind: "primary", click: function (close) {
           App.printHtml(css + '<div class="lbl-sheet">' + body + "</div>");
+          markPrinted(ids);
           close();
+          App.toast("طُبعت " + n + " لاصقة — أُزيلت علامتها الحمراء.", "ok");
+          sel = {};
+          App.rerender();
         }
       }]
     });
@@ -352,6 +404,8 @@ var Labels = (function () {
     page: page, setV: setV, more: more, settings: settings,
     toggle: toggle, setCount: setCount, selectAll: selectAll, clearSel: clearSel,
     preview: preview, forItems: forItems, one: one,
-    shortName: shortName, hasPrinted: hasPrinted, codeOf: codeOf
+    shortName: shortName, hasPrinted: hasPrinted, codeOf: codeOf,
+    needsLabel: needsLabel, pendingCount: pendingCount, mark: mark,
+    markPrinted: markPrinted, unmark: unmark
   };
 })();

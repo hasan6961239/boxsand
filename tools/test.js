@@ -417,6 +417,75 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     }
   }
 
+  console.log('\n== 14ب. العلامة الحمراء للاصقات ==');
+  {
+    const st = seed();
+    st.books = [
+      { id: 'p1', code: 'K1', title: 'عليه باركود الناشر', lib: 'A', shelf: '1', barcode: '9781111111111', cost: 10, price: 15, qty: 5, min: 1 },
+      { id: 'p2', code: 'K2', title: 'يحتاج لاصقة', lib: 'A', shelf: '1', barcode: '', cost: 10, price: 15, qty: 5, min: 1 },
+      { id: 'p3', code: 'K3', title: 'طُبعت لاصقته', lib: 'A', shelf: '1', barcode: '', cost: 10, price: 15, qty: 5, min: 1, labelPrinted: '2026-09-01' }
+    ];
+    st.stationery = [];
+    await closePage(pg); writeStore(st); pg = await open();
+
+    const need = await pg.evaluate(() => App.S.books.map(b => Labels.needsLabel(b)));
+    check('باركود الناشر لا يحتاج لاصقة', need[0] === false);
+    check('وبلا باركود يحتاج', need[1] === true);
+    check('والمطبوع سابقاً لا يحتاج', need[2] === false, JSON.stringify(need));
+    check('العدّاد يحسب المتبقّي فقط', await pg.evaluate(() => Labels.pendingCount()) === 1);
+
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(500);
+    await pg.click('#view button:has-text("عرض وتعديل")'); await sleep(700);
+    const dots = await pg.evaluate(() => document.querySelectorAll('#view .lbl-dot').length);
+    check('النقطة الحمراء تظهر للمحتاج وحده', dots === 1, 'dots=' + dots);
+    const badge = await pg.evaluate(() => {
+      const e = document.querySelector('[data-lblcount]');
+      return e && !e.hidden ? e.textContent : null;
+    });
+    check('وشارة حمراء على تبويب اللاصقات', badge === '1', 'badge=' + badge);
+
+    // الطباعة تُزيل العلامة
+    await pg.evaluate(() => { location.hash = '#/labels'; App.route(); }); await sleep(700);
+    await pg.evaluate(() => Labels.toggle('p2', 1)); await sleep(400);
+    await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1400);
+    await pg.evaluate(() => {
+      window.print = function () { };           // لا نفتح حوار الطباعة في الاختبار
+      const b = [...document.querySelectorAll('#modalHost button')].find(x => x.textContent.indexOf('طباعة الآن') >= 0);
+      if (b) b.click();
+    });
+    await sleep(1200);
+    check('الطباعة تسجّل التاريخ على الصنف', !!await pg.evaluate(() => App.S.books.find(b => b.id === 'p2').labelPrinted));
+    check('وتُزيل العلامة الحمراء', await pg.evaluate(() => Labels.pendingCount()) === 0);
+
+    // والتراجع يعيدها
+    await pg.evaluate(() => Labels.unmark('book', 'p2')); await sleep(600);
+    check('وزر التراجع يعيد العلامة', await pg.evaluate(() => Labels.pendingCount()) === 1);
+  }
+
+  console.log('\n== 14ج. عمود الملاحظة في الاستيراد ==');
+  {
+    const csv = 'الاسم,المؤلف,الناشر,التصنيف,المكتبة,الرف,الباركود,شراء,بيع,الكمية,الحد,ملاحظة\n' +
+      'كتاب من الموقع,أحمد,دار,جامعي,A,2,9789991234567,10,18,4,1,"التخصص: تشريح\nكتاب تشريح لطلبة الطب."\n';
+    fs.writeFileSync(path.join(DATA, '..', 'imp-note.csv'), '﻿' + csv);
+    await closePage(pg); writeStore(seed()); pg = await open();
+    await pg.evaluate(() => { App.S.books = []; App.saveNow(); }); await sleep(400);
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(500);
+    await pg.click('button:has-text("استيراد من ملف")'); await sleep(600);
+    const [fc] = await Promise.all([
+      pg.waitForEvent('filechooser'),
+      pg.click('#modalHost button:has-text("اختيار الملف واستيراده")')
+    ]);
+    await fc.setFiles(path.join(DATA, '..', 'imp-note.csv'));
+    await sleep(1800);
+    const b = await pg.evaluate(() => App.S.books[0]);
+    check('الكتاب استُورد', b && b.title === 'كتاب من الموقع', b ? b.title : 'none');
+    check('والملاحظة وصلت معه', b && b.note && b.note.indexOf('تشريح') >= 0, b ? JSON.stringify(b.note) : '');
+    check('وباقي الحقول صحيحة', b && b.price === 18 && b.qty === 4 && b.barcode === '9789991234567',
+      b ? [b.price, b.qty, b.barcode].join('/') : '');
+    const needsLbl = await pg.evaluate(() => Labels.needsLabel(App.S.books[0]));
+    check('وله باركود ناشر فلا يحتاج لاصقة', needsLbl === false);
+  }
+
   console.log('\n== 15. سلامة التطبيق عموماً ==');
   writeStore(seed());
   await closePage(pg); pg = await open();

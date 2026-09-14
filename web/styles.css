@@ -1,0 +1,214 @@
+/* ============================================================
+   تسجيل الكتب — واجهة تُستعمل بيد واحدة وأنت واقف عند الرف.
+   الأزرار كبيرة، والحقول تحت الإبهام، والألوان من هوية المنظومة.
+   ============================================================ */
+
+:root{
+  --green:#0E6E62;
+  --green-d:#0B564C;
+  --green-soft:#E3F0ED;
+  --ink:#17222E;
+  --muted:#6B7A87;
+  --paper:#F4F1EA;
+  --card:#FFFFFF;
+  --line:#D9E0E5;
+  --line-soft:#EAEFF2;
+  --bad:#A4232B;
+  --bad-soft:#FBEAEA;
+  --warn:#9C5A0E;
+  --warn-soft:#FBF3E2;
+  --ok:#1F6F4A;
+  --ok-soft:#E4F2EA;
+  --r:12px;
+  --tap:52px;                  /* أصغر هدف لمس مريح */
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Segoe UI",Tahoma,system-ui,sans-serif;
+  font-size:16px;line-height:1.7;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+
+/* ---------- الرأس ---------- */
+#top{
+  position:sticky;top:0;z-index:50;
+  background:var(--green);color:#fff;
+  display:flex;align-items:center;gap:12px;
+  padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));
+}
+#top .brand{flex:1;line-height:1.35;min-width:0}
+#top .brand b{display:block;font-size:17px}
+#top .brand span{display:block;font-size:12px;opacity:.85;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon-btn{
+  background:rgba(255,255,255,.16);border:0;color:#fff;
+  width:42px;height:42px;border-radius:10px;font-size:20px;cursor:pointer;flex-shrink:0;
+}
+
+/* ---------- التبويبات ---------- */
+#tabs{
+  position:sticky;top:0;z-index:40;
+  display:flex;background:var(--card);border-bottom:1px solid var(--line);
+}
+#tabs button{
+  flex:1;padding:13px 6px;border:0;background:none;cursor:pointer;
+  font:inherit;font-size:14px;font-weight:600;color:var(--muted);
+  border-bottom:3px solid transparent;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+#tabs button.on{color:var(--green);border-bottom-color:var(--green)}
+#tabs .count{
+  background:var(--green);color:#fff;border-radius:999px;
+  font-size:11px;padding:1px 7px;min-width:20px;
+}
+
+main{padding:16px;max-width:680px;margin:0 auto}
+
+/* ---------- البطاقات ---------- */
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:16px;margin-bottom:14px;
+}
+.card h2{font-size:16px;margin:0 0 4px}
+.card .sub{color:var(--muted);font-size:13.5px;margin:0 0 14px;line-height:1.75}
+
+/* ---------- الأزرار ---------- */
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  width:100%;min-height:var(--tap);padding:13px 16px;
+  border:1px solid var(--line);border-radius:10px;background:var(--card);
+  font:inherit;font-size:16px;font-weight:600;color:var(--ink);cursor:pointer;
+  margin-bottom:10px;
+}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--green);border-color:var(--green);color:#fff}
+.btn.primary:active{background:var(--green-d)}
+.btn.danger{color:var(--bad);border-color:#E8B4B4;background:var(--bad-soft)}
+.btn.sm{min-height:40px;padding:8px 12px;font-size:14px;width:auto;margin:0}
+.btn[disabled]{opacity:.5;pointer-events:none}
+.btn .big{font-size:22px;line-height:1}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row .btn{flex:1;min-width:130px}
+
+/* ---------- الحقول ---------- */
+.field{margin-bottom:13px}
+.field label{
+  display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px;
+}
+.inp{
+  width:100%;min-height:var(--tap);padding:12px 14px;
+  border:1px solid var(--line);border-radius:10px;
+  font:inherit;font-size:16px;background:var(--card);color:var(--ink);
+}
+.inp:focus{outline:2px solid var(--green);outline-offset:-1px;border-color:var(--green)}
+textarea.inp{min-height:96px;line-height:1.75;resize:vertical}
+.num{font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:12.5px;color:var(--muted);margin:5px 0 0;line-height:1.7}
+
+/* ---------- بطاقة كتاب في القائمة ---------- */
+.book{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px;margin-bottom:12px;position:relative;
+}
+.book.bad{border-color:#E8B4B4;background:#FFFCFC}
+.book h3{font-size:15.5px;margin:0 0 3px;line-height:1.5;padding-inline-end:70px}
+.book .meta{font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.7}
+.book .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.book .acts{display:flex;gap:8px;border-top:1px solid var(--line-soft);padding-top:10px}
+.book .acts .btn{margin:0}
+.book .corner{position:absolute;top:12px;inset-inline-end:12px;display:flex;gap:5px}
+
+.tag{
+  font-size:11.5px;padding:3px 9px;border-radius:999px;white-space:nowrap;
+  background:var(--line-soft);color:var(--muted);
+}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.bad{background:var(--bad-soft);color:var(--bad)}
+.tag.green{background:var(--green-soft);color:var(--green)}
+
+/* ---------- الحالة الفارغة ---------- */
+.empty{text-align:center;padding:38px 20px;color:var(--muted)}
+.empty .big{font-size:40px;opacity:.28;margin-bottom:10px}
+.empty h4{margin:0 0 6px;color:var(--ink);font-size:16px}
+.empty p{margin:0;font-size:14px;line-height:1.8}
+
+/* ---------- الكاميرا ---------- */
+#camWrap{
+  position:relative;border-radius:var(--r);overflow:hidden;
+  background:#000;margin-bottom:12px;aspect-ratio:4/3;
+}
+#camWrap video{width:100%;height:100%;object-fit:cover;display:block}
+#camWrap .aim{
+  position:absolute;inset:22% 12%;
+  border:3px solid rgba(255,255,255,.9);border-radius:10px;
+  box-shadow:0 0 0 2000px rgba(0,0,0,.35);
+}
+#camWrap .say{
+  position:absolute;inset-inline:0;bottom:12px;text-align:center;
+  color:#fff;font-size:13.5px;text-shadow:0 1px 3px #000;
+}
+
+/* ---------- شريط سفلي ---------- */
+#sheet{
+  position:fixed;inset:0;z-index:80;background:rgba(23,34,46,.45);
+  display:flex;align-items:flex-end;
+}
+/* display:flex أعلاه يغلب [hidden] الافتراضي، فتبقى طبقة شفافة
+   تبتلع كل لمسة على الصفحة. هذا السطر يمنع ذلك. */
+#sheet[hidden]{display:none}
+#sheet .inner{
+  background:var(--card);width:100%;max-height:92vh;overflow:auto;
+  border-radius:16px 16px 0 0;padding:18px 16px;
+  padding-bottom:calc(18px + env(safe-area-inset-bottom));
+  max-width:680px;margin:0 auto;
+}
+#sheet h2{margin:0 0 4px;font-size:17px}
+#sheet .grab{
+  width:42px;height:4px;border-radius:99px;background:var(--line);
+  margin:0 auto 14px;
+}
+
+/* ---------- تنبيهات ---------- */
+#toasts{
+  position:fixed;inset-inline:0;bottom:16px;z-index:100;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  pointer-events:none;padding:0 16px;
+}
+.toast{
+  background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;
+  font-size:14px;max-width:100%;text-align:center;
+}
+.toast.bad{background:var(--bad)}
+.toast.warn{background:var(--warn)}
+.toast.ok{background:var(--ok)}
+
+/* ---------- شريط تقدّم ---------- */
+.busy{
+  height:3px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin:10px 0;
+}
+.busy i{
+  display:block;height:100%;width:38%;background:var(--green);border-radius:99px;
+  animation:slide 1.05s infinite ease-in-out;
+}
+@keyframes slide{
+  0%{margin-inline-start:-38%}
+  100%{margin-inline-start:100%}
+}
+@media (prefers-reduced-motion:reduce){
+  .busy i{animation:none;width:100%}
+  .btn:active{transform:none}
+}
+
+/* ---------- ملخص ---------- */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--r);
+  overflow:hidden;margin-bottom:14px}
+.stats div{background:var(--card);padding:12px 10px;text-align:center}
+.stats b{display:block;font-size:21px;line-height:1.2}
+.stats span{font-size:11.5px;color:var(--muted)}
+.stats .r b{color:var(--bad)}

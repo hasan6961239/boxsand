@@ -836,7 +836,7 @@ var App = (function () {
     { k: "purchases", t: "إدخال بضاعة", ic: "goods", f: function () { return Inv.goods(); } },
     { k: "alerts", t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true },
     { k: "stale", t: "البضاعة الراكدة", ic: "stale", f: function () { return Stale.page(); }, badge4: true },
-    { k: "labels", t: "طباعة اللاصقات", ic: "tag", f: function () { return Labels.page(); } },
+    { k: "labels", t: "طباعة اللاصقات", ic: "tag", f: function () { return Labels.page(); }, badge5: true },
     { g: "الحسابات" },
     { k: "customers", t: "الزبائن والديون", ic: "people", f: function () { return People.customers(); } },
     { k: "consign", t: "كتب على المباع", ic: "consign", f: function () { return Consign.page(); }, badge3: true },
@@ -858,6 +858,7 @@ var App = (function () {
         (p.badge2 ? '<span class="count" data-reqcount hidden></span>' : "") +
         (p.badge3 ? '<span class="count" data-conscount hidden></span>' : "") +
         (p.badge4 ? '<span class="count" data-stalecount hidden></span>' : "") +
+        (p.badge5 ? '<span class="count bad" data-lblcount hidden></span>' : "") +
         "</button>";
     });
     nav.innerHTML = h;
@@ -932,6 +933,11 @@ var App = (function () {
     try { staleN = (typeof Stale !== "undefined") ? Stale.count() : 0; } catch (e) { }
     document.querySelectorAll("[data-stalecount]").forEach(function (e) {
       if (staleN > 0) { e.hidden = false; e.textContent = staleN; } else e.hidden = true;
+    });
+    var lblN = 0;
+    try { lblN = (typeof Labels !== "undefined") ? Labels.pendingCount() : 0; } catch (e) { }
+    document.querySelectorAll("[data-lblcount]").forEach(function (e) {
+      if (lblN > 0) { e.hidden = false; e.textContent = lblN; } else e.hidden = true;
     });
   }
 

@@ -76,6 +76,11 @@ var Inv = (function () {
     return h;
   }
 
+  /* نقطة حمراء بجانب اسم الصنف الذي لم تُطبع لاصقته بعد */
+  function lblMark(it) {
+    return (typeof Labels !== "undefined" && Labels.mark) ? Labels.mark(it) : "";
+  }
+
   function shelfOptions() {
     var n = App.num(S().meta.shelves) || 6, a = [];
     for (var i = 1; i <= n; i++) a.push(i);
@@ -106,7 +111,7 @@ var Inv = (function () {
     host.innerHTML = App.table([
       {
         h: "الكتاب", c: function (b) {
-          return '<div class="name">' + App.esc(b.title) + "</div>" +
+          return '<div class="name">' + lblMark(b) + App.esc(b.title) + "</div>" +
             '<div class="sub">' + App.esc(b.author || "بدون مؤلف") + (b.publisher ? " · " + App.esc(b.publisher) : "") + "</div>";
         }
       },
@@ -973,7 +978,7 @@ var Inv = (function () {
     host.innerHTML = App.table([
       {
         h: "الصنف", c: function (p) {
-          return '<div class="name">' + App.esc(p.name) + "</div>" +
+          return '<div class="name">' + lblMark(p) + App.esc(p.name) + "</div>" +
             '<div class="sub">' + App.esc(p.brand || "") + (p.unit ? " · " + App.esc(p.unit) : "") + "</div>";
         }
       },
@@ -1469,8 +1474,10 @@ var Inv = (function () {
      التصدير والاستيراد
      ============================================================ */
 
-  var BOOK_COLS = ["اسم الكتاب", "المؤلف", "دار النشر", "التصنيف", "المكتبة", "الرف", "الباركود", "سعر الجملة", "سعر البيع", "الكمية", "حد التنبيه"];
-  var STAT_COLS = ["اسم الصنف", "التصنيف", "الماركة", "الوحدة", "المكان", "الباركود", "سعر الجملة", "سعر البيع", "الكمية", "حد التنبيه"];
+  /* عمود الملاحظة أخيراً: يحمل وصف الكتاب القادم من موقع التسجيل.
+     الملفات القديمة بلا هذا العمود تُستورد كما هي. */
+  var BOOK_COLS = ["اسم الكتاب", "المؤلف", "دار النشر", "التصنيف", "المكتبة", "الرف", "الباركود", "سعر الجملة", "سعر البيع", "الكمية", "حد التنبيه", "ملاحظة"];
+  var STAT_COLS = ["اسم الصنف", "التصنيف", "الماركة", "الوحدة", "المكان", "الباركود", "سعر الجملة", "سعر البيع", "الكمية", "حد التنبيه", "ملاحظة"];
 
   /* تصدير البضاعة كجدول Excel منسّق */
   function exportGoods(type) {
@@ -1572,10 +1579,12 @@ var Inv = (function () {
                   o.title = name; o.author = r[1] || ""; o.publisher = r[2] || ""; o.cat = r[3] || "";
                   o.lib = r[4] || ""; o.shelf = r[5] || ""; o.barcode = r[6] || "";
                   o.cost = money(r[7]); o.price = money(r[8]); o.qty = money(r[9]); o.min = money(r[10]);
+                  if (r[11] !== undefined && String(r[11]).trim()) o.note = String(r[11]).trim();
                 } else {
                   o.name = name; o.cat = r[1] || ""; o.brand = r[2] || ""; o.unit = r[3] || "قطعة";
                   o.loc = r[4] || ""; o.barcode = r[5] || "";
                   o.cost = money(r[6]); o.price = money(r[7]); o.qty = money(r[8]); o.min = money(r[9]);
+                  if (r[10] !== undefined && String(r[10]).trim()) o.note = String(r[10]).trim();
                 }
                 o.updated = App.nowStamp();
                 if (ex) upd++; else { list.push(o); added++; }
