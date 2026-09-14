@@ -29,7 +29,8 @@ const PAYLOAD = { ok:true, branches:[
       {n:'أساسيات الهندسة لتقنيات الورش',a:'د. سالم القدّافي',b:'9789991234567',c:'هندسة',k:'K0001',q:12,p:25,m:5,t:'book',l:'D',s:'1',d:'دار المعرفة',nt:'التخصص: هندسة ميكانيكية\nكتاب تمهيدي لطلبة السنة الأولى.'},
       {n:'تشريح جسم الإنسان',a:'د. منى الفيتوري',b:'',c:'طب بشري',k:'K0002',q:0,p:60,m:3,t:'book',l:'A',s:'2',d:'',nt:''},
       {n:'قلم جاف أزرق',b:'55512345',q:4,p:1.5,m:10,t:'stat',loc:'رف A',u:'قطعة'},
-      {n:'دفتر 100 ورقة',b:'55599999',q:150,p:3,m:20,t:'stat',loc:'رف C',u:'قطعة'}
+      {n:'دفتر 100 ورقة',b:'55599999',q:150,p:3,m:20,t:'stat',loc:'رف C',u:'قطعة'},
+      {n:'أساسيات الهندسة لتقنيات الورش',a:'د. عمر الشريف',b:'9789990000111',c:'هندسة',k:'K0009',q:3,p:30,m:1,t:'book',l:'A',s:'1',d:'دار أخرى'}
     ],
     whs:[{id:'w1',name:'مخزن سوق الثلاثاء',place:'الطابق السفلي',phone:'092-111-2222',
       items:[{n:'أساسيات الهندسة لتقنيات الورش',q:40,p:25,b:'9789991234567',t:'book'}]}] },
@@ -107,8 +108,9 @@ const srv = http.createServer((q,s)=>{
   // 4) الأرقام
   const tiles = await pg.$$eval('.tile b', e=>e.map(x=>x.textContent.trim()));
   // 4 أصناف في مصراتة + 1 مخزن (نفس الكتاب) + طرابلس (نفس الكتاب) => 4 أصناف فريدة
-  ok('عدد الأصناف الفريدة = 4', tiles[0]==='4', tiles.join(','));
-  ok('القطع = 211 (12+40+5+0+4+150)', tiles[1]==='211', tiles.join(','));
+  // خمسة أصناف: الكتابان المتشابهان اسماً يبقيان منفصلين بباركوديهما
+  ok('عدد الأصناف الفريدة = 5', tiles[0]==='5', tiles.join(','));
+  ok('القطع = 214 (12+40+5+0+4+150+3)', tiles[1]==='214', tiles.join(','));
   // المجموع هو الحَكَم: أساسيات مجموعها 57 فليست قاربت، والقلم 4 وحدّه 10
   ok('قارب على النفاد = 1 (القلم وحده)', tiles[2]==='1', tiles.join(','));
   ok('نفد = 1 (التشريح)', tiles[3]==='1', tiles.join(','));
@@ -116,7 +118,7 @@ const srv = http.createServer((q,s)=>{
   // 5) البحث بالاسم
   await pg.fill('#q','هندسة'); await pg.waitForTimeout(400);
   let rows = await pg.$$eval('.row-name', e=>e.map(x=>x.textContent.trim()));
-  ok('البحث بالاسم', rows.length===1 && /أساسيات/.test(rows[0]), JSON.stringify(rows));
+  ok('البحث بالاسم يجد الكتابين المتشابهين', rows.length===2, JSON.stringify(rows));
 
   // 6) البحث بالمؤلف
   await pg.fill('#q','الفيتوري'); await pg.waitForTimeout(400);
@@ -131,12 +133,12 @@ const srv = http.createServer((q,s)=>{
   // 8) تطبيع الهمزة
   await pg.fill('#q','اساسيات'); await pg.waitForTimeout(400);
   rows = await pg.$$eval('.row-name', e=>e.map(x=>x.textContent.trim()));
-  ok('«اساسيات» تجد «أساسيات»', rows.length===1, JSON.stringify(rows));
+  ok('«اساسيات» تجد «أساسيات»', rows.length===2, JSON.stringify(rows));
 
   // 9) كلمتان
   await pg.fill('#q','هندسة ورش'); await pg.waitForTimeout(400);
   rows = await pg.$$eval('.row-name', e=>e.map(x=>x.textContent.trim()));
-  ok('كلمتان: كلتاهما يجب أن توجد', rows.length===1, JSON.stringify(rows));
+  ok('كلمتان: كلتاهما يجب أن توجد', rows.length===2, JSON.stringify(rows));
 
   await pg.fill('#q','هندسة تشريح'); await pg.waitForTimeout(400);
   rows = await pg.$$eval('.row', e=>e.length);
@@ -144,9 +146,10 @@ const srv = http.createServer((q,s)=>{
   if (SHOT) await pg.screenshot({path:SHOT+'site-3-empty.png'});
 
   await pg.click('#qx'); await pg.waitForTimeout(400);
-  ok('زر المسح يرجع الكل', (await pg.$$eval('.row', e=>e.length))===4);
+  ok('زر المسح يرجع الكل', (await pg.$$eval('.row', e=>e.length))===5);
 
   // 10) صفحة الصنف
+  await pg.fill('#q','9789991234567'); await pg.waitForTimeout(400);
   await pg.click('.row'); await pg.waitForTimeout(600);
   const det = await pg.textContent('#sheet');
   ok('صفحة الصنف تفتح', await pg.isVisible('#sheet'));
@@ -161,6 +164,7 @@ const srv = http.createServer((q,s)=>{
   if (SHOT) await pg.screenshot({path:SHOT+'site-4-detail.png'});
   await pg.keyboard.press('Escape'); await pg.waitForTimeout(400);
   ok('Escape يغلق', !(await pg.isVisible('#sheet')));
+  await pg.click('#qx'); await pg.waitForTimeout(300);
 
   // 11) الرقاقات
   const chips = await pg.$$eval('.chip', e=>e.map(x=>x.textContent.trim()));
@@ -169,7 +173,7 @@ const srv = http.createServer((q,s)=>{
   rows = await pg.$$eval('.row-name', e=>e.map(x=>x.textContent.trim()));
   ok('فلترة «نفد»', rows.length===1 && /تشريح/.test(rows[0]), JSON.stringify(rows));
   await pg.click('.chip.on'); await pg.waitForTimeout(400);
-  ok('الضغط ثانية يلغي الفلترة', (await pg.$$eval('.row', e=>e.length))===4);
+  ok('الضغط ثانية يلغي الفلترة', (await pg.$$eval('.row', e=>e.length))===5);
 
   // 12) بلا باركود
   await pg.fill('#q','تشريح'); await pg.waitForTimeout(400);
@@ -191,7 +195,7 @@ const srv = http.createServer((q,s)=>{
   // 15) بلا إنترنت
   srv.close();
   await pg.click('#btnRefresh'); await pg.waitForTimeout(1500);
-  ok('بلا اتصال يعرض آخر نسخة', (await pg.$$eval('.row', e=>e.length))===4);
+  ok('بلا اتصال يعرض آخر نسخة', (await pg.$$eval('.row', e=>e.length))===5);
   const warn = await pg.textContent('#toasts');
   ok('ويقول إنها ليست جديدة', /آخر نسخة/.test(warn||''), warn);
 
@@ -200,12 +204,82 @@ const srv = http.createServer((q,s)=>{
   await new Promise(r=>srv2.listen(18800,r));
   await pg.reload({waitUntil:'domcontentloaded'}); await pg.waitForTimeout(1400);
   ok('يتذكّر الربط والبيانات بعد إعادة الفتح',
-     await pg.isVisible('#app') && (await pg.$$eval('.row', e=>e.length))===4);
+     await pg.isVisible('#app') && (await pg.$$eval('.row', e=>e.length))===5);
 
   /* النمط السطري يُمنع بصمت: لا خطأ في التنفيذ، فقط تنسيق لا يُطبَّق.
      لذلك نفحص الصفحة نفسها بعد أن امتلأت. */
   const inlineStyles = await pg.$$eval('[style]', e => e.length);
   ok('لا عنصر يحمل style سطرياً بعد الرسم', inlineStyles === 0, 'count=' + inlineStyles);
+
+  // 17) الخطأ الذي بلّغ عنه صاحب المحل: كتابان باسم واحد كانا يندمجان
+  const grouped = await pg.evaluate(() => {
+    const all = UI.items();
+    const eng = all.filter(g => g.n.indexOf('أساسيات') >= 0);
+    return { count: eng.length, totals: eng.map(g => g.total).sort((a,b)=>b-a),
+             recs: UI.S.snap ? null : null };
+  });
+  ok('كتابان مختلفان باسم واحد يبقيان صنفين', grouped.count===2, JSON.stringify(grouped));
+  ok('ولا تُجمع كميتاهما (57 و3 لا 60)',
+     grouped.totals[0]===57 && grouped.totals[1]===3, JSON.stringify(grouped.totals));
+
+  // 18) النمط: تلقائي ← فاتح ← ليلي ← تلقائي
+  const themes = [];
+  for (let i=0;i<4;i++){
+    themes.push(await pg.evaluate(()=>document.documentElement.getAttribute('data-theme')));
+    await pg.click('#btnTheme'); await pg.waitForTimeout(250);
+  }
+  ok('زر النمط يدور بين الثلاثة',
+     themes.join(',')==='auto,light,dark,auto', themes.join(','));
+  const kept = await pg.evaluate(()=>({
+    saved: JSON.parse(localStorage.getItem('maktaba_stock_v2')).theme,
+    dom: document.documentElement.getAttribute('data-theme')
+  }));
+  ok('والاختيار يُحفظ ويطابق المعروض', kept.saved===kept.dom, JSON.stringify(kept));
+
+  // 19) تصفّح المكتبات والرفوف
+  await pg.click('#tabs button[data-arg="browse"]'); await pg.waitForTimeout(600);
+  const libs = await pg.$$eval('.lib-card .lib-badge', e=>e.map(x=>x.textContent.trim()));
+  ok('شاشة الرفوف تعرض المكتبات', libs.length>=2 && libs.indexOf('A')>=0 && libs.indexOf('D')>=0,
+     JSON.stringify(libs));
+
+  await pg.click('.lib-card'); await pg.waitForTimeout(500);
+  const shelfTiles = await pg.$$eval('.shelf-tile .sh-n', e=>e.map(x=>x.textContent.trim()));
+  ok('واختيار مكتبة يعرض رفوفها', shelfTiles.length>=1, JSON.stringify(shelfTiles));
+
+  await pg.click('.shelf-tile'); await pg.waitForTimeout(500);
+  const onShelfRows = await pg.$$eval('.row-name', e=>e.map(x=>x.textContent.trim()));
+  ok('واختيار رف يعرض ما فيه وحده', onShelfRows.length>=1 && onShelfRows.length<5,
+     JSON.stringify(onShelfRows));
+  const crumbs = await pg.$$eval('.crumb button, .crumb .cur', e=>e.map(x=>x.textContent.trim()));
+  ok('ومسار الرجوع ظاهر', crumbs.length===3, JSON.stringify(crumbs));
+  await pg.click('.crumb button'); await pg.waitForTimeout(450);
+  ok('والرجوع يعمل', (await pg.$$eval('.lib-card', e=>e.length))>=2);
+
+  // 20) شاشة الملخّص
+  await pg.click('#tabs button[data-arg="stats"]'); await pg.waitForTimeout(600);
+  const heroTxt = await pg.textContent('.hero');
+  ok('الملخّص يعرض قيمة المخزون', /قيمة المخزون/.test(heroTxt), heroTxt.slice(0,50));
+  const catRows = await pg.$$eval('.cat-row .cat-n', e=>e.map(x=>x.textContent.trim()));
+  ok('ويعرض التصنيفات', catRows.indexOf('هندسة')>=0, JSON.stringify(catRows));
+  await pg.click('.cat-row'); await pg.waitForTimeout(500);
+  ok('والضغط على تصنيف يصفّي به', (await pg.$$eval('.row', e=>e.length))>=1);
+
+  // 21) الترتيب
+  await pg.evaluate(()=>UI.go('home')); await pg.waitForTimeout(400);
+  await pg.evaluate(()=>{ UI.S.filter=''; UI.render(); }); await pg.waitForTimeout(300);
+  await pg.click('.sortbar button[data-arg="qty"]'); await pg.waitForTimeout(450);
+  const byQty = await pg.$$eval('.pill', e=>e.map(x=>parseInt(x.textContent,10)));
+  ok('الترتيب بالأكثر عدداً يعمل',
+     byQty.length>1 && byQty[0]>=byQty[1], JSON.stringify(byQty));
+
+  // 22) رابط التهيئة يملأ البيانات ويمسح نفسه
+  await pg.evaluate(()=>localStorage.removeItem('maktaba_stock_v2'));
+  await pg.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr');
+  await pg.waitForTimeout(1300);
+  ok('رابط التهيئة يربط مباشرة بلا إدخال يدوي', await pg.isVisible('#app'));
+  ok('ويمسح كلمة السر من شريط العنوان',
+     !/k=|sirr/.test(await pg.evaluate(()=>location.href)),
+     await pg.evaluate(()=>location.href));
 
   ok('لا أخطاء JavaScript ولا انتهاك لسياسة الأمان', errs.length===0, errs.slice(0,3).join(' | '));
 

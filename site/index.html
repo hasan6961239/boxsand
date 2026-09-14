@@ -75,15 +75,9 @@
         <small id="freshLine">—</small>
       </span>
     </button>
-    <button class="icon-btn" id="btnRefresh" data-act="refresh" aria-label="تحديث">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"
-        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
-    <button class="icon-btn" data-act="go" data-arg="settings" aria-label="الإعدادات">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none"
-        stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10.6 3.09V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 16.11 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09A1.65 1.65 0 0 0 21 10.6h.09a2 2 0 1 1 0 4H21a1.65 1.65 0 0 0-1.51 1z"
-        fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
-    </button>
+    <button class="icon-btn" id="btnTheme" data-act="theme" aria-label="النمط"></button>
+    <button class="icon-btn" id="btnRefresh" data-act="refresh" aria-label="تحديث"></button>
+    <button class="icon-btn" id="btnSettings" data-act="go" data-arg="settings" aria-label="الإعدادات"></button>
   </header>
 
   <div id="searchWrap">
@@ -94,7 +88,7 @@
       <input id="q" class="search-inp" type="search" enterkeyhint="search"
              placeholder="اسم الكتاب، أو المؤلف، أو الباركود…"
              autocomplete="off" spellcheck="false" aria-label="بحث">
-      <button class="search-x" id="qx" hidden data-act="clearQ" aria-label="مسح">✕</button>
+      <button class="search-x" id="qx" hidden data-act="clearQ" aria-label="مسح"></button>
     </div>
     <div id="chips" class="chips"></div>
   </div>
@@ -102,11 +96,19 @@
   <main id="view"></main>
 
   <footer id="foot"></footer>
+
+  <nav id="tabs">
+    <button data-act="go" data-arg="home"   data-tab="home"></button>
+    <button data-act="go" data-arg="browse" data-tab="browse"></button>
+    <button data-act="go" data-arg="stats"  data-tab="stats"></button>
+    <button data-act="go" data-arg="settings" data-tab="settings"></button>
+  </nav>
 </div>
 
 <div id="toasts" aria-live="polite"></div>
 <div id="sheet" hidden></div>
 
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
