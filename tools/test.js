@@ -680,6 +680,44 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   }
   check('15 شاشة بلا خطأ JavaScript', errs.length === 0, errs.slice(0, 4).join(' | '));
 
+  console.log('\n== 14د. الأيقونات أشكال متجهة لا رموز خطّية ==');
+  {
+    /* الرموز مثل ▣ و◕ ترتسم شكلاً مختلفاً في كل خط، وبعضها لا يُرسم
+       أصلاً. كلها صارت أشكالاً متجهة من مجموعة واحدة. */
+    await closePage(pg); writeStore(seed()); pg = await open();
+    for (const k of ['dash','pos','invoices','stocktake','stock','purchases',
+                     'alerts','stale','labels','customers','consign','suppliers',
+                     'profits','notify','settings']) {
+      await pg.evaluate(x => { location.hash = '#/' + x; App.route(); }, k); await sleep(260);
+    }
+    const stray = await pg.evaluate(() => {
+      const bad = /[▣◈▤▦▧◫⌂⇦⇨☺⌕▶✔◻▭◕●]/;
+      const hits = [];
+      document.querySelectorAll('#rail .ic, .empty .big, .nav-item').forEach(function (e) {
+        const t = (e.textContent || '').trim();
+        if (bad.test(t)) hits.push(t);
+      });
+      return hits;
+    });
+    check('لا رمز خطّي في الشريط ولا في الحالات الفارغة', stray.length === 0, stray.join(' '));
+
+    const navSvg = await pg.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('.nav-item'));
+      return { total: items.length, withSvg: items.filter(i => i.querySelector('svg.ic')).length };
+    });
+    check('كل عنصر في الشريط له شكل متجه',
+      navSvg.total > 0 && navSvg.withSvg === navSvg.total, JSON.stringify(navSvg));
+
+    /* أيقونة الجرد كانت سلة مهملات — تقول «احذف» وهي تعني «اعدُد» */
+    const tally = await pg.evaluate(() => {
+      const b = Array.from(document.querySelectorAll('.nav-item'))
+        .filter(x => x.textContent.indexOf('الجرد') >= 0)[0];
+      const p = b && b.querySelector('svg.ic path');
+      return p ? p.getAttribute('d') : '';
+    });
+    check('وأيقونة الجرد ليست سلة مهملات', tally.indexOf('M9 3h6v3H9V3z') === 0, tally.slice(0, 32));
+  }
+
   console.log('\n== 15أ. أحجام الواجهة الخمسة ==');
   {
     await closePage(pg); writeStore(seed()); pg = await open();

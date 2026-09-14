@@ -637,7 +637,7 @@ var Sales = (function () {
     ].filter(function (c) { return c.h !== "الربح" || App.canProfit(); }), rows, {
       limit: invF.shown,
       moreAction: "Sales.moreInvoices()",
-      emptyIcon: "▦", emptyTitle: "لا توجد فواتير", emptyText: "ستظهر هنا كل عمليات البيع تلقائياً."
+      emptyIcon: "box", emptyTitle: "لا توجد فواتير", emptyText: "ستظهر هنا كل عمليات البيع تلقائياً."
     });
   }
 

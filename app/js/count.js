@@ -335,7 +335,7 @@ var Count = (function () {
             '<button class="btn sm ghost" onclick="Count.bump(\'' + x.it.id + '\',-1)">−1</button>';
         }
       }
-    ], r, { emptyIcon: "▤", emptyTitle: "لا نتيجة", emptyText: "" });
+    ], r, { emptyIcon: "books", emptyTitle: "لا نتيجة", emptyText: "" });
   }
 
   function setV(k, val) {

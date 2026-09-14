@@ -234,7 +234,7 @@ var Notify = (function () {
         { h: "التفاصيل", c: function (l) { return '<span class="muted small">' + App.esc(String(l.message || "").slice(0, 60)) + "</span>"; } },
         { h: "الحالة", c: function (l) { return l.ok ? '<span class="badge ok">أُرسل</span>' : '<span class="badge bad">فشل</span>'; } }
       ], (c.log || []).slice(0, 25), {
-        emptyIcon: "🔔", emptyTitle: "لم يُرسل أي إشعار بعد",
+        emptyIcon: "bell", emptyTitle: "لم يُرسل أي إشعار بعد",
         emptyText: "فعّل الإشعارات واختر أنواعها، ثم جرّب الإشعار التجريبي."
       }) + "</div>";
 

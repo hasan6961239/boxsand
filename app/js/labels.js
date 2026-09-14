@@ -360,7 +360,7 @@ var Labels = (function () {
     ], list, {
       limit: view.shown,
       moreAction: "Labels.more()",
-      emptyIcon: "▤", emptyTitle: "لا أصناف",
+      emptyIcon: "books", emptyTitle: "لا أصناف",
       emptyText: "سجّل أصنافاً أولاً، أو غيّر الفلتر."
     }) + "</div>";
 

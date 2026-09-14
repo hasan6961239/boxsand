@@ -92,7 +92,7 @@ var People = (function () {
       }
     ], rows, {
       rowClass: function (c) { return App.num(c.balance) > 0 ? "low" : ""; },
-      emptyIcon: "☺",
+      emptyIcon: "people",
       emptyTitle: S().customers.length ? "لا نتيجة مطابقة" : "لا يوجد زبائن مسجّلون",
       emptyText: "سجّل الزبائن الذين تبيع لهم بالآجل لتتبع ديونهم.",
       emptyAction: S().customers.length ? "" : '<button class="btn primary" onclick="People.editCustomer()">+ إضافة زبون</button>'
@@ -201,7 +201,7 @@ var People = (function () {
         { h: "عليه", cls: "num", c: function (r) { return r.dr ? App.money0(r.dr) : "—"; } },
         { h: "له", cls: "num", c: function (r) { return r.cr ? App.money0(r.cr) : "—"; } },
         { h: "الرصيد", cls: "num", c: function (r) { run += r.dr - r.cr; return "<b>" + App.money0(Math.max(run, 0)) + "</b>"; } }
-      ], rows, { emptyIcon: "▤", emptyTitle: "لا توجد حركات", emptyText: "لم تُسجَّل فواتير آجلة لهذا الزبون." }) +
+      ], rows, { emptyIcon: "books", emptyTitle: "لا توجد حركات", emptyText: "لم تُسجَّل فواتير آجلة لهذا الزبون." }) +
         '<div class="row" style="margin-top:14px;font-size:17px;font-weight:700"><div class="spacer"></div>' +
         "الدين الحالي: " + App.money(c.balance) + "</div>",
       actions: [
@@ -286,7 +286,7 @@ var People = (function () {
           }
         }
       ], S().publishers, {
-        emptyIcon: "▤", emptyTitle: "لا دور نشر مسجّلة",
+        emptyIcon: "books", emptyTitle: "لا دور نشر مسجّلة",
         emptyText: "سجّل دار النشر ونسبتها ليُحسب سعر البيع وحده عند إدخال كتبها.",
         emptyAction: '<button class="btn primary" onclick="People.editPublisher()">+ إضافة دار نشر</button>'
       }) + "</div>";
@@ -316,7 +316,7 @@ var People = (function () {
           }
         }
       ], S().suppliers, {
-        emptyIcon: "⌂", emptyTitle: "لا يوجد موردون",
+        emptyIcon: "home", emptyTitle: "لا يوجد موردون",
         emptyText: "سجّل من تشتري منهم البضاعة لتعرف تكاليفك مع كل واحد.",
         emptyAction: '<button class="btn primary" onclick="People.editSupplier()">+ إضافة مورد</button>'
       }) + "</div>";

@@ -514,7 +514,7 @@ var Stock = (function () {
             return '<button class="btn sm primary" onclick="Stock.askFromFind(' + i + ')">طلب تحويل</button>';
           }
         }
-      ], rows, { emptyIcon: "⌕", emptyTitle: "لا نتيجة", emptyText: "لم يُعثر على الصنف في أي فرع." }) + "</div>";
+      ], rows, { emptyIcon: "search", emptyTitle: "لا نتيجة", emptyText: "لم يُعثر على الصنف في أي فرع." }) + "</div>";
 
     lastFind = rows;
   }
@@ -686,7 +686,7 @@ var Stock = (function () {
     lastRows = shown;
     h += App.table(cols, shown, {
       rowClass: function (x) { return x.q <= 0 ? "out" : (x.min && x.q <= x.min ? "low" : ""); },
-      emptyIcon: "▦", emptyTitle: "لا أصناف",
+      emptyIcon: "box", emptyTitle: "لا أصناف",
       emptyText: isMine ? "ابدأ بتسجيل أول صنف." : "لم يصل مخزون هذا الفرع بعد. اضغط تحديث.",
       /* الحالة الفارغة كانت تطلب فعلاً بلا زر يؤديه — والمستخدم
          عليه أن يعرف وحده أن الإضافة في صفحة "إدخال بضاعة". */
@@ -801,7 +801,7 @@ var Stock = (function () {
               '<button class="btn sm ghost" onclick="Stock.respond(\'' + r.id + '\',\'rejected\')">رفض</button>';
           }
         }
-      ], incoming, { emptyIcon: "⇦", emptyTitle: "لا طلبات واردة", emptyText: "عندما يطلب فرع آخر بضاعة منك ستظهر هنا." }) +
+      ], incoming, { emptyIcon: "inward", emptyTitle: "لا طلبات واردة", emptyText: "عندما يطلب فرع آخر بضاعة منك ستظهر هنا." }) +
       "</div>";
 
     h += '<div class="card"><div class="card-head"><h3>طلبات أرسلتها</h3></div>' +
@@ -820,7 +820,7 @@ var Stock = (function () {
             return "";
           }
         }
-      ], outgoing, { emptyIcon: "⇨", emptyTitle: "لم ترسل طلبات", emptyText: "ابحث عن صنف في المخزون واطلب تحويله من فرع آخر." }) +
+      ], outgoing, { emptyIcon: "outward", emptyTitle: "لم ترسل طلبات", emptyText: "ابحث عن صنف في المخزون واطلب تحويله من فرع آخر." }) +
       "</div>";
 
     return h;
@@ -887,7 +887,7 @@ var Stock = (function () {
               '<button class="btn sm ghost" onclick="Stock.delWhLine(\'' + w.id + "'," + r.i + ')">✕</button>';
           }
         }
-      ], rows, { emptyIcon: "⌂", emptyTitle: "لا بضاعة مسجّلة", emptyText: "سجّل ما أرسلته إلى هذا المخزن." }) + "</div>";
+      ], rows, { emptyIcon: "home", emptyTitle: "لا بضاعة مسجّلة", emptyText: "سجّل ما أرسلته إلى هذا المخزن." }) + "</div>";
     return h;
   }
 

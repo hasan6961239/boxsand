@@ -132,7 +132,7 @@ var Consign = (function () {
       }
     ], rows, {
       rowClass: function (r) { return r.a.rest > 0.009 ? "low" : ""; },
-      emptyIcon: "◫",
+      emptyIcon: "books",
       emptyTitle: S().consignors.length ? "لا نتيجة" : "لا يوجد كتب على المباع",
       emptyText: "عندما يترك عندك أحدهم كتباً لتبيعها، سجّلها هنا لتعرف كم بِعت وكم تستحق له.",
       emptyAction: '<button class="btn primary" onclick="Consign.addBooks()">+ استلام كتب</button>'
@@ -399,7 +399,7 @@ var Consign = (function () {
             return '<button class="btn sm ghost" onclick="Consign.giveBack(\'' + l.id + '\')">إرجاع لصاحبه</button>';
           }
         }
-      ], lines, { emptyIcon: "◫", emptyTitle: "لا كتب", emptyText: "" }) + "</div>";
+      ], lines, { emptyIcon: "books", emptyTitle: "لا كتب", emptyText: "" }) + "</div>";
 
     var pays = S().consPayments.filter(function (p) { return p.ownerId === id; });
     h += '<div class="card"><div class="card-head"><h3>سجل التسديدات</h3></div>' +
@@ -407,7 +407,7 @@ var Consign = (function () {
         { h: "التاريخ", c: function (p) { return App.esc(p.date); } },
         { h: "المبلغ", cls: "num", c: function (p) { return "<b>" + App.money0(p.amount) + "</b>"; } },
         { h: "ملاحظة", c: function (p) { return App.esc(p.note || "—"); } }
-      ], pays, { emptyIcon: "▤", emptyTitle: "لم تسدّد له شيئاً بعد", emptyText: "" }) + "</div>";
+      ], pays, { emptyIcon: "books", emptyTitle: "لم تسدّد له شيئاً بعد", emptyText: "" }) + "</div>";
 
     return h;
   }

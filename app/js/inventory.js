@@ -183,7 +183,7 @@ var Inv = (function () {
       }
     ], rows, {
       rowClass: function (b) { var s = App.stockState(b); return s === "out" ? "out" : (s === "low" ? "low" : ""); },
-      emptyIcon: "▣",
+      emptyIcon: "box",
       emptyTitle: S().books.length ? "لا نتيجة مطابقة" : "لم تُضف أي كتب بعد",
       emptyText: S().books.length ? "جرّب تغيير البحث أو الفلاتر." : "ابدأ بإضافة أول كتاب، أو استورد قائمة جاهزة من ملف Excel.",
       emptyAction: S().books.length ? "" : '<button class="btn primary" onclick="Inv.editBook()">+ إضافة كتاب</button>'
@@ -241,7 +241,7 @@ var Inv = (function () {
         { h: "البيع", cls: "num", c: function (b) { return App.money0(b.price); } },
         { h: "الحالة", c: function (b) { return App.stockBadge(b); } },
         { h: "", cls: "act", c: function (b) { return '<button class="btn sm" onclick="Inv.editBook(\'' + b.id + '\')">تعديل</button>'; } }
-      ], on, { emptyIcon: "▭", emptyTitle: "هذا الرف فارغ", emptyText: "لا يوجد كتاب مسجّل على هذا الموقع." })
+      ], on, { emptyIcon: "box", emptyTitle: "هذا الرف فارغ", emptyText: "لا يوجد كتاب مسجّل على هذا الموقع." })
     });
   }
 
@@ -1061,7 +1061,7 @@ var Inv = (function () {
       }
     ], rows, {
       rowClass: function (p) { var s = App.stockState(p); return s === "out" ? "out" : (s === "low" ? "low" : ""); },
-      emptyIcon: "◈",
+      emptyIcon: "box",
       emptyTitle: S().stationery.length ? "لا نتيجة مطابقة" : "لم تُضف أي أصناف قرطاسية بعد",
       emptyText: S().stationery.length ? "جرّب تغيير البحث." : "أضف أول صنف — قلم، دفتر، رزمة ورق…",
       emptyAction: S().stationery.length ? "" : '<button class="btn primary" onclick="Inv.editStat()">+ إضافة صنف</button>'
@@ -1233,7 +1233,7 @@ var Inv = (function () {
       }
     ], rows, {
       rowClass: function (x) { return App.stockState(x.it) === "out" ? "out" : "low"; },
-      emptyIcon: "✔",
+      emptyIcon: "check",
       emptyTitle: "كل شيء متوفر",
       emptyText: "لا يوجد صنف وصل حد التنبيه. تُحدَّث هذه الصفحة تلقائياً بعد كل عملية بيع."
     });
@@ -1293,7 +1293,7 @@ var Inv = (function () {
     var list = all.slice(-15);   // آخر 15 مسجّلاً، الأحدث في الأسفل
 
     var h = '<div class="card" style="margin-bottom:18px"><div class="card-body center" style="padding:30px">' +
-      '<div style="font-size:34px;opacity:.3;margin-bottom:10px">' + (isB ? "▣" : "◈") + "</div>" +
+      '<div style="opacity:.32;margin-bottom:10px">' + App.icon(isB ? "books" : "box", 44) + "</div>" +
       '<h3 style="margin:0 0 6px;font-family:var(--font-head);font-size:21px">' +
       (isB ? "تسجيل كتاب جديد في المخزون" : "تسجيل صنف قرطاسية جديد") + "</h3>" +
       '<p class="muted small" style="margin:0 0 16px">' +
@@ -1379,7 +1379,7 @@ var Inv = (function () {
         { h: "التكلفة", cls: "num", c: function (p) { return "<b>" + App.money0(p.total) + "</b>"; } },
         { h: "ملاحظة", c: function (p) { return App.esc(p.note || "—"); } },
         { h: "", cls: "act", c: function (p) { return '<button class="btn sm" onclick="Inv.showPurchase(\'' + p.id + '\')">تفاصيل</button>'; } }
-      ], S().purchases, { emptyIcon: "⬇", emptyTitle: "لا توجد إدخالات بعد", emptyText: "كل بضاعة تدخل المحل سجّلها هنا لتتبع التكاليف والموردين." }) +
+      ], S().purchases, { emptyIcon: "goods", emptyTitle: "لا توجد إدخالات بعد", emptyText: "كل بضاعة تدخل المحل سجّلها هنا لتتبع التكاليف والموردين." }) +
       "</div>";
 
     setTimeout(paintPurLines, 0);

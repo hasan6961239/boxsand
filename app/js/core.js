@@ -144,7 +144,7 @@ var App = (function () {
   function setState(txt) {
     var el = document.getElementById("saveState");
     if (!el) return;
-    if (txt === "saving") el.innerHTML = '<span class="dot-live"></span> جارٍ الحفظ…';
+    if (txt === "saving") el.innerHTML = '<span class="dot-live saving"></span> جارٍ الحفظ…';
     else if (txt === "error") el.innerHTML = '<span class="dot-live bad"></span> لم يُحفظ!';
     else if (txt === "blocked") el.innerHTML = '<span class="dot-live bad"></span> للعرض فقط';
     else el.innerHTML = '<span class="dot-live"></span> محفوظ';
@@ -278,7 +278,7 @@ var App = (function () {
     dash: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
     pos: "M3 3h2l.4 2M7 13h10l3-8H5.4M7 13L5.4 5M7 13l-2 4h13M9 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z",
     invoice: "M6 2h9l5 5v15H6V2zm9 0v5h5M9 12h8M9 16h8M9 8h3",
-    stocktake: "M9 3h6l1 3H8l1-3zM5 6h14l-1 15H6L5 6zm4 4v7m3-7v7m3-7v7",
+    stocktake: "M9 3h6v3H9V3zM7 5H5v16h14V5h-2M8.5 11.5l1.5 1.5 3-3M8.5 16.5l1.5 1.5 3-3",
     store: "M3 9l2-5h14l2 5M3 9v11h18V9M3 9h18M9 20v-6h6v6",
     goods: "M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3",
     bell: "M12 3a5 5 0 00-5 5v4l-2 3h14l-2-3V8a5 5 0 00-5-5zm-2 15a2 2 0 004 0",
@@ -292,7 +292,22 @@ var App = (function () {
     card: "M2 6h20v12H2V6zm0 4h20M6 15h4",
     clock: "M12 21a9 9 0 100-18 9 9 0 000 18zm0-14v5l3 2",
     stale: "M12 21a9 9 0 100-18 9 9 0 000 18zm0-14v5l3 2M3 3l18 18",
-    tag: "M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01"
+    tag: "M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01",
+    /* المخزون: صناديق على رفّين — لا مربع زخرفي */
+    boxes: "M3 4h7v7H3V4zm11 0h7v7h-7V4zM3 13h7v7H3v-7zm11 0h7v7h-7v-7z",
+    /* الإشعارات: جرس بموجتَي إرسال */
+    signal: "M12 4a4 4 0 00-4 4v3l-1.5 2.5h11L16 11V8a4 4 0 00-4-4zm-1.5 13a1.5 1.5 0 003 0M4.2 5.2a9 9 0 000 12.6M19.8 5.2a9 9 0 010 12.6",
+    /* الجرد: لوح عدّ لا سلة مهملات */
+    clipboard: "M9 3h6v3H9V3zM7 5H5v16h14V5h-2M9 11h6M9 15h6",
+    check: "M4 12.5l5.5 5.5L20 7",
+    search: "M11 4a7 7 0 100 14 7 7 0 000-14zm9 16l-4-4",
+    inbox: "M3 13h5l1.5 3h5L16 13h5M3 13l3-8h12l3 8v6H3v-6z",
+    box: "M3 7l9-4 9 4v10l-9 4-9-4V7zm0 0l9 4 9-4M12 11v10",
+    books: "M4 5h4v15H4V5zm6 0h4v15h-4V5zm7.5.6l3.4 1-3.6 14.3-3.4-1L17.5 5.6z",
+    home: "M4 11l8-7 8 7v9H4v-9zm6 9v-6h4v6",
+    inward: "M12 4v10m0 0l-4-4m4 4l4-4M5 20h14",
+    outward: "M12 20V10m0 0l-4 4m4-4l4 4M5 4h14",
+    empty: "M5 5h14v14H5V5z"
   };
 
   function icon(name, size) {
@@ -665,8 +680,13 @@ var App = (function () {
   function table(cols, rows, opts) {
     opts = opts || {};
     if (!rows.length) {
-      return '<div class="empty">' +
-        '<div class="big">' + (opts.emptyIcon || "◻") + '</div>' +
+      /* اسم من مجموعة الأيقونات يُرسم شكلاً متجهاً؛ وأي شيء آخر يُطبع
+         كما هو، فلا ينكسر نداء قديم. */
+      var ei = opts.emptyIcon || "empty";
+      var big = ICONS[ei]
+        ? '<div class="big">' + icon(ei, 44) + "</div>"
+        : '<div class="big">' + ei + "</div>";
+      return '<div class="empty">' + big +
         "<h4>" + esc(opts.emptyTitle || "لا توجد بيانات بعد") + "</h4>" +
         "<p>" + esc(opts.emptyText || "") + "</p>" +
         (opts.emptyAction || "") + "</div>";
@@ -832,7 +852,7 @@ var App = (function () {
     { k: "invoices", t: "الفواتير", ic: "invoice", f: function () { return Sales.invoices(); } },
     { k: "stocktake", t: "الجرد", ic: "stocktake", f: function () { return Rep.stockHub(); } },
     { g: "المخزون" },
-    { k: "stock", t: "المخزون والفروع", ic: "▦", f: function () { return Stock.page(); }, badge2: true },
+    { k: "stock", t: "المخزون والفروع", ic: "boxes", f: function () { return Stock.page(); }, badge2: true },
     { k: "purchases", t: "إدخال بضاعة", ic: "goods", f: function () { return Inv.goods(); } },
     { k: "alerts", t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true },
     { k: "stale", t: "البضاعة الراكدة", ic: "stale", f: function () { return Stale.page(); }, badge4: true },
@@ -843,7 +863,7 @@ var App = (function () {
     { k: "suppliers", t: "الموردون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
     { g: "أخرى" },
     { k: "profits", t: "الأرباح والتقارير", ic: "chart", f: function () { return Rep.profits(); } },
-    { k: "notify", t: "الإشعارات", ic: "◕", f: function () { return Notify.page(); } },
+    { k: "notify", t: "الإشعارات", ic: "signal", f: function () { return Notify.page(); } },
     { k: "settings", t: "الإعدادات", ic: "gear", f: function () { return Rep.settings(); } }
   ];
 

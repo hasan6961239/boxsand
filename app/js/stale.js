@@ -227,7 +227,7 @@ var Stale = (function () {
       limit: view.shown,
       moreAction: "Stale.more()",
       rowClass: function (r) { return r.never ? "out" : ""; },
-      emptyIcon: "◻", emptyTitle: "لا نتائج", emptyText: "غيّر البحث أو الفلتر."
+      emptyIcon: "empty", emptyTitle: "لا نتائج", emptyText: "غيّر البحث أو الفلتر."
     }) + "</div>";
 
     if (c.ignore.length) {

@@ -62,7 +62,7 @@ var Rep = (function () {
         { h: "الأصناف", c: function (v) { return '<span class="sub">' + App.esc(v.items.map(function (l) { return l.name; }).join("، ").slice(0, 34)) + "</span>"; } },
         { h: "الصافي", cls: "num", c: function (v) { return "<b>" + App.money0(v.total) + "</b>"; } },
         { h: "", cls: "act", c: function (v) { return '<button class="btn sm ghost" onclick="Sales.showInvoice(\'' + v.id + '\')">عرض</button>'; } }
-      ], S().invoices.slice(0, 8), { emptyIcon: "▶", emptyTitle: "لم تُسجَّل فواتير بعد", emptyText: "افتح نقطة البيع وابدأ أول عملية." }) +
+      ], S().invoices.slice(0, 8), { emptyIcon: "inbox", emptyTitle: "لم تُسجَّل فواتير بعد", emptyText: "افتح نقطة البيع وابدأ أول عملية." }) +
       "</div>";
 
     // الأصناف الناقصة
@@ -76,7 +76,7 @@ var Rep = (function () {
         { h: "الموقع", c: function (x) { return x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"); } },
         { h: "المتبقي", cls: "num", c: function (x) { return "<b>" + App.num(x.it.qty) + "</b>"; } },
         { h: "", cls: "act", c: function (x) { return '<button class="btn sm" onclick="Inv.addStock(\'' + x.type + '\',\'' + x.it.id + '\')">+ كمية</button>'; } }
-      ], lows, { emptyIcon: "✔", emptyTitle: "لا يوجد نقص", emptyText: "كل الأصناف فوق حد التنبيه." }) +
+      ], lows, { emptyIcon: "check", emptyTitle: "لا يوجد نقص", emptyText: "كل الأصناف فوق حد التنبيه." }) +
       "</div></div>";
 
     return h;
@@ -296,7 +296,7 @@ var Rep = (function () {
         { h: "الكمية", cls: "num", c: function (r) { return "<b>" + r.qty + "</b>"; } },
         { h: "المبيعات", cls: "num", c: function (r) { return App.money0(r.val); } },
         { h: "الربح", cls: "num", c: function (r) { return App.money0(r.prof); } }
-      ], top, { emptyIcon: "▧", emptyTitle: "لا بيانات", emptyText: "لا مبيعات في هذه الفترة." }) + "</div>";
+      ], top, { emptyIcon: "clipboard", emptyTitle: "لا بيانات", emptyText: "لا مبيعات في هذه الفترة." }) + "</div>";
 
     h += '<div class="card"><div class="card-head"><h3>بضاعة راكدة</h3><div class="spacer"></div>' +
       '<span class="muted small">لم تُبع منذ 60 يوماً</span></div>' +
@@ -305,7 +305,7 @@ var Rep = (function () {
         { h: "الموقع", c: function (x) { return x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"); } },
         { h: "الكمية", cls: "num", c: function (x) { return App.num(x.it.qty); } },
         { h: "المال المجمَّد", cls: "num", c: function (x) { return "<b>" + App.money0(App.num(x.it.qty) * App.num(x.it.cost)) + "</b>"; } }
-      ], dead, { emptyIcon: "✔", emptyTitle: "لا بضاعة راكدة", emptyText: "كل أصنافك تتحرك." }) + "</div>";
+      ], dead, { emptyIcon: "check", emptyTitle: "لا بضاعة راكدة", emptyText: "كل أصنافك تتحرك." }) + "</div>";
     h += "</div>";
 
     return h;
@@ -470,7 +470,7 @@ var Rep = (function () {
             return '<b style="color:' + (r2.prof >= 0 ? "var(--accent)" : "var(--stamp)") + '">' + App.money0(r2.prof) + "</b>";
           }
         }
-      ] : []), det, { emptyIcon: "▦", emptyTitle: "لم يُبع شيء في هذه الفترة", emptyText: "" }) + "</div>";
+      ] : []), det, { emptyIcon: "box", emptyTitle: "لم يُبع شيء في هذه الفترة", emptyText: "" }) + "</div>";
 
     h += '<div class="card"><div class="card-head"><h3>فواتير الفترة</h3></div>' +
       App.table([
@@ -481,7 +481,7 @@ var Rep = (function () {
         { h: "الأصناف", c: function (v) { return '<span class="sub">' + App.esc(v.items.map(function (l) { return l.name; }).join("، ").slice(0, 40)) + "</span>"; } },
         { h: "الصافي", cls: "num", c: function (v) { return "<b>" + App.money0(v.total) + "</b>"; } },
         { h: "", cls: "act", c: function (v) { return '<button class="btn sm" onclick="Sales.showInvoice(\'' + v.id + '\')">عرض</button>'; } }
-      ], inv, { emptyIcon: "▤", emptyTitle: "لا مبيعات في هذه الفترة", emptyText: "" }) + "</div>";
+      ], inv, { emptyIcon: "books", emptyTitle: "لا مبيعات في هذه الفترة", emptyText: "" }) + "</div>";
 
     return h;
   }
@@ -680,7 +680,7 @@ var Rep = (function () {
         { h: "الوقت", c: function (l) { return '<span class="num small">' + App.esc(l.at) + "</span>"; } },
         { h: "العملية", c: function (l) { return App.esc(l.action); } },
         { h: "التفاصيل", c: function (l) { return '<span class="muted">' + App.esc(l.detail) + "</span>"; } }
-      ], S().log.slice(0, 40), { emptyIcon: "▤", emptyTitle: "لا حركات بعد", emptyText: "" }) + "</div>";
+      ], S().log.slice(0, 40), { emptyIcon: "books", emptyTitle: "لا حركات بعد", emptyText: "" }) + "</div>";
 
     h += "</div>";
 
@@ -874,7 +874,7 @@ var Rep = (function () {
         { h: "التاريخ", c: function (b) { return '<span class="num small">' + App.esc(b.date) + "</span>"; } },
         { h: "الحجم", cls: "num", c: function (b) { return (b.size / 1024).toFixed(1) + " KB"; } },
         { h: "", cls: "act", c: function (b) { return '<button class="btn sm" onclick="Rep.restore(\'' + App.esc(b.name) + '\')">استعادة</button>'; } }
-      ], list || [], { emptyIcon: "▣", emptyTitle: "لا نسخ بعد", emptyText: "ستُؤخذ أول نسخة تلقائياً غداً، أو خذ واحدة الآن." });
+      ], list || [], { emptyIcon: "box", emptyTitle: "لا نسخ بعد", emptyText: "ستُؤخذ أول نسخة تلقائياً غداً، أو خذ واحدة الآن." });
     }).catch(function () { host.innerHTML = '<div class="empty"><p>تعذّر قراءة النسخ.</p></div>'; });
   }
 
@@ -985,7 +985,7 @@ var Rep = (function () {
         { h: "السنة", cls: "num", c: function (a) { return "<b>" + App.esc(a.year) + "</b>"; } },
         { h: "الحجم", cls: "num", c: function (a) { return (a.size / 1024).toFixed(0) + " KB"; } },
         { h: "", cls: "act", c: function (a) { return '<button class="btn sm" onclick="Rep.viewArchive(\'' + App.esc(a.year) + '\')">عرض</button>'; } }
-      ], list || [], { emptyIcon: "▤", emptyTitle: "لا أرشيف بعد", emptyText: "" });
+      ], list || [], { emptyIcon: "books", emptyTitle: "لا أرشيف بعد", emptyText: "" });
     }).catch(function () { });
   }
 
