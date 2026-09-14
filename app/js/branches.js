@@ -620,7 +620,11 @@ var Stock = (function () {
     var cols = [
       {
         h: "الصنف", c: function (x) {
-          return '<div class="name">' + App.esc(x.n) +
+          /* النقطة الحمراء لمخزوني أنا فقط — صفوف الفروع الأخرى لا تحمل id
+             لأنها لقطة قادمة من جهاز آخر. */
+          var it = x.id ? App.findItem(x.type || x.t, x.id) : null;
+          var dot = (it && typeof Labels !== "undefined" && Labels.mark) ? Labels.mark(it) : "";
+          return '<div class="name">' + dot + App.esc(x.n) +
             (x.cons ? ' <span class="badge warn">على المباع</span>' : "") + "</div>" +
             '<div class="sub">' + (x.t === "book" ? "كتاب" : "قرطاسية") + (x.a ? " · " + App.esc(x.a) : "") +
             (x.code ? ' · <span class="num">' + App.esc(x.code) + "</span>" : "") + "</div>";

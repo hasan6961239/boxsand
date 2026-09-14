@@ -462,6 +462,85 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('وزر التراجع يعيد العلامة', await pg.evaluate(() => Labels.pendingCount()) === 1);
   }
 
+  console.log('\n== 14ب2. باركود تلقائي وتعليم المطبوع ==');
+  {
+    const st = seed();
+    st.books = [
+      { id: 'n1', code: 'K1', title: 'كتاب بلا باركود', lib: 'A', shelf: '1', barcode: '', cost: 10, price: 15, qty: 5, min: 1 },
+      { id: 'n2', code: 'K2', title: 'كتاب ثانٍ بلا باركود', lib: 'A', shelf: '1', barcode: '', cost: 10, price: 15, qty: 5, min: 1 },
+      { id: 'n3', code: 'K3', title: 'قديم لُصقت لاصقته', lib: 'A', shelf: '2', barcode: '', cost: 8, price: 12, qty: 3, min: 1 },
+      { id: 'n4', code: 'K4', title: 'عليه باركود الناشر', lib: 'A', shelf: '2', barcode: '9781111111111', cost: 10, price: 15, qty: 5, min: 1 }
+    ];
+    st.stationery = [];
+    await closePage(pg); writeStore(st); pg = await open();
+
+    check('الكتاب بلا باركود يظهر في قائمة اللاصقات',
+      await pg.evaluate(() => Labels.pendingCount()) === 3, 'pending=' + await pg.evaluate(() => Labels.pendingCount()));
+
+    // توليد الباركود عند الطباعة
+    await pg.evaluate(() => { location.hash = '#/labels'; App.route(); }); await sleep(700);
+    await pg.evaluate(() => Labels.toggle('n1', 1)); await sleep(400);
+    await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1500);
+    const bc1 = await pg.evaluate(() => App.S.books.find(b => b.id === 'n1').barcode);
+    check('وُلِّد باركود وحُفظ على الكتاب', /^LIB-\d{6}$/.test(bc1), 'barcode=' + bc1);
+    const onLabel = await pg.evaluate(() =>
+      [...document.querySelectorAll('#modalHost .lbl-bc svg text')].map(t => t.textContent).join('|'));
+    check('ونفس الباركود مطبوع على اللاصقة', onLabel.indexOf(bc1) >= 0, 'label=' + onLabel);
+
+    await pg.evaluate(() => {
+      window.print = function () { };
+      const b = [...document.querySelectorAll('#modalHost button')].find(x => x.textContent.indexOf('طباعة الآن') >= 0);
+      if (b) b.click();
+    }); await sleep(1200);
+    check('والباركود المولَّد يجده مسح نقطة البيع',
+      await pg.evaluate(() => { const h = Inv.byBarcode(App.S.books.find(b => b.id === 'n1').barcode); return h && h.it.id; }) === 'n1');
+    check('ولا يتكرر باركود بين صنفين', await pg.evaluate(() => {
+      const t = {}; let dup = false;
+      App.S.books.forEach(b => { if (b.barcode) { if (t[b.barcode]) dup = true; t[b.barcode] = 1; } });
+      return !dup;
+    }));
+
+    // تعليم صنف واحد كمطبوع سابقاً
+    await pg.evaluate(() => Labels.markOne('n3')); await sleep(700);
+    const n3 = await pg.evaluate(() => App.S.books.find(b => b.id === 'n3'));
+    check('زر السطر يعلّمه كمطبوع', !!n3.labelPrinted);
+    check('ويولّد له باركود أيضاً', /^LIB-\d{6}$/.test(n3.barcode), 'barcode=' + n3.barcode);
+
+    // تعليم الكل جماعياً
+    check('بقي واحد فقط بلا طباعة', await pg.evaluate(() => Labels.pendingCount()) === 1);
+    await pg.evaluate(() => Labels.markAllShown()); await sleep(600);
+    await pg.click('#modalHost button:has-text("علّمها كمطبوعة")'); await sleep(900);
+    check('الزر الجماعي يفرّغ القائمة', await pg.evaluate(() => Labels.pendingCount()) === 0);
+    check('وكل كتاب صار له باركود', await pg.evaluate(() =>
+      App.S.books.every(b => String(b.barcode || '').trim().length > 0)));
+  }
+
+  console.log('\n== 14ب3. النقطة الحمراء في كل القوائم ==');
+  {
+    const st = seed();
+    st.books = [
+      { id: 'd1', code: 'K1', title: 'يحتاج لاصقة', lib: 'A', shelf: '1', barcode: '', cost: 10, price: 15, qty: 5, min: 1 },
+      { id: 'd2', code: 'K2', title: 'عليه باركود الناشر', lib: 'A', shelf: '1', barcode: '9781111111111', cost: 10, price: 15, qty: 5, min: 1 }
+    ];
+    st.stationery = [{ id: 'd3', code: 'Q1', name: 'قلم بلا لاصقة', cat: 'أقلام', unit: 'قطعة', barcode: '', cost: 1, price: 2, qty: 9, min: 1 }];
+    await closePage(pg); writeStore(st); pg = await open();
+
+    async function dots(where, after) {
+      await pg.evaluate(k => { location.hash = '#/' + k; App.route(); }, where); await sleep(600);
+      if (after) { await after(); }
+      return pg.evaluate(() => document.querySelectorAll('#view .lbl-dot').length);
+    }
+    check('في «إدخال بضاعة» (آخر ما أضفته)', await dots('purchases') >= 1, 'dots=' + await dots('purchases'));
+    const dEdit = await dots('purchases', async () => {
+      await pg.click('#view button:has-text("عرض وتعديل")'); await sleep(700);
+    });
+    check('في «عرض وتعديل»', dEdit === 1, 'dots=' + dEdit);
+    const dStock = await dots('stock', async () => {
+      await pg.click('button:has-text("مباشر")').catch(() => { }); await sleep(800);
+    });
+    check('وفي «المخزون والفروع»', dStock >= 1, 'dots=' + dStock);
+  }
+
   console.log('\n== 14ج. عمود الملاحظة في الاستيراد ==');
   {
     const csv = 'الاسم,المؤلف,الناشر,التصنيف,المكتبة,الرف,الباركود,شراء,بيع,الكمية,الحد,ملاحظة\n' +

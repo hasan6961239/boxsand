@@ -185,7 +185,7 @@ var Inv = (function () {
       title: "مكتبة " + lib + " — رف " + n,
       size: "wide",
       body: App.table([
-        { h: "الكتاب", c: function (b) { return '<div class="name">' + App.esc(b.title) + '</div><div class="sub">' + App.esc(b.author || "") + "</div>"; } },
+        { h: "الكتاب", c: function (b) { return '<div class="name">' + lblMark(b) + App.esc(b.title) + '</div><div class="sub">' + App.esc(b.author || "") + "</div>"; } },
         { h: "الكمية", cls: "num", c: function (b) { return App.num(b.qty); } },
         { h: "البيع", cls: "num", c: function (b) { return App.money0(b.price); } },
         { h: "الحالة", c: function (b) { return App.stockBadge(b); } },
@@ -251,7 +251,7 @@ var Inv = (function () {
         App.table([
           {
             h: "الصنف", c: function (x) {
-              return '<div class="name">' + App.esc(App.itemName(x)) + "</div>" +
+              return '<div class="name">' + lblMark(x) + App.esc(App.itemName(x)) + "</div>" +
                 '<div class="sub">' + App.esc(x.author || x.brand || "") + "</div>";
             }
           },
@@ -1248,7 +1248,7 @@ var Inv = (function () {
         { h: "#", cls: "num", c: function (x, i) { return all.length - list.length + i + 1; } },
         {
           h: "الصنف", c: function (x, i) {
-            return '<div class="name">' + App.esc(App.itemName(x)) +
+            return '<div class="name">' + lblMark(x) + App.esc(App.itemName(x)) +
               (i === list.length - 1 ? ' <span class="badge ok">الأخير</span>' : "") +
               (x.consId ? ' <span class="badge warn">على المباع</span>' : "") + "</div>" +
               '<div class="sub">' + App.esc(x.author || x.brand || "") +

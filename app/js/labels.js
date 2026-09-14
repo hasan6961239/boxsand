@@ -22,6 +22,7 @@ var Labels = (function () {
     if (L.maxChars === undefined) L.maxChars = 22;
     if (L.showPrice === undefined) L.showPrice = false;
     if (L.showLoc === undefined) L.showLoc = true;
+    if (L.prefix === undefined) L.prefix = "LIB";
     return L;
   }
 
@@ -69,6 +70,48 @@ var Labels = (function () {
     return String(it.barcode || "").trim() || String(it.code || "").trim();
   }
 
+  /* ---------- توليد باركود تلقائي ----------
+     الكتاب يُسجَّل بلا باركود، وعند طباعة لاصقته يُولَّد له رمز فريد
+     ويُحفظ عليه — فيصير قابلاً للمسح في نقطة البيع بلا كتابة يدوية. */
+
+  function allBarcodes() {
+    var set = {};
+    App.allItems().forEach(function (x) {
+      var b = String(x.it.barcode || "").trim();
+      if (b) set[b] = 1;
+      var c = String(x.it.code || "").trim();
+      if (c) set[c.toUpperCase()] = 1;
+    });
+    return set;
+  }
+
+  function newBarcode(taken) {
+    var pre = String(cfg().prefix || "LIB").replace(/[^A-Za-z0-9]/g, "").toUpperCase() || "LIB";
+    for (var tries = 0; tries < 400; tries++) {
+      var n = "";
+      for (var i = 0; i < 6; i++) n += Math.floor(Math.random() * 10);
+      var code = pre + "-" + n;
+      if (!taken[code] && !taken[code.toUpperCase()]) { taken[code] = 1; return code; }
+    }
+    return pre + "-" + Date.now().toString().slice(-8);   // مخرج أخير
+  }
+
+  /* تُستدعى قبل الطباعة: تملأ الباركود الناقص وتحفظ */
+  function ensureBarcodes(ids) {
+    var taken = allBarcodes();
+    var made = 0;
+    (ids || []).forEach(function (id) {
+      var it = App.findItem("book", id) || App.findItem("stat", id);
+      if (!it) return;
+      if (String(it.barcode || "").trim()) return;
+      it.barcode = newBarcode(taken);
+      it.updated = App.nowStamp();
+      made++;
+    });
+    if (made) App.save();
+    return made;
+  }
+
   /* ---------- «لم تُطبع لاصقته» ----------
      الكتاب الذي عليه باركود الناشر لا يحتاج لاصقة أبداً. ما عداه يحتاج
      واحدة حتى تُطبع فعلاً — فتُعلَّم بعلامة حمراء في المخزون حتى ذلك. */
@@ -76,7 +119,6 @@ var Labels = (function () {
   function needsLabel(it) {
     if (!it) return false;
     if (hasPrinted(it)) return false;          // باركود الناشر يكفي
-    if (!codeOf(it)) return false;             // بلا كود: مشكلة أخرى، لا لاصقة
     return !it.labelPrinted;
   }
 
@@ -102,6 +144,34 @@ var Labels = (function () {
     App.save();
   }
 
+  /* لاصقات مطبوعة من قبل بأداة خارجية: تُعلَّم بلا طباعة.
+     بدون هذا تبقى الكتب القديمة في القائمة إلى الأبد. */
+  function markDone(ids, quiet) {
+    var list = ids && ids.length ? ids : Object.keys(sel);
+    if (!list.length) { App.toast("اختر أصنافاً أولاً.", "warn"); return; }
+    ensureBarcodes(list);
+    markPrinted(list);
+    sel = {};
+    if (!quiet) App.toast("عُلِّم " + list.length + " صنفاً كمطبوع — خرجت من القائمة.", "ok");
+    App.rerender();
+  }
+
+  function markOne(id) {
+    ensureBarcodes([id]);
+    markPrinted([id]);
+    delete sel[id];
+    App.rerender();
+  }
+
+  function markAllShown() {
+    var ids = candidates().filter(function (r) { return needsLabel(r.it); })
+      .map(function (r) { return r.it.id; });
+    if (!ids.length) { App.toast("لا شيء لتعليمه.", "warn"); return; }
+    App.confirm("سيُعلَّم " + ids.length + " صنفاً كأن لاصقاته طُبعت، فتخرج من القائمة " +
+      "بلا طباعة.\n\nاستعمله للكتب التي لصقت لاصقاتها من قبل بأداة خارجية.",
+      function () { markDone(ids); }, { yes: "علّمها كمطبوعة" });
+  }
+
   function unmark(type, id) {
     var it = App.findItem(type, id);
     if (!it) return;
@@ -116,7 +186,6 @@ var Labels = (function () {
     var out = [];
     App.allItems().forEach(function (x) {
       var it = x.it;
-      if (!codeOf(it)) return;                       // بلا كود لا لاصقة
       var printed = hasPrinted(it);
       if (view.kind === "need" && !needsLabel(it)) return;
       if (view.kind === "printed" && !printed) return;
@@ -189,6 +258,9 @@ var Labels = (function () {
       '<button class="btn" onclick="Labels.settings()">⚙ مقاس اللاصقة</button>' +
       '<button class="btn" onclick="Labels.selectAll()">اختر المعروض</button>' +
       (chosen ? '<button class="btn ghost" onclick="Labels.clearSel()">إلغاء الاختيار</button>' : "") +
+      (chosen ? '<button class="btn" onclick="Labels.markDone()">علّم المحدد كمطبوع</button>' : "") +
+      (view.kind === "need" && list.length
+        ? '<button class="btn ghost" onclick="Labels.markAllShown()">علّم الكل كمطبوع</button>' : "") +
       '<button class="btn primary" onclick="Labels.preview()"' + (chosen ? "" : " disabled") + '>' +
       "معاينة وطباعة" + (chosen ? " · " + totalLabels() + " لاصقة" : "") + "</button>" +
       "</div>";
@@ -207,7 +279,13 @@ var Labels = (function () {
             (sh !== r.name ? '<div class="sub">على اللاصقة: ' + App.esc(sh) + "</div>" : "");
         }
       },
-      { h: "الكود", c: function (r) { return '<span class="num small">' + App.esc(codeOf(r.it)) + "</span>"; } },
+      {
+        h: "الكود", c: function (r) {
+          var bc = String(r.it.barcode || "").trim();
+          if (bc) return '<span class="num small">' + App.esc(bc) + "</span>";
+          return '<span class="muted small">يُولَّد عند الطباعة</span>';
+        }
+      },
       {
         h: "الحالة", c: function (r) {
           if (r.printed) return '<span class="badge ok">باركود الناشر — لا تحتاج</span>';
@@ -216,7 +294,9 @@ var Labels = (function () {
               '<button class="btn sm ghost" onclick="Labels.unmark(\'' + r.type + "','" + r.it.id +
               '\')" title="أعِد العلامة إن لم تُلصق فعلاً">↺</button>';
           }
-          return '<span class="badge bad">لم تُطبع</span>';
+          return '<span class="badge bad">لم تُطبع</span> ' +
+            '<button class="btn sm ghost" onclick="Labels.markOne(\'' + r.it.id +
+            '\')" title="لاصقته ملصوقة من قبل — علّمها كمطبوعة">✓</button>';
         }
       },
       { h: "بالمخزون", cls: "num", c: function (r) { return App.num(r.it.qty); } },
@@ -241,7 +321,7 @@ var Labels = (function () {
     App.form({
       title: "مقاس اللاصقة",
       size: "narrow",
-      values: { w: L.w, h: L.h, maxChars: L.maxChars, showPrice: L.showPrice, showLoc: L.showLoc },
+      values: { w: L.w, h: L.h, maxChars: L.maxChars, showPrice: L.showPrice, showLoc: L.showLoc, prefix: L.prefix },
       fields: [
         { k: "w", label: "العرض (مم)", type: "number", min: 15, hint: "قِس لاصقتك بالمسطرة" },
         { k: "h", label: "الطول (مم)", type: "number", min: 10 },
@@ -250,7 +330,11 @@ var Labels = (function () {
           hint: "الاسم الأطول يُقطع عند آخر كلمة كاملة تدخل — مثال: «أساسيات الهندسة لتقنيات الورش» ← «أساسيات الهندسة»"
         },
         { k: "showLoc", label: "اطبع المكان (المكتبة والرف)", type: "checkbox", full: true },
-        { k: "showPrice", label: "اطبع السعر على اللاصقة", type: "checkbox", full: true }
+        { k: "showPrice", label: "اطبع السعر على اللاصقة", type: "checkbox", full: true },
+        {
+          k: "prefix", label: "بادئة الباركود المولَّد", full: true,
+          hint: "الكتاب الذي بلا باركود يُولَّد له رمز عند طباعة لاصقته، مثل LIB-473920"
+        }
       ],
       onSave: function (v) {
         L.w = Math.max(15, App.num(v.w));
@@ -258,6 +342,7 @@ var Labels = (function () {
         L.maxChars = Math.max(8, App.num(v.maxChars));
         L.showLoc = !!v.showLoc;
         L.showPrice = !!v.showPrice;
+        L.prefix = String(v.prefix || "LIB").replace(/[^A-Za-z0-9]/g, "").toUpperCase() || "LIB";
         App.save();
         App.toast("حُفظ مقاس اللاصقة.");
         App.rerender();
@@ -309,6 +394,9 @@ var Labels = (function () {
     var L = cfg();
     var ids = Object.keys(sel);
     if (!ids.length) { App.toast("اختر أصنافاً أولاً.", "warn"); return; }
+
+    var made = ensureBarcodes(ids);
+    if (made) App.toast("وُلِّد باركود لـ" + made + " صنف بلا باركود، وحُفظ عليه.", "ok");
 
     var body = "";
     var n = 0;
@@ -406,6 +494,8 @@ var Labels = (function () {
     preview: preview, forItems: forItems, one: one,
     shortName: shortName, hasPrinted: hasPrinted, codeOf: codeOf,
     needsLabel: needsLabel, pendingCount: pendingCount, mark: mark,
-    markPrinted: markPrinted, unmark: unmark
+    markPrinted: markPrinted, unmark: unmark,
+    ensureBarcodes: ensureBarcodes, newBarcode: newBarcode,
+    markDone: markDone, markOne: markOne, markAllShown: markAllShown
   };
 })();
