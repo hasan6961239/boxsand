@@ -124,6 +124,30 @@ function mergeCheque(results) {
   return out;
 }
 
+/**
+ * Keep only cheque quotes that can actually be cheque quotes.
+ *
+ * Paying by transfer or cheque always costs MORE than paying cash — that is the
+ * whole reason the tier exists — so a number at or below the street rate is a
+ * mis-parse, not a bargain. The upper bound catches the opposite failure, a
+ * number grabbed from an unrelated sentence.
+ */
+const CHEQUE_PREMIUM = { min: 0.002, max: 0.20 };
+
+function sanitizeCheque(cheque, parallel) {
+  const dropped = [];
+  for (const [code, value] of Object.entries(cheque)) {
+    const cash = parallel[code]?.national ?? parallel[code]?.tripoli;
+    if (!Number.isFinite(cash) || cash === 0 || !Number.isFinite(value)) continue;
+    const premium = (value - cash) / cash;
+    if (premium < CHEQUE_PREMIUM.min || premium > CHEQUE_PREMIUM.max) {
+      delete cheque[code];
+      dropped.push(`cheque.${code}=${value} (${(premium * 100).toFixed(1)}% عن النقدي ${round(cash, 3)})`);
+    }
+  }
+  return dropped;
+}
+
 /** How long a per-city observation stays relevant. */
 const OBSERVATION_WINDOW_MS = 21 * 86400e3;
 /** Below this many observations the measured gap is not yet trustworthy. */
@@ -343,6 +367,7 @@ async function main() {
   // world spot price — it carries the local premium and the workmanship market.
   const localGold18 = liveParallel.map((r) => r.localGold18).find(Number.isFinite) ?? null;
   const cheque = mergeCheque(liveParallel);
+  const chequeDropped = sanitizeCheque(cheque, parallel);
 
   // CBL is authoritative for the official rate; the international feed only
   // fills in when the bank's page could not be read.
@@ -386,7 +411,7 @@ async function main() {
   data.meta = {
     confidence,
     carried,
-    dropped,
+    dropped: [...dropped, ...chequeDropped],
     cities: CITIES,
     offsets: Object.fromEntries(CITY_KEYS.map((c) => [c, offsets[c] ?? 0])),
     offsetBasis,
