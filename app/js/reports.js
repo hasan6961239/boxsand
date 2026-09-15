@@ -24,6 +24,18 @@ var Rep = (function () {
      لوحة اليوم
      ============================================================ */
 
+  /* عدد القطع صافياً: المباع ناقص المُرجَع.
+
+     أسطر فاتورة الإرجاع تحمل كمية موجبة بينما إجماليها سالب. فجمع
+     الكميات من كل الفواتير كان يجعل إرجاع نسختين يزيد «القطع
+     المباعة» اثنتين بدل أن ينقصها — رقم يقول عكس الحقيقة. */
+  function piecesNet(list) {
+    return (list || []).reduce(function (n, v) {
+      var q = (v.items || []).reduce(function (a, l) { return a + App.num(l.qty); }, 0);
+      return n + (v.kind === "return" ? -q : q);
+    }, 0);
+  }
+
   function dashboard() {
     var t = App.today();
     var todayInv = sales(t, t);
@@ -37,9 +49,7 @@ var Rep = (function () {
     var h = '<div class="grid g4" style="margin-bottom:18px">';
     h += card("accent", "مبيعات اليوم", App.money0(sum(todayInv, function (v) { return v.total; })), realSales.length + " فاتورة");
     if (App.canProfit()) h += card("blue", "ربح اليوم", App.money0(sum(todayInv, function (v) { return v.profit; })), "بعد خصم سعر الشراء");
-    else h += card("blue", "عدد القطع المباعة", String(todayInv.reduce(function (a, v) {
-      return a + v.items.reduce(function (b2, l) { return b2 + App.num(l.qty); }, 0);
-    }, 0)), "اليوم");
+    else h += card("blue", "عدد القطع المباعة", String(piecesNet(todayInv)), "اليوم");
     h += card("accent", "مبيعات الشهر", App.money0(sum(monthInv, function (v) { return v.total; })), App.dateAr(monthStart()) + " حتى اليوم");
     h += card(low ? "warn" : "accent", "أصناف تحتاج شراء", String(low), low ? "راجع صفحة التنبيهات" : "كل شيء متوفر");
     h += "</div>";
@@ -265,17 +275,21 @@ var Rep = (function () {
     h += "</div></div>";
 
     // الأكثر مبيعاً + الراكد
+    /* المرتجع يُخصم: بيع عشر نسخ ورجعت تسع ليس صنفاً رائجاً، وصاحب
+       المحل يقرأ هذه القائمة ليقرّر ماذا يشتري. */
     var counts = {};
-    real.forEach(function (v) {
+    inv.forEach(function (v) {
+      var sign = v.kind === "return" ? -1 : 1;
       v.items.forEach(function (l) {
         var k = l.type + ":" + l.id;
         if (!counts[k]) counts[k] = { name: l.name, qty: 0, val: 0, prof: 0, type: l.type, id: l.id };
-        counts[k].qty += App.num(l.qty);
-        counts[k].val += App.num(l.qty) * App.num(l.price);
-        counts[k].prof += App.num(l.qty) * (App.num(l.price) - App.num(l.cost));
+        counts[k].qty += sign * App.num(l.qty);
+        counts[k].val += sign * App.num(l.qty) * App.num(l.price);
+        counts[k].prof += sign * App.num(l.qty) * (App.num(l.price) - App.num(l.cost));
       });
     });
     var top = Object.keys(counts).map(function (k) { return counts[k]; })
+      .filter(function (c) { return c.qty > 0; })
       .sort(function (a, b) { return b.qty - a.qty; }).slice(0, 12);
 
     var soldIds = {};
@@ -392,9 +406,7 @@ var Rep = (function () {
     var creditDue = inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0);
     var total = sum(inv, function (v) { return v.total; });
     var profit = sum(inv, function (v) { return v.profit; });
-    var pieces = real.reduce(function (s2, v) {
-      return s2 + v.items.reduce(function (a, l) { return a + App.num(l.qty); }, 0);
-    }, 0);
+    var pieces = piecesNet(inv);
     var whole = real.filter(function (v) { return v.mode === "wholesale"; });
 
     var h = '<div class="card" style="margin-bottom:18px"><div class="card-body row">' +

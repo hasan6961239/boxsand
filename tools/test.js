@@ -805,6 +805,51 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       /license\.txt/.test(licTxt) && /data/.test(licTxt), licTxt.slice(0, 90));
   }
 
+  console.log('\n== 14ج6. المرتجع يُخصم من الأرقام ==');
+  {
+    /* أسطر فاتورة الإرجاع تحمل كمية موجبة وإجمالياً سالباً. فجمع
+       الكميات من كل الفواتير كان يجعل إرجاع تسع نسخ **يزيد**
+       «القطع المباعة» تسعاً، ويُبقي الصنف متصدّراً «الأكثر مبيعاً». */
+    const T = new Date().toISOString().slice(0, 10);
+    const mk = (no, kind, id, name, qty, sign) => ({
+      id: 'i' + no, no: no, kind: kind, date: T, at: T + ' 10:00',
+      items: [{ type: 'book', id: id, name: name, qty: qty, price: 20, cost: 10 }],
+      subtotal: sign * qty * 20, discount: 0, total: sign * qty * 20,
+      profit: sign * qty * 10, method: 'cash', mode: 'retail',
+      customerId: '', paid: sign * qty * 20, due: 0
+    });
+    const st = seed();
+    st.books = [
+      { id:'r1', code:'K1', title:'صنف رائج', lib:'A', shelf:'1', barcode:'901', cost:10, price:20, qty:100, min:2 },
+      { id:'r2', code:'K2', title:'صنف مرتجع', lib:'A', shelf:'2', barcode:'902', cost:10, price:20, qty:100, min:2 }
+    ];
+    st.invoices = [ mk(1,'sale','r1','صنف رائج',5,1),
+                    mk(2,'sale','r2','صنف مرتجع',10,1),
+                    mk(3,'return','r2','صنف مرتجع',9,-1) ];
+    st.counters = { invoice:3, book:2, stat:0 };
+    await closePage(pg); writeStore(st); pg = await open();
+
+    await pg.evaluate(() => { location.hash = '#/dash'; App.route(); }); await sleep(600);
+    const dash = await pg.evaluate(() => document.getElementById('view').textContent.replace(/\s+/g, ' '));
+    const m = dash.match(/عدد القطع المباعة[^\d]*(\d+)/);
+    check('القطع المباعة = 5 + 10 − 9 = 6', m && m[1] === '6', m ? m[1] : 'الربح ظاهر بدل القطع');
+
+    const rep = await pg.evaluate(() => {
+      document.getElementById('view').innerHTML = Rep.reports();
+      return document.getElementById('view').textContent.replace(/\s+/g, ' ');
+    });
+    const i1 = rep.indexOf('صنف رائج'), i2 = rep.indexOf('صنف مرتجع');
+    check('الرائج يسبق المرتجع في «الأكثر مبيعاً»', i1 > 0 && i2 > 0 && i1 < i2, 'i1=' + i1 + ' i2=' + i2);
+    /* صف الجدول: الاسم ثم الكمية ثم المبيعات ثم الربح.
+       المرتجع صافيه 1 (عشر مباعة ناقص تسع مرتجعة) لا 10. */
+    const rowRet = rep.slice(i2, i2 + 40).replace(/\s+/g, '');
+    check('المرتجع بصافيه: 1 قطعة بـ20.00 (لا 10 بـ200)',
+      rowRet.indexOf('صنفمرتجع120.0010.00') === 0, rowRet);
+    const rowTop = rep.slice(i1, i1 + 40).replace(/\s+/g, '');
+    check('والرائج بخمس قطع بـ100.00',
+      rowTop.indexOf('صنفرائج5100.0050.00') === 0, rowTop);
+  }
+
   console.log('\n== 14ج5. الكتابة ثم الضغط فوراً لا تُضيّع الضغطة ==');
   {
     /* التسلسل الحقيقي عند الضغط بعد الكتابة في حقل:
