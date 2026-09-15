@@ -294,6 +294,56 @@ export async function parallelFromArticles({ listUrl, match, max = 4 }) {
   return { rates: merged, detail: `${visited.length} مقال · ${cityHits}/3 مدن · ${[...routes].join('+')}` };
 }
 
+/**
+ * Read rates from a site's RSS feed.
+ *
+ * The article pages behind Cloudflare answer datacentre IPs with 403, and the
+ * public readers are blocked by the same rules. Feeds are usually served by a
+ * different path that bot protection leaves alone, and a rates article puts the
+ * numbers in its title and summary — which is all the extractor needs.
+ */
+export async function parallelFromFeed({ feeds, max = 12 }) {
+  let text = null;
+  let used = null;
+  const tried = [];
+
+  for (const feed of feeds) {
+    try {
+      const page = await fetchPage(feed, { timeout: 18000 });
+      if (page.text && /<(item|entry)[\s>]/i.test(page.text)) { text = page.text; used = `${new URL(feed).pathname}(${page.via})`; break; }
+      tried.push(`${new URL(feed).pathname} not-a-feed`);
+    } catch (err) {
+      tried.push(`${new URL(feed).pathname} ${String(err?.message ?? err).slice(0, 30)}`);
+    }
+  }
+  if (!text) throw new Error(tried.join(' · ') || 'no feed reachable');
+
+  // Titles and summaries only — the rest of an RSS item is boilerplate.
+  const entries = [...text.matchAll(/<(?:item|entry)[\s>][\s\S]*?<\/(?:item|entry)>/gi)]
+    .slice(0, max)
+    .map((m) => {
+      const block = m[0];
+      const pick = (tag) => (block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i')) || [])[1] || '';
+      return htmlToText(`${pick('title')}\n${pick('description')}\n${pick('summary')}\n${pick('content:encoded')}`);
+    })
+    .filter((t) => /دولار|يورو|صرف/.test(normalizeArabic(t)));
+
+  const merged = {};
+  for (const entry of entries) {
+    const found = extractCityRates(entry);
+    const national = extractNationalRates(entry);
+    for (const code of Object.keys(BANDS)) {
+      merged[code] ||= {};
+      for (const [city, val] of Object.entries(found[code] || {})) merged[code][city] ??= val;
+      if (national[code] != null) merged[code].national ??= national[code];
+    }
+  }
+
+  const cityHits = CITY_KEYS.filter((c) => merged.USD?.[c] != null).length;
+  if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error(`no rates in feed ${used}`);
+  return { rates: merged, detail: `${entries.length} خبر · ${cityHits}/3 مدن · ${used}` };
+}
+
 /** Pages that publish a straight rate table with no city breakdown. */
 export async function parallelFromRatePage(url) {
   const page = await fetchPage(url);
@@ -353,6 +403,26 @@ export const PARALLEL_SOURCES = [
     id: 'bekam.ly', label: 'بكم — أسعار العملات', url: 'https://bekam.ly/',
     weight: 1,
     run: () => parallelFromRatePage('https://bekam.ly/'),
+  },
+  {
+    id: 'libyaakhbar-feed', label: 'أخبار ليبيا — خلاصة RSS', url: 'https://www.libyaakhbar.com/feed',
+    weight: 2,
+    run: () => parallelFromFeed({ feeds: [
+      'https://www.libyaakhbar.com/feed',
+      'https://www.libyaakhbar.com/rss',
+      'https://www.libyaakhbar.com/feed/',
+      'https://www.libyaakhbar.com/?feed=rss2',
+    ] }),
+  },
+  {
+    id: 'almashhad-feed', label: 'المشهد الليبي — خلاصة RSS', url: 'https://almashhadlibya.com/feed',
+    weight: 2,
+    run: () => parallelFromFeed({ feeds: [
+      'https://almashhadlibya.com/feed',
+      'https://almashhadlibya.com/feed/',
+      'https://almashhadlibya.com/rss',
+      'https://almashhadlibya.com/?feed=rss2',
+    ] }),
   },
 ];
 

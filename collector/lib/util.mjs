@@ -31,6 +31,9 @@ export function normalizeArabic(s) {
 /** Strip markup and collapse whitespace, keeping a readable text stream. */
 export function htmlToText(html) {
   return String(html)
+    // RSS wraps article text in CDATA. Unwrap it first: the tag stripper below
+    // would otherwise treat "<![CDATA[ … ]]>" as one tag and delete the text.
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|tr|li|h\d|td|th)>/gi, '\n')
@@ -83,6 +86,8 @@ export async function fetchText(url, { timeout = 15000, retries = 2, headers = {
 const READER_PROXIES = [
   (url) => `https://r.jina.ai/${url}`,
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
 ];
 
 /** Responses worth retrying through a reader rather than giving up on. */
@@ -97,14 +102,23 @@ export async function fetchPage(url, opts = {}) {
     return { text: await fetchText(url, { retries: 1, ...opts }), via: 'direct' };
   } catch (err) {
     if (!BLOCKED.test(String(err?.message ?? ''))) throw err;
+
+    // Record why each route failed. Without this the source health table only
+    // ever says "403" and there is no way to tell a blocked reader from a
+    // reader that answered with an empty page.
+    const attempts = [`direct ${err.message}`];
     for (const build of READER_PROXIES) {
       const proxied = build(url);
+      const host = new URL(proxied).hostname.replace(/^(www|api|r)\./, '');
       try {
         const text = await fetchText(proxied, { retries: 0, timeout: 25000 });
-        if (text && text.length > 200) return { text, via: new URL(proxied).hostname };
-      } catch { /* try the next reader */ }
+        if (text && text.length > 200) return { text, via: host };
+        attempts.push(`${host} empty`);
+      } catch (proxyErr) {
+        attempts.push(`${host} ${String(proxyErr?.message ?? proxyErr).slice(0, 24)}`);
+      }
     }
-    throw err;
+    throw new Error(attempts.join(' · '));
   }
 }
 
