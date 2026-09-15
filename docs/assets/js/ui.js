@@ -149,6 +149,76 @@
     });
   }
 
+  /* ---------------------------------------------------------------- spread */
+
+  /**
+   * Where each city sits relative to the published rate.
+   *
+   * The numbers differ by a qirsh or two, so a bar from zero would render three
+   * identical bars. A dot plot on a scale zoomed to the actual range shows the
+   * gap that matters, and every dot is labelled with its own rate.
+   */
+  function renderSpread(state) {
+    const host = $('#spread-body');
+    const code = state.spreadCurrency;
+    const rates = state.latest?.parallel?.[code] || {};
+    const meta = state.latest?.meta || {};
+
+    const rows = D.CITY_ORDER
+      .map((city) => ({ city, value: rates[city], level: meta.confidence?.[`${code}.${city}`] }))
+      .filter((r) => Number.isFinite(r.value));
+
+    if (rows.length < 2) {
+      host.innerHTML = '<p class="chart-empty">بانتظار أسعار كافية للمقارنة.</p>';
+      return;
+    }
+
+    const values = rows.map((r) => r.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const reference = Number.isFinite(rates.tripoli) ? rates.tripoli : D.median(values);
+    const span = max - min;
+
+    // Fitting the actual spread to the full width would make three qirsh look
+    // like a chasm. The scale is at least ten qirsh wide, so a small gap reads
+    // as a small gap and a real divergence still fills the track.
+    const MIN_RANGE = 0.10;
+    const range = Math.max(span, MIN_RANGE);
+    const centre = (min + max) / 2;
+    const lo = centre - range / 2;
+    const pos = (v) => 6 + ((v - lo) / range) * 88;
+
+    const qirsh = (v) => Math.round((v - reference) * 100);
+
+    host.innerHTML = `
+      <div class="spread-rows">
+        ${rows.map((r) => {
+          const diff = qirsh(r.value);
+          const dir = diff > 0 ? 'is-above' : diff < 0 ? 'is-below' : 'is-level';
+          return `
+          <div class="spread-row">
+            <span class="spread-city"><i class="rc-swatch" style="--accent: var(${D.CITY_META[r.city].varName})" aria-hidden="true"></i>${D.CITY_META[r.city].ar}</span>
+            <div class="spread-track">
+              <span class="spread-ref" style="inset-inline-start:${pos(reference).toFixed(1)}%"></span>
+              <span class="spread-dot ${dir}" style="inset-inline-start:${pos(r.value).toFixed(1)}%; --accent: var(${D.CITY_META[r.city].varName})"></span>
+            </div>
+            <span class="spread-value num">${D.fmtRate(r.value)}</span>
+            <span class="spread-diff ${dir}">${diff === 0 ? 'كالمرجع' : `${diff > 0 ? '+' : '−'}${Math.abs(diff)} ${Math.abs(diff) === 1 ? 'قرش' : 'قروش'}`}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="spread-scale" aria-hidden="true">
+        <span class="num">${D.fmtRate(lo)}</span>
+        <span>مقياس ${Math.round(range * 100)} قرشاً</span>
+        <span class="num">${D.fmtRate(lo + range)}</span>
+      </div>
+      <p class="panel-note">${
+        span < 1e-9
+          ? 'كل الأسواق على نفس السعر المنشور حالياً.'
+          : `أوسع فرق <b class="num">${Math.round(span * 100)}</b> ${Math.round(span * 100) === 1 ? 'قرش' : 'قروش'} — الخط الرأسي هو سعر طرابلس المرجعي.`
+      } ${meta.offsetNote ? esc(meta.offsetNote) : ''}</p>`;
+  }
+
   /* -------------------------------------------------------------- official */
 
   function renderOfficial(state) {
@@ -212,12 +282,19 @@
     const spotBase = D.baselines(spotPoints, metals.XAU);
     const g21Points = basis === 'official' ? D.goldGramOfficial(state.history, 21) : D.goldGramCity(state.history, basis, 21);
     const g21Base = D.baselines(g21Points, table?.[21]);
+    const g18Points = basis === 'official' ? D.goldGramOfficial(state.history, 18) : D.goldGramCity(state.history, basis, 18);
+    const g18Base = D.baselines(g18Points, table?.[18]);
 
     $('#gold-top').innerHTML = `
       <div class="gold-tile is-hero">
         <div class="gt-label">جرام عيار 21 — ${basis === 'official' ? 'بالسعر الرسمي' : D.CITY_META[basis].ar}</div>
         <div class="gt-value num">${D.fmtMoney(table?.[21])}<span class="gt-unit">د.ل</span></div>
         <div class="gt-foot">${deltaChip(g21Base.yesterday || g21Base.morning || g21Base.last, 2)}<span class="rc-market">مقارنة بالأمس</span></div>
+      </div>
+      <div class="gold-tile is-hero">
+        <div class="gt-label">جرام عيار 18 — ${basis === 'official' ? 'بالسعر الرسمي' : D.CITY_META[basis].ar}</div>
+        <div class="gt-value num">${D.fmtMoney(table?.[18])}<span class="gt-unit">د.ل</span></div>
+        <div class="gt-foot">${deltaChip(g18Base.yesterday || g18Base.morning || g18Base.last, 2)}<span class="rc-market">مقارنة بالأمس</span></div>
       </div>
       <div class="gold-tile">
         <div class="gt-label">أونصة الذهب عالمياً ${resolved.isLive ? '<span class="tag tag-live">مباشر</span>' : ''}</div>
@@ -368,6 +445,73 @@
       </tr>`).join('');
   }
 
+  /* ---------------------------------------------------------------- alerts */
+
+  const ALERTS_KEY = 'marsad-alerts';
+  /** Do not renotify for the same alert within this window. */
+  const REARM_MS = 60 * 60 * 1000;
+
+  function loadAlerts() {
+    try { return JSON.parse(localStorage.getItem(ALERTS_KEY) || '[]'); } catch { return []; }
+  }
+  function saveAlerts(alerts) {
+    try { localStorage.setItem(ALERTS_KEY, JSON.stringify(alerts)); } catch { /* private mode */ }
+  }
+
+  function renderAlerts(state) {
+    const list = $('#alert-list');
+    const hint = $('#alert-hint');
+    const alerts = state.alerts || [];
+
+    const permission = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+    hint.textContent =
+      permission === 'unsupported' ? 'متصفحك لا يدعم الإشعارات — سيظهر التنبيه داخل الصفحة.'
+      : permission === 'denied' ? 'الإشعارات محظورة لهذا الموقع — سيظهر التنبيه داخل الصفحة.'
+      : permission === 'granted' ? 'الإشعارات مفعّلة. اترك الصفحة مفتوحة ليصلك التنبيه.'
+      : 'سيُطلب إذن الإشعارات عند أول تنبيه.';
+
+    if (!alerts.length) {
+      list.innerHTML = '<li class="alert-empty">لا توجد تنبيهات بعد.</li>';
+      return;
+    }
+    list.innerHTML = alerts.map((a) => {
+      const now = D.metricValue(state.latest, state.live, a.metric);
+      const met = Number.isFinite(now) && (a.dir === 'above' ? now >= a.value : now <= a.value);
+      return `<li class="alert-item ${met ? 'is-met' : ''}">
+        <span class="alert-desc">${esc(D.metricLabel(a.metric))} ${a.dir === 'above' ? 'يتجاوز' : 'ينزل تحت'} <b class="num">${D.fmtRate(a.value)}</b></span>
+        <span class="alert-now">الآن <b class="num">${D.fmtRate(now)}</b></span>
+        <button type="button" class="alert-remove" data-remove="${esc(a.id)}" aria-label="حذف التنبيه">✕</button>
+      </li>`;
+    }).join('');
+  }
+
+  /**
+   * Fire any alert whose condition has become true.
+   *
+   * There is no server here, so notifications arrive while the page is open —
+   * a pinned tab keeps them coming. Each alert re-arms after an hour so a rate
+   * hovering on the threshold does not notify on every refresh.
+   */
+  function checkAlerts(state, notify) {
+    const alerts = state.alerts || [];
+    let changed = false;
+    for (const alert of alerts) {
+      const value = D.metricValue(state.latest, state.live, alert.metric);
+      if (!Number.isFinite(value)) continue;
+      const met = alert.dir === 'above' ? value >= alert.value : value <= alert.value;
+      if (!met) { if (alert.armed === false) { alert.armed = true; changed = true; } continue; }
+      if (alert.armed === false && Date.now() - (alert.firedAt || 0) < REARM_MS) continue;
+      alert.armed = false;
+      alert.firedAt = Date.now();
+      changed = true;
+      notify(
+        `${D.metricLabel(alert.metric)} ${alert.dir === 'above' ? 'تجاوز' : 'نزل تحت'} ${D.fmtRate(alert.value)}`,
+        `السعر الآن ${D.fmtRate(value)} دينار`
+      );
+    }
+    if (changed) saveAlerts(alerts);
+  }
+
   /* ------------------------------------------------------------- converter */
 
   function renderConverter(state) {
@@ -410,5 +554,5 @@
       `<small>${D.fmtMoney(amount)} ${unitName} × ${D.fmtRate(rateFor)} — ${basisLabel}</small>`;
   }
 
-  global.UI = { renderHero, renderCityCards, renderOfficial, renderGold, renderCharts, renderSources, renderConverter, cssVar };
+  global.UI = { renderHero, renderCityCards, renderSpread, renderOfficial, renderGold, renderCharts, renderSources, renderConverter, renderAlerts, checkAlerts, loadAlerts, saveAlerts, cssVar };
 })(window);

@@ -141,6 +141,40 @@
     };
   }
 
+  /** Median — used wherever a representative value beats an average. */
+  function median(values) {
+    const v = values.filter(Number.isFinite).sort((a, b) => a - b);
+    if (!v.length) return null;
+    const mid = v.length >> 1;
+    return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+  }
+
+  /**
+   * Resolve a watchable metric ("USD:misrata", "GOLD21") to its current value.
+   * Alerts and the spread view both address rates this way.
+   */
+  function metricValue(latest, live, metric) {
+    if (!latest) return null;
+    if (metric === 'GOLD21' || metric === 'GOLD18') {
+      const karat = metric === 'GOLD21' ? 21 : 18;
+      const gold = resolveGold(latest, live).gold || {};
+      const city = CITY_ORDER.find((c) => Number.isFinite(gold.parallel?.[c]?.[karat]));
+      return gold.parallel?.[city]?.[karat] ?? gold.official?.[karat] ?? null;
+    }
+    const [code, city] = String(metric).split(':');
+    const v = latest.parallel?.[code]?.[city];
+    return Number.isFinite(v) ? v : null;
+  }
+
+  /** Human label for a metric key. */
+  function metricLabel(metric) {
+    if (metric === 'GOLD21') return 'ذهب عيار 21 — الجرام';
+    if (metric === 'GOLD18') return 'ذهب عيار 18 — الجرام';
+    const [code, city] = String(metric).split(':');
+    const cur = { USD: 'الدولار', EUR: 'اليورو', GBP: 'الإسترليني' }[code] || code;
+    return `${cur} — ${CITY_META[city]?.ar ?? city}`;
+  }
+
   /* ---------------------------------------------------------------- series */
 
   /** Pull one metric out of the history snapshots as {t, v} points. */
@@ -238,7 +272,7 @@
     days > 0 ? points.filter((p) => p.t >= Date.now() - days * 86400e3) : points;
 
   global.RatesData = {
-    load, series, withinDays, liveGold, resolveGold, goldTableFor,
+    load, series, withinDays, liveGold, resolveGold, goldTableFor, median, metricValue, metricLabel,
     cityUsd, cityEur, goldSpot, silverSpot, officialUsd, goldGramOfficial, goldGramCity,
     baselines, change, changeSentence, pointAt, morningPoint, libyaParts,
     fmtRate, fmtRate4, fmtMoney, fmtWhole, fmtPct, fmtSigned, relTime, absTime,

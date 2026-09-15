@@ -653,3 +653,94 @@ button { cursor: pointer; }
 
 .tag-published { color: var(--text-2); }
 .tag-estimated { color: var(--s-misrata); border-color: color-mix(in oklab, var(--s-misrata) 38%, transparent); }
+
+/* ============================ spread between cities ===================== */
+
+.sec-badge.spread, .sec-badge.alert { color: var(--gold); }
+
+.spread-rows { padding: 6px 19px 4px; }
+
+.spread-row {
+  display: grid;
+  grid-template-columns: minmax(84px, auto) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.spread-row:last-child { border-bottom: 0; }
+
+.spread-city { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+
+.spread-track {
+  position: relative;
+  /* The whole page is RTL, but a value scale reads left-to-right here just as
+     it does on the time charts — keeping both consistent. */
+  direction: ltr;
+  height: 26px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--surface-3) 12%, var(--surface-3) 88%, transparent);
+}
+/* the reference (Tripoli) marker every dot is read against */
+.spread-ref {
+  position: absolute; top: 4px; bottom: 4px; width: 2px;
+  background: var(--text-3); opacity: .5; transform: translateX(-50%);
+  border-radius: 2px;
+}
+.spread-dot {
+  position: absolute; top: 50%; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--accent); transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent), var(--shadow-1);
+  transition: inset-inline-start .5s var(--ease);
+}
+
+.spread-scale {
+  display: flex; justify-content: space-between; align-items: center;
+  direction: ltr;
+  padding: 2px 19px 0;
+  font-size: 10.5px; color: var(--text-3);
+}
+.spread-scale span:nth-child(2) { direction: rtl; }
+
+.spread-value { font-weight: 700; font-size: 15px; min-width: 62px; text-align: end; }
+.spread-diff { font-size: 12px; font-weight: 600; min-width: 74px; text-align: end; color: var(--text-3); }
+.spread-diff.is-below { color: var(--up); }
+.spread-diff.is-above { color: var(--down); }
+
+@media (max-width: 560px) {
+  .spread-row { grid-template-columns: minmax(70px, auto) minmax(0, 1fr) auto; row-gap: 4px; gap: 10px; }
+  .spread-diff { grid-column: 2 / -1; text-align: start; }
+}
+
+/* ================================= alerts =============================== */
+
+.alerts { padding: 19px; }
+.alert-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+
+.btn-primary {
+  padding: 10px 20px; border-radius: var(--r-sm); border: 0;
+  background: linear-gradient(140deg, var(--gold-soft), var(--gold));
+  color: #1a1408; font-weight: 700; font-size: 14px;
+  box-shadow: var(--shadow-1);
+  transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
+
+.alert-hint { font-size: 12px; color: var(--text-3); }
+
+.alert-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; }
+.alert-item {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 11px 14px; border-radius: var(--r-sm);
+  background: var(--surface-3); border: 1px solid var(--border-soft);
+  font-size: 13px;
+}
+.alert-item.is-met { border-color: color-mix(in oklab, var(--up) 45%, transparent); background: var(--up-bg); }
+.alert-desc { flex: 1 1 auto; min-width: 0; }
+.alert-now { color: var(--text-3); font-size: 12.5px; }
+.alert-remove {
+  flex: none; width: 26px; height: 26px; border-radius: 8px;
+  background: transparent; border: 1px solid var(--border); color: var(--text-3); line-height: 1;
+}
+.alert-remove:hover { color: var(--down); border-color: var(--down); }
+.alert-empty { color: var(--text-3); font-size: 13px; }

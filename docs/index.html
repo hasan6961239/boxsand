@@ -101,6 +101,24 @@
     <div class="card-grid" id="usd-cards"></div>
   </section>
 
+  <!-- ─────────────────────── spread between cities ────────────────────── -->
+  <section class="wrap section" aria-labelledby="spread-title">
+    <div class="section-head">
+      <h2 id="spread-title"><span class="sec-badge spread">⇅</span> فرق الصرف بين المدن</h2>
+      <p class="section-sub">السعر المنشور هو سعر سوق المشير بطرابلس. هنا موضع كل مدينة منه بالقرش.</p>
+    </div>
+    <div class="panel spread-panel">
+      <div class="panel-head">
+        <h3>المسافة بين الأسواق</h3>
+        <div class="seg" role="tablist" aria-label="العملة" id="spread-currency">
+          <button role="tab" class="seg-btn is-active" data-cur="USD" aria-selected="true">الدولار</button>
+          <button role="tab" class="seg-btn" data-cur="EUR" aria-selected="false">اليورو</button>
+        </div>
+      </div>
+      <div id="spread-body"></div>
+    </div>
+  </section>
+
   <section class="wrap section" aria-labelledby="eur-title">
     <div class="section-head">
       <h2 id="eur-title"><span class="sec-badge eur">€</span> اليورو</h2>
@@ -199,6 +217,46 @@
         </label>
       </div>
       <output class="conv-out" id="conv-out">—</output>
+    </form>
+  </section>
+
+  <!-- ─────────────────────────── alerts ──────────────────────────── -->
+  <section class="wrap section" aria-labelledby="alert-title">
+    <div class="section-head">
+      <h2 id="alert-title"><span class="sec-badge alert">🔔</span> تنبيه السعر</h2>
+      <p class="section-sub">اضبط حدّاً وسيصلك إشعار من المتصفح فور تجاوزه</p>
+    </div>
+    <form class="panel alerts" id="alerts" autocomplete="off">
+      <div class="conv-row">
+        <label class="field">
+          <span>راقب</span>
+          <select id="alert-metric">
+            <option value="USD:misrata">الدولار — مصراتة</option>
+            <option value="USD:tripoli">الدولار — طرابلس</option>
+            <option value="USD:benghazi">الدولار — بنغازي</option>
+            <option value="EUR:misrata">اليورو — مصراتة</option>
+            <option value="EUR:tripoli">اليورو — طرابلس</option>
+            <option value="GOLD21">ذهب عيار 21 — الجرام</option>
+            <option value="GOLD18">ذهب عيار 18 — الجرام</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>الشرط</span>
+          <select id="alert-dir">
+            <option value="above">تجاوز</option>
+            <option value="below">نزل تحت</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>الحد</span>
+          <input type="text" inputmode="decimal" id="alert-value" placeholder="مثال: 9.50">
+        </label>
+      </div>
+      <div class="alert-actions">
+        <button type="submit" class="btn-primary" id="alert-add">أضف التنبيه</button>
+        <span class="alert-hint" id="alert-hint"></span>
+      </div>
+      <ul class="alert-list" id="alert-list"></ul>
     </form>
   </section>
 

@@ -16,6 +16,8 @@
     history: [],
     range: 30,
     goldBasis: 'official',
+    spreadCurrency: 'USD',
+    alerts: [],
     live: null,
     lastFetch: 0,
     failures: 0,
@@ -37,6 +39,28 @@
     node.classList.add('is-on');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => node.classList.remove('is-on'), 4200);
+  }
+
+  /* ------------------------------------------------------------- notifying */
+
+  /**
+   * Show an alert. A granted browser notification reaches the user outside the
+   * tab; otherwise the in-page toast still tells them.
+   */
+  function notify(title, body) {
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification(title, { body, tag: title, icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🪙</text></svg>' });
+        return;
+      }
+    } catch { /* fall through to the toast */ }
+    toast(`${title} — ${body}`);
+  }
+
+  async function ensureNotificationPermission() {
+    if (typeof Notification === 'undefined') return 'unsupported';
+    if (Notification.permission !== 'default') return Notification.permission;
+    try { return await Notification.requestPermission(); } catch { return 'denied'; }
   }
 
   /* ----------------------------------------------------------------- theme */
@@ -105,11 +129,13 @@
     window.UI.renderHero(state);
     window.UI.renderCityCards('#usd-cards', 'USD', state);
     window.UI.renderCityCards('#eur-cards', 'EUR', state);
+    window.UI.renderSpread(state);
     window.UI.renderOfficial(state);
     window.UI.renderGold(state);
     window.UI.renderCharts(state);
     window.UI.renderSources(state);
     window.UI.renderConverter(state);
+    window.UI.renderAlerts(state);
     renderFreshness();
     bindTilt(document);
   }
@@ -136,6 +162,7 @@
       state.failures = 0;
       if (!rangeChosen) autoRange();
       renderAll();
+      window.UI.checkAlerts(state, notify);
       if (manual) toast('تم تحديث البيانات.');
     } catch (err) {
       state.failures += 1;
@@ -204,6 +231,45 @@
       window.UI.renderGold(state);
     });
 
+    $('#spread-currency').addEventListener('click', (event) => {
+      const btn = event.target.closest('.seg-btn');
+      if (!btn) return;
+      state.spreadCurrency = btn.dataset.cur;
+      $$('#spread-currency .seg-btn').forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', String(on));
+      });
+      window.UI.renderSpread(state);
+    });
+
+    const alerts = $('#alerts');
+    alerts.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const value = parseFloat(String($('#alert-value').value).replace(/[^\d.]/g, ''));
+      if (!Number.isFinite(value) || value <= 0) { toast('أدخل حدّاً صالحاً، مثل 9.50'); return; }
+      await ensureNotificationPermission();
+      state.alerts.push({
+        id: `a${Date.now().toString(36)}`,
+        metric: $('#alert-metric').value,
+        dir: $('#alert-dir').value,
+        value,
+        armed: true,
+      });
+      window.UI.saveAlerts(state.alerts);
+      $('#alert-value').value = '';
+      window.UI.renderAlerts(state);
+      window.UI.checkAlerts(state, notify);
+      toast('تمت إضافة التنبيه.');
+    });
+    alerts.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-remove]');
+      if (!btn) return;
+      state.alerts = state.alerts.filter((a) => a.id !== btn.dataset.remove);
+      window.UI.saveAlerts(state.alerts);
+      window.UI.renderAlerts(state);
+    });
+
     const converter = $('#converter');
     $('#conv-basis').addEventListener('change', (event) => { event.target.dataset.touched = '1'; });
     converter.addEventListener('input', () => window.UI.renderConverter(state));
@@ -223,6 +289,7 @@
 
   /* ------------------------------------------------------------------ boot */
 
+  state.alerts = window.UI.loadAlerts();
   initTheme();
   bindControls();
   refresh();
