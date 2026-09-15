@@ -805,6 +805,73 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       /license\.txt/.test(licTxt) && /data/.test(licTxt), licTxt.slice(0, 90));
   }
 
+  console.log('\n== 14ج5. الكتابة ثم الضغط فوراً لا تُضيّع الضغطة ==');
+  {
+    /* التسلسل الحقيقي عند الضغط بعد الكتابة في حقل:
+       ضغط الفأرة ← خروج المؤشّر من الحقل ← change ← إن أعاد المعالج
+       بناء الشاشة استُبدل الزر، فوقع رفع الفأرة على عنصر جديد ولم
+       تُحسب ضغطة. صاحب المحل يكتب ويضغط فلا يحدث شيء. */
+    await closePage(pg); writeStore(seed()); pg = await open();
+
+    const payOpen = () => pg.evaluate(() => !!document.querySelector('.pay-btn'));
+    /* شاشة الدفع نافذة خاصة لا تُغلق بـ[data-x]؛ إعادة التحميل أنظف
+       وتضمن بداية متطابقة لكل حالة. */
+    const freshPos = async () => {
+      await pg.reload({ waitUntil: 'domcontentloaded' });
+      await pg.waitForFunction(() => window.App && App.S && window.Sales, null, { timeout: 30000 });
+      await sleep(700);
+      await pg.evaluate(() => { location.hash = '#/pos'; App.route(); }); await sleep(500);
+      await pg.evaluate(() => { Sales.clear(); Sales.add('book', 'b1'); }); await sleep(450);
+    };
+    const dropModal = freshPos;
+
+    /* أ) بلا كتابة — خط الأساس */
+    await freshPos();
+    await pg.click('button:has-text("إتمام البيع")'); await sleep(700);
+    check('بلا كتابة: ضغطة واحدة تفتح شاشة الدفع', await payOpen() === true);
+
+    /* ب) كتابة خصم ثم ضغط */
+    await freshPos();
+    await pg.click('.totals input[type="number"]');
+    await pg.keyboard.type('5'); await sleep(150);
+    await pg.click('button:has-text("إتمام البيع")'); await sleep(800);
+    const dOpen = await payOpen();
+    check('كتابة خصم ثم ضغط: تُفتح من أول ضغطة', dOpen === true);
+    const dAmt = await pg.evaluate(() => {
+      const e = document.querySelector('.pay-amount'); return e ? e.textContent : '';
+    });
+    check('والمبلغ المطلوب بعد الخصم صحيح (15−5)', /10/.test(dAmt), dAmt);
+
+    /* ج) كتابة كمية سطر ثم ضغط */
+    await freshPos();
+    await pg.click('.qty-box input');
+    await pg.keyboard.press('Control+A');
+    await pg.keyboard.type('3'); await sleep(150);
+    await pg.click('button:has-text("إتمام البيع")'); await sleep(800);
+    check('كتابة كمية ثم ضغط: تُفتح من أول ضغطة', await payOpen() === true);
+    const qAmt = await pg.evaluate(() => {
+      const e = document.querySelector('.pay-amount'); return e ? e.textContent : '';
+    });
+    check('والمبلغ يعكس الكمية الجديدة (3×15)', /45/.test(qAmt), qAmt);
+
+    /* د) الأرقام تُحدَّث في مكانها فعلاً */
+    await freshPos();
+    await pg.evaluate(() => Sales.setQty(0, 4)); await sleep(300);
+    const live = await pg.evaluate(() => ({
+      line: (document.querySelector('.cart-line .lp') || {}).textContent,
+      sub: (document.getElementById('tSub') || {}).textContent,
+      qty: (document.querySelector('.qty-box input') || {}).value
+    }));
+    check('مجموع السطر يتحدّث (4×15)', /60/.test(live.line || ''), JSON.stringify(live));
+    check('ومجموع الفاتورة يتحدّث', /60/.test(live.sub || ''), JSON.stringify(live));
+    check('وحقل الكمية يعكس القيمة', live.qty === '4', JSON.stringify(live));
+
+    /* هـ) تصفير الكمية يحذف السطر */
+    await pg.evaluate(() => Sales.setQty(0, 0)); await sleep(350);
+    const gone = await pg.evaluate(() => document.querySelectorAll('.cart-line').length);
+    check('وتصفير الكمية يحذف السطر', gone === 0, 'lines=' + gone);
+  }
+
   console.log('\n== 14ج4. انقطاع المحرك: شريط واحد لا عشرات التنبيهات ==');
   {
     /* ما رآه صاحب المحل: عشرات من «انقطع الاتصال بمحرك البرنامج»

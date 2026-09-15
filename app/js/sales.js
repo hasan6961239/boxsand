@@ -157,9 +157,40 @@ var Sales = (function () {
     if (!cart[i]) return;
     var q = App.num(v);
     if (!allowsFraction(cart[i])) q = Math.round(q);
-    if (q <= 0) { cart.splice(i, 1); } else cart[i].qty = q;
+    /* حذف سطر يغيّر ترقيم البقية، فلا مفرّ من إعادة البناء */
+    if (q <= 0) { cart.splice(i, 1); clampDiscount(); paint(); return; }
+    cart[i].qty = q;
     clampDiscount();
-    paint();
+    /* تعديل الكمية يُحدَّث في مكانه: إعادة بناء السلة هنا كانت تبتلع
+       الضغطة التالية — يكتب صاحب المحل «٣» ثم يضغط «إتمام البيع»
+       فلا يحدث شيء، لأن الزر استُبدل بين ضغط الفأرة ورفعها. */
+    updateLine(i);
+    updateTotals();
+  }
+
+  function updateLine(i) {
+    var l = cart[i];
+    if (!l) return;
+    var row = document.querySelector('.cart-line[data-i="' + i + '"]');
+    if (!row) return;
+    var it = App.findItem(l.type, l.id) || {};
+    var lp = row.querySelector(".lp");
+    if (lp) lp.textContent = App.money0(App.num(l.price) * App.num(l.qty));
+    var inp = row.querySelector(".qty-box input");
+    if (inp && document.activeElement !== inp) inp.value = App.num(l.qty);
+    var left = App.num(it.qty) - App.num(l.qty);
+    var badge = row.querySelector(".badge.lft");
+    if (badge) {
+      badge.textContent = "يبقى " + left;
+      badge.className = "badge lft " +
+        (left <= 0 ? "bad" : left <= App.num(it.min) ? "warn" : "ok");
+    }
+    /* زرّا + و− يحملان الكمية الجديدة في نصّهما */
+    var btns = row.querySelectorAll(".qty-box button");
+    if (btns.length === 2) {
+      btns[0].setAttribute("onclick", "Sales.setQty(" + i + "," + (App.num(l.qty) + 1) + ")");
+      btns[1].setAttribute("onclick", "Sales.setQty(" + i + "," + (App.num(l.qty) - 1) + ")");
+    }
   }
   function bump(i, d) { setQty(i, App.num(cart[i].qty) + d); }
   function delLine(i) { cart.splice(i, 1); paint(); }
@@ -207,7 +238,7 @@ var Sales = (function () {
       var it = App.findItem(l.type, l.id) || {};
       var left = App.num(it.qty) - App.num(l.qty);
       var pw = App.num(it.priceW) || App.num(it.price);
-      return '<div class="cart-line">' +
+      return '<div class="cart-line" data-i="' + i + '">' +
         '<button class="x" title="حذف" onclick="Sales.del(' + i + ')">✕</button>' +
         '<div class="lp num">' + App.money0(App.num(l.price) * App.num(l.qty)) + "</div>" +
         '<div class="qty-box">' +
@@ -222,7 +253,7 @@ var Sales = (function () {
         (it.author || it.brand ? '<span>' + App.esc(it.author || it.brand) + "</span>" : "") +
         (l.type === "book" ? App.locChip(it) : (it.loc ? '<span class="badge">' + App.esc(it.loc) + "</span>" : "")) +
         (it.cat ? '<span class="badge">' + App.esc(it.cat) + "</span>" : "") +
-        '<span class="badge ' + (left <= 0 ? "bad" : left <= App.num(it.min) ? "warn" : "ok") +
+        '<span class="badge lft ' + (left <= 0 ? "bad" : left <= App.num(it.min) ? "warn" : "ok") +
         '">يبقى ' + left + "</span>" +
         "</div>" +
         '<div class="ln-price">' +
@@ -352,16 +383,34 @@ var Sales = (function () {
   function paintTotals() {
     var host = document.getElementById("totals");
     if (!host) return;
-    var count = cart.reduce(function (s, l) { return s + App.num(l.qty); }, 0);
     host.innerHTML =
-      '<div class="t-row"><span>عدد القطع</span><span class="num">' + count + "</span></div>" +
-      '<div class="t-row"><span>المجموع</span><span class="num">' + App.money0(subtotal()) + "</span></div>" +
+      '<div class="t-row"><span>عدد القطع</span><span class="num" id="tCount"></span></div>' +
+      '<div class="t-row"><span>المجموع</span><span class="num" id="tSub"></span></div>' +
       '<div class="t-row"><span>الخصم</span>' +
-      '<input class="inp num" style="width:104px;text-align:center;padding:4px 8px" type="number" min="0" step="0.25" value="' +
-      App.num(discount) + '" onchange="Sales.setDiscount(this.value)"></div>' +
-      '<div class="t-row grand"><span>الصافي</span><span class="num">' + App.money0(total()) + "</span></div>" +
-      (App.canProfit() ? '<div class="t-row small muted"><span>ربح هذه الفاتورة</span><span class="num">' +
-        App.money0(profit()) + "</span></div>" : "");
+      '<input class="inp num" id="tDisc" style="width:104px;text-align:center;padding:4px 8px" ' +
+      'type="number" min="0" step="0.25" onchange="Sales.setDiscount(this.value)"></div>' +
+      '<div class="t-row grand"><span>الصافي</span><span class="num" id="tNet"></span></div>' +
+      (App.canProfit() ? '<div class="t-row small muted"><span>ربح هذه الفاتورة</span>' +
+        '<span class="num" id="tProfit"></span></div>' : "");
+    updateTotals();
+  }
+
+  /* تحديث الأرقام في مكانها بلا إعادة بناء.
+
+     كان تغيير الخصم يعيد بناء الشريط وأزرار الدفع. والتسلسل عند
+     الضغط على «إتمام البيع» بعد كتابة خصم هو: ضغط الفأرة ← خروج
+     المؤشّر من الحقل ← change ← إعادة بناء ← فرفع الفأرة يقع على زرّ
+     جديد فلا يُحسب ضغطة. النتيجة: يكتب صاحب المحل الخصم ويضغط فلا
+     يحدث شيء، ويظنّ البرنامج معطّلاً. */
+  function updateTotals() {
+    var set = function (id, v) { var e = document.getElementById(id); if (e) e.textContent = v; };
+    set("tCount", cart.reduce(function (s, l) { return s + App.num(l.qty); }, 0));
+    set("tSub", App.money0(subtotal()));
+    set("tNet", App.money0(total()));
+    set("tProfit", App.money0(profit()));
+    var d = document.getElementById("tDisc");
+    /* لا نلمس الحقل والمؤشّر فيه: الكتابة أولى من التصحيح */
+    if (d && document.activeElement !== d) d.value = App.num(discount);
   }
 
   function paintPay() {
@@ -384,7 +433,10 @@ var Sales = (function () {
     var want = App.num(v), cap = subtotal();
     discount = Math.min(Math.max(want, 0), cap);
     if (want > cap) App.toast("الخصم لا يتجاوز مجموع الفاتورة (" + App.money0(cap) + ").", "warn");
-    paint();
+    /* الأرقام فقط: إعادة البناء هنا تبتلع الضغطة التالية */
+    updateTotals();
+    var d = document.getElementById("tDisc");
+    if (d) d.value = App.num(discount);
   }
   function setMethod(m) { method = m; paint(); focusScan(); }
 
@@ -1319,6 +1371,8 @@ var Sales = (function () {
     setDiscount: setDiscount, setMethod: setMethod, setMode: setMode, setCustomer: setCustomer,
     setPaid: setPaid, setAutoPrint: setAutoPrint, payName: payName, payBadge: payBadge,
     complete: complete,
+    /* للاختبار فقط: قراءة الحالة الداخلية بلا تعديلها */
+    __cartLen: function () { return cart.length; }, __disc: function () { return discount; },
     invoices: invoices, setInvF: setInvF, showInvoice: showInvoice,
     allInvoices: allInvoices, moreInvoices: moreInvoices,
     printInvoice: printInvoice, startReturn: startReturn, exportInvoices: exportInvoices,
