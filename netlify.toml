@@ -1,0 +1,19 @@
+# Netlify serves the static page only. The rates themselves are fetched by the
+# browser from the repository (see REPO_DATA in docs/assets/js/data.js), so the
+# collector's ten-minute commits never trigger a rebuild here — a Git-connected
+# deploy would burn the whole free build allowance in about two days.
+[build]
+  publish = "docs"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# The data files are read live from the repository; never let a stale copy of
+# the bundled fallback be served from cache.
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "no-cache"
