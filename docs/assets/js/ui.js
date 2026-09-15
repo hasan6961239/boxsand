@@ -10,12 +10,13 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const CURRENCY_LABEL = { USD: 'الدولار', EUR: 'اليورو' };
+  /** Shown on every card. The fuller history lives in the charts below. */
   const BASELINE_LABELS = [
-    ['last', 'منذ آخر تحديث'],
     ['morning', 'منذ صباح اليوم'],
     ['yesterday', 'أمس في نفس الوقت'],
-    ['week', 'خلال أسبوع'],
   ];
+  /** The euro strip is secondary — one line of context is enough. */
+  const COMPACT_BASELINES = [['morning', 'منذ الصباح']];
 
   /* ------------------------------------------------------------- fragments */
 
@@ -33,8 +34,8 @@
   }
 
   /** Comparison rows, showing only the baselines that exist yet. */
-  function deltaRows(base) {
-    const rows = BASELINE_LABELS.filter(([k]) => base[k]);
+  function deltaRows(base, compact) {
+    const rows = (compact ? COMPACT_BASELINES : BASELINE_LABELS).filter(([k]) => base[k]);
     if (!rows.length) {
       return `<div class="rc-deltas"><p class="rc-waiting">تُعرض المقارنات (منذ الصباح، أمس، الأسبوع) فور تراكم قراءات كافية.</p></div>`;
     }
@@ -107,6 +108,7 @@
 
   function renderCityCards(hostSel, currency, state) {
     const host = $(hostSel);
+    const compact = host.classList.contains('is-compact');
     const rates = state.latest?.parallel?.[currency] || {};
     const pick = currency === 'USD' ? D.cityUsd : D.cityEur;
 
@@ -119,8 +121,8 @@
 
       const body = Number.isFinite(value)
         ? `<div class="rc-value"><b class="num">${D.fmtRate(value)}</b><span>دينار ليبي</span></div>
-           <div class="rc-spark" data-spark="${currency}:${city}"></div>
-           ${deltaRows(base)}`
+           ${compact ? '' : `<div class="rc-spark" data-spark="${currency}:${city}"></div>`}
+           ${deltaRows(base, compact)}`
         : `<p class="rc-missing">لم يصل رقم لهذه المدينة بعد — يظهر تلقائياً عند أول رصد منشور.</p>`;
 
       return `

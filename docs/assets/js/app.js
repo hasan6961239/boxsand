@@ -82,6 +82,62 @@
     });
   }
 
+  /* --------------------------------------------------------------- reveal */
+
+  /**
+   * Fade each section in as it first comes into view. Sections already on
+   * screen at load reveal immediately, so nothing above the fold waits.
+   */
+  let revealObserver;
+  function bindReveal() {
+    const sections = $$('main > section:not(.reveal), .hero:not(.reveal)');
+    if (!sections.length) return;
+
+    if (reduced || !('IntersectionObserver' in window)) {
+      sections.forEach((el) => el.classList.add('reveal', 'is-visible'));
+      return;
+    }
+    revealObserver ||= new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add('is-visible');
+        revealObserver.unobserve(entry.target);
+      }
+    }, {
+      // Expand the root rather than shrink it: a section reveals just before it
+      // scrolls in, so the reader never watches it fade.
+      rootMargin: '220px 0px 220px 0px',
+      threshold: 0,
+    });
+
+    sections.forEach((el) => {
+      el.classList.add('reveal');
+      revealObserver.observe(el);
+      // A hidden section is a far worse failure than a missing animation, so
+      // anything still unrevealed shortly after binding is shown regardless.
+      setTimeout(() => el.classList.add('is-visible'), 2500);
+    });
+  }
+
+  /**
+   * Flash the figures whose value actually moved since the last render, so a
+   * change is noticed without the reader having to remember the old number.
+   */
+  const lastValues = new Map();
+  function flagChanges() {
+    if (reduced) return;
+    $$('.rc-value b, .gt-value, .spread-value').forEach((el, index) => {
+      const key = `${el.className}#${index}`;
+      const text = el.textContent.trim();
+      const previous = lastValues.get(key);
+      lastValues.set(key, text);
+      if (previous === undefined || previous === text) return;
+      el.classList.remove('value-changed');
+      void el.offsetWidth;            // restart the animation
+      el.classList.add('value-changed');
+    });
+  }
+
   /* ------------------------------------------------------------- 3D tilt */
 
   const fine = window.matchMedia?.('(pointer: fine)').matches;
@@ -138,6 +194,8 @@
     window.UI.renderAlerts(state);
     renderFreshness();
     bindTilt(document);
+    bindReveal();
+    flagChanges();
   }
 
   /* ----------------------------------------------------------------- fetch */

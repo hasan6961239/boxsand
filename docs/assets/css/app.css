@@ -744,3 +744,68 @@ button { cursor: pointer; }
 }
 .alert-remove:hover { color: var(--down); border-color: var(--down); }
 .alert-empty { color: var(--text-3); font-size: 13px; }
+
+/* ===================== compact currency strip (the euro) ================ */
+
+.card-grid.is-compact { gap: 12px; }
+.card-grid.is-compact .rate-card { padding: 15px 17px; }
+.card-grid.is-compact .rc-value b { font-size: clamp(24px, 3.6vw, 30px); }
+.card-grid.is-compact .rc-deltas { margin-top: 10px; padding-top: 9px; }
+.card-grid.is-compact .rc-market { display: none; }
+
+/* the spread panel sits inside the dollar section, not beside it */
+.spread-panel { margin-top: 18px; }
+
+/* ========================= entrance animation ========================== */
+
+/*
+ * Sections fade up once as they come into view. Motion is small and happens
+ * once — a dashboard people check several times a day should not re-perform
+ * on every visit. Anything already on screen at load is revealed immediately.
+ */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity .55s var(--ease), transform .55s var(--ease);
+  will-change: opacity, transform;
+}
+.reveal.is-visible { opacity: 1; transform: none; }
+
+/* Cards inside a revealed section arrive in sequence rather than together. */
+.reveal.is-visible .rate-card,
+.reveal.is-visible .gold-tile,
+.reveal.is-visible .chart-card { animation: rise .5s var(--ease) both; }
+.reveal.is-visible .rate-card:nth-child(2),
+.reveal.is-visible .gold-tile:nth-child(2),
+.reveal.is-visible .chart-card:nth-child(2) { animation-delay: .06s; }
+.reveal.is-visible .rate-card:nth-child(3),
+.reveal.is-visible .gold-tile:nth-child(3),
+.reveal.is-visible .chart-card:nth-child(3) { animation-delay: .12s; }
+.reveal.is-visible .rate-card:nth-child(4),
+.reveal.is-visible .gold-tile:nth-child(4) { animation-delay: .18s; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* A rate that just changed gets a brief highlight so the change is noticed. */
+.rc-value b, .gt-value, .spread-value { transition: color .4s var(--ease); }
+.value-changed { animation: flash 1.4s var(--ease); }
+@keyframes flash {
+  0%   { color: var(--gold); text-shadow: 0 0 22px color-mix(in oklab, var(--gold) 55%, transparent); }
+  100% { color: inherit; text-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal.is-visible .rate-card,
+  .reveal.is-visible .gold-tile,
+  .reveal.is-visible .chart-card { animation: none; }
+  .value-changed { animation: none; }
+}
+
+/* ============================ tighter rhythm =========================== */
+
+.section { padding-block: clamp(22px, 3.2vw, 38px); }
+.section-head { margin-bottom: 16px; }

@@ -161,7 +161,18 @@
         if (Math.abs(y - l.y) > 2) {
           svg.appendChild(el('line', { x1: l.x + 4, y1: l.y, x2: l.x + 8, y2: y - 4, stroke: l.color, 'stroke-width': 1, opacity: .5 }));
         }
-        const label = el('text', { class: 'series-label', x: l.x + 10, y: y + 4, fill: l.color, 'text-anchor': 'start' });
+        // On a narrow chart there is no room to the right of the last point,
+        // and the panel clips anything that spills — so flip the label inside
+        // rather than lose the only thing naming the series.
+        const approxWidth = l.text.length * 7 + 8;
+        const flip = l.x + 10 + approxWidth > width - 2;
+        const label = el('text', {
+          class: 'series-label',
+          x: flip ? l.x - 10 : l.x + 10,
+          y: y + 4,
+          fill: l.color,
+          'text-anchor': flip ? 'end' : 'start',
+        });
         label.textContent = l.text;
         svg.appendChild(label);
       }
