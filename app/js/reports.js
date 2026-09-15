@@ -1059,9 +1059,69 @@ var Rep = (function () {
 
   /* ---------- أول تشغيل ---------- */
 
+  /* أول تشغيل بعد التثبيت: من عنده بيانات سابقة يحتاج مسار المجلد
+     الجديد لينسخها إليه. عرضه هنا يمنع ظنّ أن البيانات ضاعت. */
   function firstRun() {
+    App.apiJson("/api/info").then(function (d) {
+      var dir = (d && d.dataDir) || "";
+      askImport(dir);
+    }).catch(function () { askImport(""); });
+  }
+
+  function askImport(dir) {
+    App.modal({
+      title: "أهلاً بك",
+      size: "wide",
+      body:
+        '<p class="muted small" style="line-height:1.9;margin:0 0 16px">' +
+        "هذه أول مرة تفتح فيها المنظومة على هذا الجهاز. " +
+        "<b>إن كانت عندك بيانات من نسخة سابقة</b> فانقلها الآن قبل أن تبدأ، " +
+        "وإلا فاضغط «ابدأ من جديد».</p>" +
+
+        (dir ? '<div style="margin-bottom:16px">' +
+          '<div class="muted small" style="margin-bottom:5px">مجلد بيانات هذه النسخة</div>' +
+          '<div style="display:flex;gap:8px">' +
+          '<input class="inp" id="fpDir" readonly value="' + App.esc(dir) +
+          '" style="flex:1;font-family:monospace;direction:ltr;text-align:left">' +
+          '<button class="btn sm" onclick="Rep.copyDir()">نسخ</button></div></div>' : "") +
+
+        '<div class="card" style="background:var(--surface-2);box-shadow:none">' +
+        '<div class="card-body"><b style="display:block;margin-bottom:8px">خطوات نقل بياناتك</b>' +
+        '<ol class="muted small" style="line-height:2;padding-inline-start:20px;margin:0">' +
+        "<li>أغلق هذه النافذة بزر <b>«أنقل بياناتي أولاً»</b> تحت — سيُغلق البرنامج.</li>" +
+        "<li>افتح المجلد القديم: حيث كان ملف البرنامج، وبجانبه مجلد اسمه " +
+        '<span class="num">data</span>.</li>' +
+        "<li>انسخ <b>كل ما بداخله</b> إلى المجلد أعلاه.</li>" +
+        "<li>شغّل البرنامج من جديد — ستجد كتبك كلها.</li>" +
+        "</ol></div></div>",
+      actions: [
+        {
+          label: "ابدأ من جديد", kind: "primary",
+          click: function (close) { close(); setupForm(); }
+        },
+        {
+          label: "أنقل بياناتي أولاً",
+          click: function (close) {
+            close();
+            App.api("/api/quit", { method: "POST" }).catch(function () { });
+            App.toast("انسخ بياناتك ثم شغّل البرنامج من جديد.");
+          }
+        }
+      ],
+      cancelLabel: "لاحقاً"
+    });
+  }
+
+  function copyDir() {
+    var e = document.getElementById("fpDir");
+    if (!e) return;
+    try { e.focus(); e.select(); document.execCommand("copy"); App.toast("نُسخ المسار."); }
+    catch (x) { App.toast("حدّده وانسخه بالفأرة.", "warn"); }
+  }
+
+  function setupForm() {
     App.form({
-      title: "أهلاً بك — إعداد سريع",
+      title: "إعداد سريع",
       values: { shopName: "", currency: "د.ل", libraries: "A، B، C", shelves: 6 },
       fields: [
         { k: "shopName", label: "اسم المحل", required: true, full: true, placeholder: "مثال: مكتبة النور للقرطاسية" },
@@ -1086,6 +1146,7 @@ var Rep = (function () {
   }
 
   return {
+    copyDir: copyDir,
     dashboard: dashboard, reports: reports, settings: settings, firstRun: firstRun,
     setRange: setRange, quick: quick, printReport: printReport,
     setMeta: setMeta, setList: setList, letters: letters, allLetters: allLetters,

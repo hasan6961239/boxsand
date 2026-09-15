@@ -429,25 +429,92 @@ namespace Qirtasiya
 
         // ---------- data location ----------
 
+        static bool Writable(string dir)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                string probe = Path.Combine(dir, ".write-test");
+                File.WriteAllText(probe, "ok");
+                File.Delete(probe);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /* النسخة المثبَّتة تضع هذا الملف بجانب البرنامج. وجوده يعني:
+           لا تكتب البيانات هنا (Program Files للقراءة)، بل في مجلد
+           المستخدم الثابت. */
+        static bool Installed()
+        {
+            try { return File.Exists(Path.Combine(BaseDir, "installed.flag")); }
+            catch { return false; }
+        }
+
+        /* المسار الثابت للنسخة المثبَّتة: لا يحمل بصمة المجلد، فلا
+           يتغيّر مع إعادة التثبيت أو التحديث. قبله كان المسار الاحتياطي
+           يحمل بصمة مجلد البرنامج (inst_<hash>)، فتثبيتٌ في مكان آخر
+           كان يعني مجلد بيانات آخر — أي بيانات تبدو ضائعة. */
+        static string StableDataDir()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Qirtasiya", "data");
+        }
+
+        /* إنقاذ بيانات من نسخة قديمة كانت تكتب في مسار ببصمة المجلد.
+           يُنسخ أحدث ما وُجد، ولا يُحذف الأصل أبداً. */
+        static void RescueOldData(string target)
+        {
+            try
+            {
+                if (File.Exists(Path.Combine(target, "store.json"))) return;
+                string root = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Qirtasiya");
+                if (!Directory.Exists(root)) return;
+
+                string best = null;
+                DateTime bestAt = DateTime.MinValue;
+                foreach (string d in Directory.GetDirectories(root, "inst_*"))
+                {
+                    string f = Path.Combine(d, "store.json");
+                    if (!File.Exists(f)) continue;
+                    DateTime at = File.GetLastWriteTime(f);
+                    if (at > bestAt) { bestAt = at; best = d; }
+                }
+                if (best == null) return;
+
+                Directory.CreateDirectory(target);
+                foreach (string f in Directory.GetFiles(best))
+                {
+                    string to = Path.Combine(target, Path.GetFileName(f));
+                    if (!File.Exists(to)) File.Copy(f, to);
+                }
+                Log("نُقلت بيانات من نسخة سابقة: " + best);
+            }
+            catch (Exception ex) { Log("تعذّر نقل بيانات سابقة: " + ex.Message); }
+        }
+
         static string ResolveDataDir()
         {
             string local = Path.Combine(BaseDir, "data");
-            try
+
+            /* 1) وضع محمول: مجلد data موجود بجانب البرنامج ويقبل الكتابة.
+                  يبقى كما هو لمن يشغّل البرنامج من مجلد التنزيلات. */
+            if (!Installed() && Directory.Exists(local) && Writable(local)) return local;
+
+            /* 2) وضع مثبَّت، أو مجلد البرنامج لا يقبل الكتابة */
+            if (Installed() || !Writable(local))
             {
-                Directory.CreateDirectory(local);
-                string probe = Path.Combine(local, ".write-test");
-                File.WriteAllText(probe, "ok");
-                File.Delete(probe);
-                return local;
+                string stable = StableDataDir();
+                Directory.CreateDirectory(stable);
+                RescueOldData(stable);
+                return stable;
             }
-            catch
-            {
-                string fallback = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Qirtasiya", "inst_" + InstanceKey);
-                Directory.CreateDirectory(fallback);
-                return fallback;
-            }
+
+            /* 3) محمول جديد: أنشئ المجلد بجانب البرنامج */
+            return local;
         }
 
         // ---------- backups ----------
