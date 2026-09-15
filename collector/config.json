@@ -1,12 +1,55 @@
 {
-  "_comment": "Tunable market knowledge that no source publishes. Edit and the next collection picks it up.",
+  "_comment": "Everything tunable lives here. Adding a source is one entry — no code change.",
 
-  "cityOffsets": {
-    "_comment": "Libyan sites publish one market rate, almost always the Tripoli (Mushir) quote. Dealers in other cities trade a little off it. When a source names a city directly that real number always wins; these offsets only fill a city no source quoted, and such values are labelled as estimates, never as readings.",
+  "cityOffsetHints": {
+    "_comment": "A STARTING GUESS only, in dinars against the published (Tripoli) rate, used until the collector has seen enough real per-city readings to measure the gap itself. Once three or more genuine readings exist for a city, the measured median replaces these entirely — see meta.observedOffsets in latest.json. Misrata is reported locally as trading two to three qirsh below the published rate, which is what this reflects; it is a hint, not a constant.",
     "tripoli": 0,
     "benghazi": 0,
-    "misrata": -0.03
+    "misrata": -0.025
   },
 
-  "offsetNote": "فرق سوق مصراتة مرصود ميدانياً: السعر المنشور عادةً أعلى بقرشين إلى ثلاثة."
+  "offsetNote": "الفرق بين الأسواق ليس ثابتاً. يُقاس من الأرصاد الفعلية كلما توفرت، ويُستخدم التقدير المبدئي قبل ذلك فقط.",
+
+  "sources": [
+    { "id": "tg-lydollar",     "type": "telegram", "channel": "lydollar",     "weight": 3, "label": "قناة سوق المشير (تلغرام)" },
+    { "id": "tg-dollar-ly",    "type": "telegram", "channel": "dollar_ly",    "weight": 3, "label": "سعر الدولار في ليبيا (تلغرام)" },
+    { "id": "tg-srafa",        "type": "telegram", "channel": "srafa",        "weight": 2, "label": "أسعار صرف العملات (تلغرام)" },
+    { "id": "tg-dollar-price", "type": "telegram", "channel": "dollar_price", "weight": 1, "label": "سعر الدولار اليوم (تلغرام)" },
+
+    { "id": "dollar2day",          "type": "ratePage", "weight": 3, "label": "Dollar2Day — الرئيسية",      "url": "https://www.dollar2day.com/" },
+    { "id": "dollar2day-parallel", "type": "ratePage", "weight": 3, "label": "Dollar2Day — السوق الموازي", "url": "https://www.dollar2day.com/parallel-market/" },
+    { "id": "dollar2day-gap",      "type": "ratePage", "weight": 2, "label": "Dollar2Day — فجوة السعرين",  "url": "https://www.dollar2day.com/official-vs-parallel-rate-libya/" },
+    { "id": "dollar2day-convert",  "type": "ratePage", "weight": 1, "label": "Dollar2Day — المحوّل",       "url": "https://www.dollar2day.com/libyan-dinar-converter/" },
+
+    { "id": "eanlibya",   "type": "ratePage", "weight": 2, "label": "عين ليبيا — أسعار العملات", "url": "https://www.eanlibya.com/exchangerate/" },
+    { "id": "ltnet",      "type": "ratePage", "weight": 1, "label": "شبكة ليبيا للتجارة",        "url": "https://ltnet.gov.ly/ar/%D8%A3%D8%B3%D8%B9%D8%A7%D8%B1-%D8%A7%D9%84%D8%B9%D9%85%D9%84%D8%A7%D8%AA/" },
+    { "id": "bekam",      "type": "ratePage", "weight": 1, "label": "بكم — أسعار العملات",       "url": "https://bekam.ly/" },
+    { "id": "mashhad-rates", "type": "ratePage", "weight": 2, "label": "المشهد الليبي — أسعار العملات", "url": "https://almashhadlibya.com/currency-prices" },
+
+    { "id": "mashhad-articles", "type": "articles", "weight": 2, "label": "المشهد الليبي — مقالات الأسعار",
+      "listUrl": "https://almashhadlibya.com/economic-news/currency-prices",
+      "linkPattern": "almashhadlibya\\.com/economic-news/.*\\d{5,}" },
+    { "id": "akhbar-articles", "type": "articles", "weight": 2, "label": "أخبار ليبيا — مقالات الأسعار",
+      "listUrl": "https://www.libyaakhbar.com/latestnews/currency-prices",
+      "linkPattern": "libyaakhbar\\.com/(business-news|breaking)/\\d+\\.html" },
+    { "id": "akhbar-dollar", "type": "articles", "weight": 2, "label": "أخبار ليبيا — أسعار الدولار",
+      "listUrl": "https://www.libyaakhbar.com/latestnews/dollar-prices",
+      "linkPattern": "libyaakhbar\\.com/(business-news|breaking)/\\d+\\.html" },
+    { "id": "d2d-economy", "type": "articles", "weight": 2, "label": "Dollar2Day — أخبار الاقتصاد",
+      "listUrl": "https://www.dollar2day.com/category/economy/",
+      "linkPattern": "dollar2day\\.com/(?!category|tag)[^/]+/?$" },
+
+    { "id": "akhbar-feed",  "type": "feed", "weight": 2, "label": "أخبار ليبيا — RSS",
+      "feeds": ["https://www.libyaakhbar.com/feed", "https://www.libyaakhbar.com/rss", "https://www.libyaakhbar.com/feed/", "https://www.libyaakhbar.com/?feed=rss2"] },
+    { "id": "mashhad-feed", "type": "feed", "weight": 2, "label": "المشهد الليبي — RSS",
+      "feeds": ["https://almashhadlibya.com/feed", "https://almashhadlibya.com/feed/", "https://almashhadlibya.com/rss", "https://almashhadlibya.com/?feed=rss2"] },
+    { "id": "d2d-feed",     "type": "feed", "weight": 2, "label": "Dollar2Day — RSS",
+      "feeds": ["https://www.dollar2day.com/feed", "https://www.dollar2day.com/feed/", "https://www.dollar2day.com/?feed=rss2"] },
+    { "id": "eanlibya-feed", "type": "feed", "weight": 1, "label": "عين ليبيا — RSS",
+      "feeds": ["https://www.eanlibya.com/feed", "https://www.eanlibya.com/feed/"] },
+
+    { "id": "fb-currencyprices", "type": "ratePage", "weight": 1, "label": "أسعار العملات في ليبيا (فيسبوك)",
+      "_comment": "Facebook blocks server-side reads aggressively; kept so its status is visible rather than silently missing.",
+      "url": "https://mbasic.facebook.com/libyacurrencyprices" }
+  ]
 }

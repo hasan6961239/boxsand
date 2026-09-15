@@ -212,17 +212,15 @@ export function extractNationalRates(text) {
  * which makes the live trading-floor channels the most dependable scrape target.
  * Its posts carry the national (Tripoli) quote plus a real local gold price.
  */
-const TELEGRAM_CHANNELS = ['lydollar'];
-
-/** Aliases for the locally-traded gold line the channel publishes. */
+/** Aliases for the locally-traded gold line some channels publish. */
 const LOCAL_GOLD_ALIASES = ['كسر الذهب عيار18', 'كسر الذهب عيار 18', 'كسر الذهب', 'الذهب عيار18', 'الذهب عيار 18'];
 
-export async function parallelFromTelegram() {
+export async function parallelFromTelegram(channels) {
   const merged = {};
   let localGold18 = null;
   const seen = [];
 
-  for (const channel of TELEGRAM_CHANNELS) {
+  for (const channel of [].concat(channels)) {
     const html = await fetchText(`https://t.me/s/${channel}`);
     const messages = [...html.matchAll(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/g)]
       .map((m) => htmlToText(m[1]));
@@ -361,70 +359,44 @@ export async function parallelFromRatePage(url) {
 
 const CITY_KEYS = Object.keys(CITIES);
 
-export const PARALLEL_SOURCES = [
-  {
-    id: 'telegram-lydollar', label: 'قناة سوق المشير (تلغرام)', url: 'https://t.me/s/lydollar',
-    weight: 3, run: parallelFromTelegram,
-  },
-  {
-    id: 'eanlibya.com', label: 'عين ليبيا — أسعار العملات', url: 'https://www.eanlibya.com/exchangerate/',
-    weight: 2, run: () => parallelFromRatePage('https://www.eanlibya.com/exchangerate/'),
-  },
-  {
-    id: 'almashhadlibya.com', label: 'المشهد الليبي — مقالات الأسعار', url: 'https://almashhadlibya.com/economic-news/currency-prices',
-    weight: 2,
-    run: () => parallelFromArticles({
-      listUrl: 'https://almashhadlibya.com/economic-news/currency-prices',
-      match: (u) => /almashhadlibya\.com\/economic-news\/.*\d{5,}/.test(u),
-    }),
-  },
-  {
-    id: 'libyaakhbar.com', label: 'أخبار ليبيا — مقالات الأسعار', url: 'https://www.libyaakhbar.com/latestnews/currency-prices',
-    weight: 2,
-    run: () => parallelFromArticles({
-      listUrl: 'https://www.libyaakhbar.com/latestnews/currency-prices',
-      match: (u) => /libyaakhbar\.com\/(business-news|breaking)\/\d+\.html/.test(u),
-    }),
-  },
-  {
-    id: 'libyaakhbar-dollar', label: 'أخبار ليبيا — أسعار الدولار', url: 'https://www.libyaakhbar.com/latestnews/dollar-prices',
-    weight: 2,
-    run: () => parallelFromArticles({
-      listUrl: 'https://www.libyaakhbar.com/latestnews/dollar-prices',
-      match: (u) => /libyaakhbar\.com\/(business-news|breaking)\/\d+\.html/.test(u),
-    }),
-  },
-  {
-    id: 'ltnet.gov.ly', label: 'شبكة ليبيا للتجارة', url: 'https://ltnet.gov.ly/ar/أسعار-العملات/',
-    weight: 1,
-    run: () => parallelFromRatePage('https://ltnet.gov.ly/ar/%D8%A3%D8%B3%D8%B9%D8%A7%D8%B1-%D8%A7%D9%84%D8%B9%D9%85%D9%84%D8%A7%D8%AA/'),
-  },
-  {
-    id: 'bekam.ly', label: 'بكم — أسعار العملات', url: 'https://bekam.ly/',
-    weight: 1,
-    run: () => parallelFromRatePage('https://bekam.ly/'),
-  },
-  {
-    id: 'libyaakhbar-feed', label: 'أخبار ليبيا — خلاصة RSS', url: 'https://www.libyaakhbar.com/feed',
-    weight: 2,
-    run: () => parallelFromFeed({ feeds: [
-      'https://www.libyaakhbar.com/feed',
-      'https://www.libyaakhbar.com/rss',
-      'https://www.libyaakhbar.com/feed/',
-      'https://www.libyaakhbar.com/?feed=rss2',
-    ] }),
-  },
-  {
-    id: 'almashhad-feed', label: 'المشهد الليبي — خلاصة RSS', url: 'https://almashhadlibya.com/feed',
-    weight: 2,
-    run: () => parallelFromFeed({ feeds: [
-      'https://almashhadlibya.com/feed',
-      'https://almashhadlibya.com/feed/',
-      'https://almashhadlibya.com/rss',
-      'https://almashhadlibya.com/?feed=rss2',
-    ] }),
-  },
-];
+/**
+ * Build the source list from `collector/config.json`.
+ *
+ * Sources are data, not code: adding one is a single JSON entry, and each type
+ * maps to the adapter that knows how to read that shape of page.
+ */
+export function buildSources(config) {
+  const entries = Array.isArray(config?.sources) ? config.sources : [];
+
+  return entries.map((entry) => {
+    const base = {
+      id: entry.id,
+      label: entry.label || entry.id,
+      url: entry.url || entry.listUrl || entry.feeds?.[0] || (entry.channel ? `https://t.me/s/${entry.channel}` : ''),
+      weight: Number.isFinite(entry.weight) ? entry.weight : 1,
+    };
+
+    switch (entry.type) {
+      case 'telegram':
+        return { ...base, run: () => parallelFromTelegram(entry.channel) };
+      case 'ratePage':
+        return { ...base, run: () => parallelFromRatePage(entry.url) };
+      case 'articles':
+        return {
+          ...base,
+          run: () => parallelFromArticles({
+            listUrl: entry.listUrl,
+            match: (u) => new RegExp(entry.linkPattern).test(u),
+            max: entry.max ?? 4,
+          }),
+        };
+      case 'feed':
+        return { ...base, run: () => parallelFromFeed({ feeds: entry.feeds }) };
+      default:
+        return { ...base, run: async () => { throw new Error(`unknown source type "${entry.type}"`); } };
+    }
+  });
+}
 
 /* ------------------------------------------------------------ official rates */
 

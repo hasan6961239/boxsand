@@ -47,6 +47,16 @@
    * How a city's number was arrived at. A reading from a source that named the
    * city carries no tag — that is the plain good case. Everything else says so.
    */
+  /** True when this city's number was derived rather than quoted by a source. */
+  function isEstimated(state, currency, city) {
+    return state.latest?.meta?.confidence?.[`${currency}.${city}`] === 'estimated';
+  }
+
+  /** Prefix an estimate with ≈ so it never reads as an exact quote. */
+  function approx(state, currency, city, text) {
+    return isEstimated(state, currency, city) ? `<span class="approx">≈</span>${text}` : text;
+  }
+
   function tagsFor(state, currency, city) {
     const meta = state.latest?.meta || {};
     const level = meta.confidence?.[`${currency}.${city}`];
@@ -58,7 +68,16 @@
     }
     if (level === 'estimated') {
       const sign = offset > 0 ? '+' : '−';
-      out.push(`<span class="tag tag-estimated" title="${esc(meta.offsetNote || '')} لم يُنشر رقم خاص بهذه المدينة، فعُرض السعر المنشور معدَّلاً بالفرق المرصود.">تقدير ${sign}${D.fmtMoney(Math.abs(offset || 0))}</span>`);
+      const basis = meta.offsetBasis?.[city];
+      const measured = basis?.kind === 'measured';
+      const how = measured
+        ? `الفرق مقيس من ${basis.samples} رصداً فعلياً لهذه المدينة خلال الأسابيع الماضية، ويتغيّر كلما تغيّر السوق.`
+        : 'لا توجد أرصاد كافية لهذه المدينة بعد، فالفرق تقدير مبدئي يُستبدل تلقائياً بأول ثلاثة أرصاد حقيقية.';
+      out.push(
+        `<span class="tag tag-estimated" title="${esc(how)} ${esc(meta.offsetNote || '')}">` +
+        `تقدير ${sign}${D.fmtMoney(Math.abs(offset || 0))}` +
+        `<i class="tag-basis">${measured ? `من ${basis.samples} رصداً` : 'مبدئي'}</i></span>`
+      );
     }
     if ((meta.carried || []).includes(`parallel.${currency}.${city}`)) {
       out.push('<span class="tag tag-stale" title="لم يصل رقم جديد في آخر عملية جمع — هذه آخر قيمة معروفة">قديم</span>');
@@ -120,7 +139,7 @@
       const tags = tagsFor(state, currency, city);
 
       const body = Number.isFinite(value)
-        ? `<div class="rc-value"><b class="num">${D.fmtRate(value)}</b><span>دينار ليبي</span></div>
+        ? `<div class="rc-value"><b class="num">${approx(state, currency, city, D.fmtRate(value))}</b><span>دينار ليبي</span></div>
            ${compact ? '' : `<div class="rc-spark" data-spark="${currency}:${city}"></div>`}
            ${deltaRows(base, compact)}`
         : `<p class="rc-missing">لم يصل رقم لهذه المدينة بعد — يظهر تلقائياً عند أول رصد منشور.</p>`;
@@ -204,7 +223,7 @@
               <span class="spread-ref" style="inset-inline-start:${pos(reference).toFixed(1)}%"></span>
               <span class="spread-dot ${dir}" style="inset-inline-start:${pos(r.value).toFixed(1)}%; --accent: var(${D.CITY_META[r.city].varName})"></span>
             </div>
-            <span class="spread-value num">${D.fmtRate(r.value)}</span>
+            <span class="spread-value num">${r.level === 'estimated' ? '<span class="approx">≈</span>' : ''}${D.fmtRate(r.value)}</span>
             <span class="spread-diff ${dir}">${diff === 0 ? 'كالمرجع' : `${diff > 0 ? '+' : '−'}${Math.abs(diff)} ${Math.abs(diff) === 1 ? 'قرش' : 'قروش'}`}</span>
           </div>`;
         }).join('')}
@@ -218,7 +237,13 @@
         span < 1e-9
           ? 'كل الأسواق على نفس السعر المنشور حالياً.'
           : `أوسع فرق <b class="num">${Math.round(span * 100)}</b> ${Math.round(span * 100) === 1 ? 'قرش' : 'قروش'} — الخط الرأسي هو سعر طرابلس المرجعي.`
-      } ${meta.offsetNote ? esc(meta.offsetNote) : ''}</p>`;
+      } ${esc(meta.offsetNote || '')}${
+        (() => {
+          const measured = D.CITY_ORDER.filter((c) => meta.offsetBasis?.[c]?.kind === 'measured');
+          if (!measured.length) return '';
+          return ' ' + measured.map((c) => `${D.CITY_META[c].ar}: ${meta.offsetBasis[c].samples} رصداً`).join(' · ');
+        })()
+      }</p>`;
   }
 
   /* -------------------------------------------------------------- official */

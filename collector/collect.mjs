@@ -14,7 +14,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { round, median } from './lib/util.mjs';
 import {
-  CITIES, PARALLEL_SOURCES, officialFromCbl, fxFromErApi, fxFromJsdelivr,
+  CITIES, buildSources, officialFromCbl, fxFromErApi, fxFromJsdelivr,
   metalsFromGoldApi, metalsFromGoldPriceOrg, metalsFromPaxg, goldTable, KARATS, TROY_OUNCE_G,
 } from './sources.mjs';
 
@@ -91,6 +91,60 @@ function dropOutliers(parallel) {
     }
   }
   return dropped;
+}
+
+/** How long a per-city observation stays relevant. */
+const OBSERVATION_WINDOW_MS = 21 * 86400e3;
+/** Below this many observations the measured gap is not yet trustworthy. */
+const MIN_OBSERVATIONS = 3;
+
+/**
+ * Work out each city's gap from the published rate.
+ *
+ * The gap is NOT a constant. It is measured from the times a source actually
+ * named a city and quoted it, and only falls back to the configured starting
+ * guess while too few of those exist. Once the readings are there the guess is
+ * ignored entirely, so the estimate tracks the market instead of a number
+ * somebody typed once.
+ */
+function learnOffsets(observations, hints) {
+  const offsets = {};
+  const basis = {};
+  const cutoff = Date.now() - OBSERVATION_WINDOW_MS;
+
+  for (const city of CITY_KEYS) {
+    const recent = (observations?.[city] || []).filter((o) => o.t >= cutoff).map((o) => o.d);
+    if (recent.length >= MIN_OBSERVATIONS) {
+      offsets[city] = round(median(recent), 4);
+      basis[city] = { kind: 'measured', samples: recent.length };
+    } else {
+      offsets[city] = hints?.[city] ?? 0;
+      basis[city] = { kind: 'hint', samples: recent.length };
+    }
+  }
+  return { offsets, basis };
+}
+
+/**
+ * Record this run's genuine per-city readings as observations of the gap.
+ * Only values a source actually reported count — folding an estimate back in
+ * would just re-measure our own guess.
+ */
+function recordObservations(observations, parallel, confidence) {
+  const out = {};
+  const cutoff = Date.now() - OBSERVATION_WINDOW_MS;
+  const national = parallel.USD?.national;
+
+  for (const city of CITY_KEYS) {
+    const kept = (observations?.[city] || []).filter((o) => Number.isFinite(o?.d) && o.t >= cutoff);
+    if (Number.isFinite(national) && confidence[`USD.${city}`] === 'reported') {
+      const value = parallel.USD?.[city];
+      if (Number.isFinite(value)) kept.push({ t: Date.now(), d: round(value - national, 4) });
+    }
+    // Keep it bounded; the most recent readings are the ones that matter.
+    out[city] = kept.slice(-80);
+  }
+  return out;
 }
 
 /**
@@ -223,10 +277,11 @@ async function main() {
   const now = new Date();
   const previous = await readJson(LATEST_PATH, null);
   const config = await readJson(CONFIG_PATH, {});
-  const offsets = config.cityOffsets || {};
+  const parallelSources = buildSources(config);
+  const { offsets, basis: offsetBasis } = learnOffsets(previous?.meta?.observedOffsets, config.cityOffsetHints);
 
   const [parallelResults, cbl, fx, metals] = await Promise.all([
-    Promise.all(PARALLEL_SOURCES.map(async (s) => {
+    Promise.all(parallelSources.map(async (s) => {
       const out = await run(s.id, s.label, s.url, s.run);
       return out ? { weight: s.weight, rates: out.rates, localGold18: out.localGold18 } : null;
     })),
@@ -244,6 +299,7 @@ async function main() {
   const parallel = mergeParallel(liveParallel);
   const dropped = dropOutliers(parallel);
   const confidence = applyCityModel(parallel, offsets);
+  const observedOffsets = recordObservations(previous?.meta?.observedOffsets, parallel, confidence);
 
   // A price quoted by Libyan dealers themselves, rather than derived from the
   // world spot price — it carries the local premium and the workmanship market.
@@ -291,6 +347,8 @@ async function main() {
     dropped,
     cities: CITIES,
     offsets: Object.fromEntries(CITY_KEYS.map((c) => [c, offsets[c] ?? 0])),
+    offsetBasis,
+    observedOffsets,
     offsetNote: config.offsetNote || '',
   };
   data.sources = report;
