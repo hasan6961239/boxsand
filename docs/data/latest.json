@@ -1,35 +1,35 @@
 {
   "schema": 1,
-  "updatedAt": "2026-09-15T05:58:48.814Z",
+  "updatedAt": "2026-09-15T10:54:46.007Z",
   "official": {
-    "USD": 6.3457,
-    "EUR": 7.3331,
-    "GBP": 8.5617,
+    "USD": 6.3536,
+    "EUR": 7.3244,
+    "GBP": 8.5601,
     "basis": "cbl"
   },
   "parallel": {
     "USD": {
-      "national": 9.51,
-      "tripoli": 9.51,
-      "benghazi": 9.51,
-      "misrata": 9.51
+      "national": 9.46,
+      "tripoli": 9.46,
+      "benghazi": 9.46,
+      "misrata": 9.46
     },
     "EUR": {
-      "national": 10.96,
-      "tripoli": 10.96,
-      "benghazi": 10.96,
-      "misrata": 10.96
+      "national": 10.87,
+      "tripoli": 10.87,
+      "benghazi": 10.87,
+      "misrata": 10.87
     },
     "GBP": {
-      "national": 12.68,
-      "tripoli": 12.68,
-      "benghazi": 12.68,
-      "misrata": 12.68
+      "national": 12.6,
+      "tripoli": 12.6,
+      "benghazi": 12.6,
+      "misrata": 12.6
     }
   },
   "metals": {
-    "XAU": 4293.3,
-    "XAG": 63.344,
+    "XAU": 4282.9,
+    "XAG": 63.305,
     "unit": "USD/oz"
   },
   "localGold": {
@@ -38,8 +38,8 @@
     "source": "قناة سوق المشير"
   },
   "gold": {
-    "ouncePriceUsd": 4293.3,
-    "gramPriceUsd": 138.0328,
+    "ouncePriceUsd": 4282.9,
+    "gramPriceUsd": 137.6984,
     "karats": [
       {
         "k": 24,
@@ -68,33 +68,33 @@
       }
     ],
     "official": {
-      "14": 512.41,
-      "18": 656.94,
-      "21": 766.43,
-      "22": 802.34,
-      "24": 875.04
+      "14": 511.81,
+      "18": 656.16,
+      "21": 765.52,
+      "22": 801.39,
+      "24": 874.01
     },
     "parallel": {
       "tripoli": {
-        "14": 767.92,
-        "18": 984.52,
-        "21": 1148.61,
-        "22": 1202.43,
-        "24": 1311.38
+        "14": 762.04,
+        "18": 976.97,
+        "21": 1139.8,
+        "22": 1193.21,
+        "24": 1301.32
       },
       "benghazi": {
-        "14": 767.92,
-        "18": 984.52,
-        "21": 1148.61,
-        "22": 1202.43,
-        "24": 1311.38
+        "14": 762.04,
+        "18": 976.97,
+        "21": 1139.8,
+        "22": 1193.21,
+        "24": 1301.32
       },
       "misrata": {
-        "14": 767.92,
-        "18": 984.52,
-        "21": 1148.61,
-        "22": 1202.43,
-        "24": 1311.38
+        "14": 762.04,
+        "18": 976.97,
+        "21": 1139.8,
+        "22": 1193.21,
+        "24": 1301.32
       }
     }
   },
@@ -110,7 +110,9 @@
       "GBP.benghazi",
       "GBP.misrata"
     ],
-    "carried": [],
+    "carried": [
+      "localGold.k18PerGram"
+    ],
     "dropped": [],
     "cities": {
       "tripoli": {
@@ -149,28 +151,28 @@
   },
   "sources": [
     {
-      "id": "telegram-lydollar",
-      "label": "قناة سوق المشير (تلغرام)",
-      "url": "https://t.me/s/lydollar",
-      "status": "ok",
-      "detail": "lydollar:20msg · ذهب18 1125",
-      "ms": 470
-    },
-    {
       "id": "er-api",
       "label": "أسعار الصرف الدولية",
       "url": "https://open.er-api.com",
       "status": "ok",
       "detail": "Tue, 15 Sep 2026 00:02:31 +0000",
-      "ms": 451
+      "ms": 355
+    },
+    {
+      "id": "telegram-lydollar",
+      "label": "قناة سوق المشير (تلغرام)",
+      "url": "https://t.me/s/lydollar",
+      "status": "ok",
+      "detail": "lydollar:20msg",
+      "ms": 529
     },
     {
       "id": "gold-api",
       "label": "سعر الذهب العالمي",
       "url": "https://api.gold-api.com",
       "status": "ok",
-      "detail": "2026-09-15T05:58:39Z",
-      "ms": 752
+      "detail": "2026-09-15T10:54:40Z",
+      "ms": 806
     },
     {
       "id": "cbl",
@@ -178,7 +180,7 @@
       "url": "https://cbl.gov.ly/currency-exchange-rates/",
       "status": "ok",
       "detail": "https://cbl.gov.ly/currency-exchange-rates/",
-      "ms": 829
+      "ms": 994
     },
     {
       "id": "eanlibya.com",
@@ -186,7 +188,7 @@
       "url": "https://www.eanlibya.com/exchangerate/",
       "status": "ok",
       "detail": "2518 chars",
-      "ms": 855
+      "ms": 1120
     },
     {
       "id": "almashhadlibya.com",
@@ -194,7 +196,7 @@
       "url": "https://almashhadlibya.com/economic-news/currency-prices",
       "status": "down",
       "detail": "HTTP 403",
-      "ms": 2615
+      "ms": 2592
     },
     {
       "id": "libyaakhbar.com",
@@ -202,7 +204,7 @@
       "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
       "status": "down",
       "detail": "HTTP 403",
-      "ms": 2695
+      "ms": 2639
     }
   ]
 }
