@@ -5,7 +5,7 @@
  * orchestrator records the outcome per source. One dead site never takes the
  * run down, and the dashboard shows which sources were live.
  */
-import { fetchText, fetchJson, htmlToText, findNearNumber, normalizeArabic, parseNum, round } from './lib/util.mjs';
+import { fetchText, fetchJson, fetchPage, htmlToText, findNearNumber, normalizeArabic, parseNum, round } from './lib/util.mjs';
 
 /* ------------------------------------------------------------------ labels */
 
@@ -261,16 +261,20 @@ function absoluteLinks(html, baseUrl) {
  * links and read the bodies. Stops as soon as all three cities are resolved.
  */
 export async function parallelFromArticles({ listUrl, match, max = 4 }) {
-  const listHtml = await fetchText(listUrl);
-  const links = absoluteLinks(listHtml, listUrl).filter(match).slice(0, max);
+  const list = await fetchPage(listUrl);
+  const links = absoluteLinks(list.text, listUrl).filter(match).slice(0, max);
   if (!links.length) throw new Error(`no article links matched on ${listUrl}`);
 
   const merged = {};
   const visited = [];
+  const routes = new Set([list.via]);
   for (const link of links) {
     let text;
-    try { text = htmlToText(await fetchText(link, { retries: 1, timeout: 12000 })); }
-    catch { continue; }
+    try {
+      const page = await fetchPage(link, { timeout: 20000 });
+      routes.add(page.via);
+      text = htmlToText(page.text);
+    } catch { continue; }
 
     const found = extractCityRates(text);
     const national = extractNationalRates(text);
@@ -287,12 +291,13 @@ export async function parallelFromArticles({ listUrl, match, max = 4 }) {
 
   const cityHits = CITY_KEYS.filter((c) => merged.USD?.[c] != null).length;
   if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error(`no rates in articles from ${listUrl}`);
-  return { rates: merged, detail: `${visited.length} مقال · ${cityHits}/3 مدن` };
+  return { rates: merged, detail: `${visited.length} مقال · ${cityHits}/3 مدن · ${[...routes].join('+')}` };
 }
 
 /** Pages that publish a straight rate table with no city breakdown. */
 export async function parallelFromRatePage(url) {
-  const text = htmlToText(await fetchText(url));
+  const page = await fetchPage(url);
+  const text = htmlToText(page.text);
   const found = extractCityRates(text);
   const national = extractNationalRates(text);
   const merged = {};
@@ -301,7 +306,7 @@ export async function parallelFromRatePage(url) {
     if (national[code] != null) merged[code].national ??= national[code];
   }
   if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error(`no rates parsed from ${url}`);
-  return { rates: merged, detail: `${text.length} chars` };
+  return { rates: merged, detail: `${text.length} chars · ${page.via}` };
 }
 
 const CITY_KEYS = Object.keys(CITIES);
@@ -328,8 +333,26 @@ export const PARALLEL_SOURCES = [
     weight: 2,
     run: () => parallelFromArticles({
       listUrl: 'https://www.libyaakhbar.com/latestnews/currency-prices',
-      match: (u) => /libyaakhbar\.com\/business-news\/\d+\.html/.test(u),
+      match: (u) => /libyaakhbar\.com\/(business-news|breaking)\/\d+\.html/.test(u),
     }),
+  },
+  {
+    id: 'libyaakhbar-dollar', label: 'أخبار ليبيا — أسعار الدولار', url: 'https://www.libyaakhbar.com/latestnews/dollar-prices',
+    weight: 2,
+    run: () => parallelFromArticles({
+      listUrl: 'https://www.libyaakhbar.com/latestnews/dollar-prices',
+      match: (u) => /libyaakhbar\.com\/(business-news|breaking)\/\d+\.html/.test(u),
+    }),
+  },
+  {
+    id: 'ltnet.gov.ly', label: 'شبكة ليبيا للتجارة', url: 'https://ltnet.gov.ly/ar/أسعار-العملات/',
+    weight: 1,
+    run: () => parallelFromRatePage('https://ltnet.gov.ly/ar/%D8%A3%D8%B3%D8%B9%D8%A7%D8%B1-%D8%A7%D9%84%D8%B9%D9%85%D9%84%D8%A7%D8%AA/'),
+  },
+  {
+    id: 'bekam.ly', label: 'بكم — أسعار العملات', url: 'https://bekam.ly/',
+    weight: 1,
+    run: () => parallelFromRatePage('https://bekam.ly/'),
   },
 ];
 

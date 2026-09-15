@@ -72,6 +72,42 @@ export async function fetchText(url, { timeout = 15000, retries = 2, headers = {
   throw lastErr;
 }
 
+/**
+ * Text-extraction proxies used when a site refuses the runner directly.
+ *
+ * Several Libyan news sites sit behind bot protection that answers datacentre
+ * IPs with 403 no matter how browser-like the headers are. These public
+ * readers fetch the page from their own infrastructure and hand back its text,
+ * which is all the extractor needs.
+ */
+const READER_PROXIES = [
+  (url) => `https://r.jina.ai/${url}`,
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
+
+/** Responses worth retrying through a reader rather than giving up on. */
+const BLOCKED = /HTTP (401|403|405|406|409|429|451|503)/;
+
+/**
+ * Fetch a page, falling back to a reader proxy when the site blocks us.
+ * Returns `{ text, via }` so the run can report which route worked.
+ */
+export async function fetchPage(url, opts = {}) {
+  try {
+    return { text: await fetchText(url, { retries: 1, ...opts }), via: 'direct' };
+  } catch (err) {
+    if (!BLOCKED.test(String(err?.message ?? ''))) throw err;
+    for (const build of READER_PROXIES) {
+      const proxied = build(url);
+      try {
+        const text = await fetchText(proxied, { retries: 0, timeout: 25000 });
+        if (text && text.length > 200) return { text, via: new URL(proxied).hostname };
+      } catch { /* try the next reader */ }
+    }
+    throw err;
+  }
+}
+
 export async function fetchJson(url, opts) {
   return JSON.parse(await fetchText(url, { ...opts, headers: { accept: 'application/json', ...(opts?.headers || {}) } }));
 }

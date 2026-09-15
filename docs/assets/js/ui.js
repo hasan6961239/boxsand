@@ -42,16 +42,29 @@
       `<div class="delta-row"><span class="dl">${label}</span>${deltaChip(base[k])}</div>`).join('')}</div>`;
   }
 
+  /**
+   * How a city's number was arrived at. A reading from a source that named the
+   * city carries no tag — that is the plain good case. Everything else says so.
+   */
   function tagsFor(state, currency, city) {
     const meta = state.latest?.meta || {};
+    const level = meta.confidence?.[`${currency}.${city}`];
+    const offset = meta.offsets?.[city];
     const out = [];
-    if ((meta.derived || []).includes(`${currency}.${city}`)) {
-      out.push('<span class="tag tag-derived" title="لم يُنشر رقم خاص بهذه المدينة في آخر جمع، فعُرض سعر السوق العام">مشتق</span>');
+
+    if (level === 'published' && city !== 'tripoli') {
+      out.push('<span class="tag tag-published" title="السعر المنشور للسوق. المصادر الليبية تنشر رقماً واحداً — وهو سعر سوق المشير بطرابلس — ولم يُنشر رقم خاص بهذه المدينة.">سعر السوق</span>');
+    }
+    if (level === 'estimated') {
+      const sign = offset > 0 ? '+' : '−';
+      out.push(`<span class="tag tag-estimated" title="${esc(meta.offsetNote || '')} لم يُنشر رقم خاص بهذه المدينة، فعُرض السعر المنشور معدَّلاً بالفرق المرصود.">تقدير ${sign}${D.fmtMoney(Math.abs(offset || 0))}</span>`);
     }
     if ((meta.carried || []).includes(`parallel.${currency}.${city}`)) {
       out.push('<span class="tag tag-stale" title="لم يصل رقم جديد في آخر عملية جمع — هذه آخر قيمة معروفة">قديم</span>');
     }
-    if (state.latest?.seeded) out.push('<span class="tag tag-seed" title="قيمة أولية موثّقة بتاريخها، تُستبدل عند أول تشغيل للمجمّع">أولي</span>');
+    if (state.latest?.seeded) {
+      out.push('<span class="tag tag-seed" title="قيمة أولية موثّقة بتاريخها">أولي</span>');
+    }
     return out.join(' ');
   }
 

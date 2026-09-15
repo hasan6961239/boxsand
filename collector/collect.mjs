@@ -93,21 +93,54 @@ function dropOutliers(parallel) {
   return dropped;
 }
 
-/** Fill a city we could not read directly from the market-wide number. */
-function fillFromNational(parallel) {
-  const derived = [];
+/**
+ * Turn the one published market rate into per-city numbers.
+ *
+ * Libyan sources publish a single quote and it is the Tripoli (سوق المشير)
+ * rate — they say so themselves when they group "طرابلس وزليتن ومصراته
+ * وبنغازي" under one figure. Dealers in other cities trade a little off it, a
+ * gap no site publishes, so it comes from `collector/config.json`.
+ *
+ * Every value is labelled by how it was arrived at, and the page shows that
+ * label, so an estimate is never presented as a reading:
+ *   reported  — a source named this city and quoted it
+ *   published — the published market rate, which for Tripoli IS its rate
+ *   estimated — the published rate plus this city's documented local offset
+ */
+function applyCityModel(parallel, offsets) {
+  const confidence = {};
+  const usdNational = parallel.USD?.national;
+
   for (const [code, cities] of Object.entries(parallel)) {
     const national = cities.national;
-    if (!Number.isFinite(national)) continue;
     for (const city of CITY_KEYS) {
-      if (!Number.isFinite(cities[city])) { cities[city] = national; derived.push(`${code}.${city}`); }
+      if (Number.isFinite(cities[city])) {
+        confidence[`${code}.${city}`] = 'reported';
+        continue;
+      }
+      if (!Number.isFinite(national)) continue;
+
+      // The offset is observed against the dollar; carry it to other
+      // currencies as the same proportion rather than the same qirsh.
+      const rawOffset = offsets?.[city] ?? 0;
+      const offset = code === 'USD' || !Number.isFinite(usdNational) || usdNational === 0
+        ? rawOffset
+        : rawOffset * (national / usdNational);
+
+      cities[city] = round(national + offset, 4);
+      confidence[`${code}.${city}`] = offset === 0 ? 'published' : 'estimated';
     }
   }
-  return derived;
+  return confidence;
 }
 
-/** Reuse the previous run's value for anything still missing. */
-function carryForward(current, previous) {
+/**
+ * Reuse the previous run's value for anything still missing.
+ *
+ * A carried rate keeps the confidence label it was first given, so a carried
+ * estimate still reads as an estimate rather than quietly becoming a reading.
+ */
+function carryForward(current, previous, confidence) {
   const carried = [];
   if (!previous) return carried;
   for (const code of ['USD', 'EUR', 'GBP']) {
@@ -117,6 +150,9 @@ function carryForward(current, previous) {
       if (!has && Number.isFinite(old)) {
         ((current.parallel ||= {})[code] ||= {})[city] = old;
         carried.push(`parallel.${code}.${city}`);
+        if (city !== 'national' && confidence && !confidence[`${code}.${city}`]) {
+          confidence[`${code}.${city}`] = previous.meta?.confidence?.[`${code}.${city}`] ?? 'published';
+        }
       }
     }
     if (!Number.isFinite(current.official?.[code]) && Number.isFinite(previous.official?.[code])) {
@@ -181,9 +217,13 @@ async function readJson(path, fallback) {
   try { return JSON.parse(await readFile(path, 'utf8')); } catch { return fallback; }
 }
 
+const CONFIG_PATH = resolve(ROOT, 'collector/config.json');
+
 async function main() {
   const now = new Date();
   const previous = await readJson(LATEST_PATH, null);
+  const config = await readJson(CONFIG_PATH, {});
+  const offsets = config.cityOffsets || {};
 
   const [parallelResults, cbl, fx, metals] = await Promise.all([
     Promise.all(PARALLEL_SOURCES.map(async (s) => {
@@ -203,7 +243,7 @@ async function main() {
   const liveParallel = parallelResults.filter(Boolean);
   const parallel = mergeParallel(liveParallel);
   const dropped = dropOutliers(parallel);
-  const derived = fillFromNational(parallel);
+  const confidence = applyCityModel(parallel, offsets);
 
   // A price quoted by Libyan dealers themselves, rather than derived from the
   // world spot price — it carries the local premium and the workmanship market.
@@ -227,7 +267,7 @@ async function main() {
     localGold: { k18PerGram: round(localGold18, 2), unit: 'LYD/g', source: 'قناة سوق المشير' },
   };
 
-  const carried = carryForward(data, previous);
+  const carried = carryForward(data, previous, confidence);
 
   // Gold, priced twice: at the bank's rate and at each city's street rate.
   const xau = data.metals.XAU;
@@ -245,7 +285,14 @@ async function main() {
     carried.push('localGold.k18PerGram');
   }
 
-  data.meta = { derived, carried, dropped, cities: CITIES };
+  data.meta = {
+    confidence,
+    carried,
+    dropped,
+    cities: CITIES,
+    offsets: Object.fromEntries(CITY_KEYS.map((c) => [c, offsets[c] ?? 0])),
+    offsetNote: config.offsetNote || '',
+  };
   data.sources = report;
 
   const history = thinHistory([
@@ -258,7 +305,9 @@ async function main() {
   await writeFile(HISTORY_PATH, JSON.stringify(history) + '\n');
 
   const ok = report.filter((r) => r.status === 'ok').length;
-  const cityCount = ['USD', 'EUR'].map((c) => `${c}:${CITY_KEYS.filter((k) => Number.isFinite(data.parallel?.[c]?.[k]) && !derived.includes(`${c}.${k}`)).length}/3`).join(' ');
+  const cityCount = ['USD', 'EUR']
+    .map((c) => `${c}:${CITY_KEYS.filter((k) => confidence[`${c}.${k}`] === 'reported').length}/3 مرصود`)
+    .join(' ');
   console.log(`[collect] ${ok}/${report.length} sources ok · ${history.length} history points · real city rates ${cityCount}`);
   if (dropped.length) console.log(`  dropped outliers: ${dropped.join(', ')}`);
   for (const r of report) console.log(`  ${r.status === 'ok' ? '✓' : r.status === 'skipped' ? '–' : '✗'} ${r.id.padEnd(20)} ${r.detail}`);
