@@ -71,22 +71,36 @@ function mergeParallel(results) {
 }
 
 /**
- * Drop any city number that sits far from where the rest of the market is.
- * Libyan cash markets move together — the live articles quote Tripoli and
- * Benghazi at the same 9.39 and Zliten a single قرش away — so a city more than
- * 2.5% off the pack is a mis-parse, not a spread.
+ * Reject a city number that sits implausibly far from the live market.
+ *
+ * Two things make this necessary. Article sources can serve yesterday's piece,
+ * and yesterday's rate is a perfectly well-formed number that is simply wrong
+ * for today. And a mis-parse can pick a transfer or cheque rate that also looks
+ * plausible on its own.
+ *
+ * The anchor is the national quote, which comes from the Telegram desks and
+ * rate pages that publish continuously, rather than the median of the city
+ * values — one stale city should not drag the reference it is checked against.
+ * Libyan cities trade within a qirsh or two of each other, so 0.6% (about five
+ * qirsh at current levels) is several times the real spread and still catches a
+ * day-old number.
  */
+const CITY_TOLERANCE = 0.006;
+
 function dropOutliers(parallel) {
   const dropped = [];
   for (const [code, cities] of Object.entries(parallel)) {
-    const values = Object.values(cities).filter(Number.isFinite);
-    if (values.length < 2) continue;
-    const mid = median(values);
-    if (!Number.isFinite(mid) || mid === 0) continue;
-    for (const [city, val] of Object.entries(cities)) {
-      if (Number.isFinite(val) && Math.abs(val - mid) / mid > 0.025) {
+    const values = CITY_KEYS.map((c) => cities[c]).filter(Number.isFinite);
+    const anchor = Number.isFinite(cities.national) ? cities.national : median(values);
+    if (!Number.isFinite(anchor) || anchor === 0) continue;
+
+    for (const city of CITY_KEYS) {
+      const value = cities[city];
+      if (!Number.isFinite(value)) continue;
+      const drift = Math.abs(value - anchor) / anchor;
+      if (drift > CITY_TOLERANCE) {
         delete cities[city];
-        dropped.push(`${code}.${city}=${val}`);
+        dropped.push(`${code}.${city}=${value} (${(drift * 100).toFixed(2)}% عن ${round(anchor, 3)})`);
       }
     }
   }
