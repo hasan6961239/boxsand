@@ -127,13 +127,21 @@ http.createServer((req, res) => {
       if (!fs.existsSync(src)) return json(res, { ok: false, error: 'النسخة غير موجودة' });
       fs.copyFileSync(src, STORE); return json(res, { ok: true });
     }
-    if (p === '/api/info') return json(res, { ok: true, version: '2.2', dataDir: DATA, port: PORT });
     if (p === '/api/license') return json(res, { ok: true, active: true, fp: 'ABCD-EFGH-JKLM', until: 'دائم' });
     if (p === '/api/activate') return json(res, { ok: true, until: 'دائم' });
     if (p === '/api/preset') return json(res, { ok: false });
     if (p === '/api/notify') { console.log('[notify]', body.toString().slice(0, 300)); return json(res, { ok: true }); }
     if (p === '/api/sync') { console.log('[sync]'); return json(res, { ok: true, branches: [] }); }
     if (p === '/api/open-folder' || p === '/api/quit' || p === '/api/uninstall') return json(res, { ok: true });
+
+    /* تقليد /api/info في النواة: الإصدار وختم البناء */
+    if (p === '/api/info') {
+      const ver = (fs.readFileSync(path.join(ROOT, 'src', 'Program.cs'), 'utf8')
+        .match(/AppVersion\s*=\s*"([^"]+)"/) || [])[1] || '?';
+      const stamp = (fs.readFileSync(path.join(ROOT, 'src', 'BuildInfo.cs'), 'utf8')
+        .match(/Stamp\s*=\s*"([^"]*)"/) || [])[1] || '';
+      return json(res, { ok: true, version: ver, build: stamp, dataDir: DATA, port: PORT });
+    }
 
     if (p === '/') p = '/index.html';
     if (p.includes('..')) { res.writeHead(400); return res.end('bad path'); }

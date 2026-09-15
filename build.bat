@@ -52,13 +52,17 @@ for %%f in (jsbarcode core inventory branches notify consign count sales people 
   set RES=!RES! /resource:app\js\%%f.js,js/%%f.js
 )
 
-echo   يبني...
+REM --- ختم تاريخ البناء، ليعرف صاحب المحل أي نسخة يشغّل ---
+for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set STAMP=%%d
+> src\BuildInfo.cs echo namespace Qirtasiya { static class BuildInfo { public const string Stamp = "!STAMP!"; } }
+
+echo   يبني... (بناء !STAMP!)
 "!CSC!" /nologo /target:winexe /optimize+ /out:%OUT% ^
   /win32icon:app\app.ico ^
   /reference:System.dll /reference:System.Drawing.dll ^
   /reference:System.Windows.Forms.dll /reference:System.Core.dll ^
   !RES! ^
-  src\Program.cs
+  src\Program.cs src\BuildInfo.cs
 
 if errorlevel 1 (
   echo.

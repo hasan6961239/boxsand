@@ -928,6 +928,21 @@ var App = (function () {
     b.classList.add("ui-" + sz);
   }
 
+  /* ختم النسخة في أسفل الشريط: الإصدار وتاريخ البناء.
+     كانت كل النسخ تقول «v2.0» فلا يُعرف أي ملف يعمل. */
+  function paintVersion() {
+    var e = document.getElementById("ver");
+    if (!e) return;
+    apiJson("/api/info").then(function (d) {
+      if (!d || !d.ok) return;
+      var v = "v" + (d.version || "?");
+      e.textContent = d.build ? (v + " · " + d.build) : v;
+      e.title = "الإصدار " + (d.version || "?") +
+        (d.build ? "\nتاريخ البناء: " + d.build : "") +
+        "\nمجلد البيانات: " + (d.dataDir || "");
+    }).catch(function () { });
+  }
+
   function refreshBadges() {
     var n = lowCount();
     document.querySelectorAll("[data-lowcount]").forEach(function (e) {
@@ -1175,6 +1190,7 @@ var App = (function () {
   function boot() {
     load().then(function () {
       buildNav();
+      paintVersion();
       window.addEventListener("hashchange", route);
       tickClock(); setInterval(tickClock, 20000);
 

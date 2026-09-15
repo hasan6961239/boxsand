@@ -680,6 +680,30 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   }
   check('15 شاشة بلا خطأ JavaScript', errs.length === 0, errs.slice(0, 4).join(' | '));
 
+  console.log('\n== 14ج2. ختم النسخة والتبويبات ==');
+  {
+    /* الخلل الذي وقع: كل النسخ تقول «v2.0» فلا يعرف صاحب المحل أي ملف
+       يشغّل. فتح نسخة قديمة وظنّ أن «طباعة اللاصقات» اختفت. */
+    await closePage(pg); writeStore(seed()); pg = await open();
+    const ver = await pg.evaluate(() => {
+      const e = document.getElementById('ver');
+      return { txt: (e.textContent || '').trim(), title: e.title || '' };
+    });
+    check('الشريط يعرض رقم الإصدار', /^v\d+\.\d+/.test(ver.txt), JSON.stringify(ver));
+    check('ومعه تاريخ البناء', /\d{4}-\d{2}-\d{2}/.test(ver.txt), ver.txt);
+    check('وليس «v2.0» الثابت القديم', ver.txt !== 'v2.0', ver.txt);
+    check('والتلميح يذكر مجلد البيانات', /مجلد البيانات/.test(ver.title), ver.title);
+
+    /* التبويبات التي ظنّها مفقودة يجب أن تكون في الشريط دائماً */
+    const navTxt = await pg.$$eval('.nav-item', bs => bs.map(b2 => b2.textContent.trim()));
+    ['لوحة اليوم','نقطة البيع','الفواتير','الجرد','المخزون والفروع','إدخال بضاعة',
+     'التنبيهات','البضاعة الراكدة','طباعة اللاصقات','الزبائن والديون','كتب على المباع',
+     'الموردون ودور النشر','الأرباح والتقارير','الإشعارات','الإعدادات'].forEach(function (t) {
+      check('تبويب «' + t + '» موجود',
+        navTxt.some(function (x) { return x.indexOf(t) >= 0; }), navTxt.join(' | '));
+    });
+  }
+
   console.log('\n== 14د. الأيقونات أشكال متجهة لا رموز خطّية ==');
   {
     /* الرموز مثل ▣ و◕ ترتسم شكلاً مختلفاً في كل خط، وبعضها لا يُرسم

@@ -19,7 +19,7 @@ namespace Qirtasiya
     static class Program
     {
         const string AppTitle = "منظومة المكتبة والقرطاسية";
-        const string AppVersion = "2.2";
+        const string AppVersion = "2.5";
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
            في مجلد يكتب فيه المستخدم — فمن يضع app\index.html معدّلاً يتخطّى
@@ -117,6 +117,21 @@ namespace Qirtasiya
         }
 
         /* معرّف التثبيت من سجل ويندوز — يبقى ثابتاً إن غيّر الزبون اسم جهازه */
+        /* ختم البناء: ما كتبه السكربت في BuildInfo، وإن كان فارغاً
+           (ترجمة يدوية) فتاريخ الملف التنفيذي نفسه. */
+        static string BuildStamp()
+        {
+            if (!string.IsNullOrEmpty(BuildInfo.Stamp)) return BuildInfo.Stamp;
+            try
+            {
+                string p = Assembly.GetExecutingAssembly().Location;
+                if (p != null && p.Length > 0 && File.Exists(p))
+                    return File.GetLastWriteTime(p).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            }
+            catch { }
+            return "";
+        }
+
         static string MachineGuid()
         {
             string[] views = new string[] {
@@ -363,7 +378,7 @@ namespace Qirtasiya
                 PrevFile = Path.Combine(DataDir, "store.previous.json");
                 PortFile = Path.Combine(DataDir, "port.txt");
 
-                Log("الإصدار " + AppVersion + " — الواجهة مدمجة داخل الملف التنفيذي");
+                Log("الإصدار " + AppVersion + " (بناء " + BuildStamp() + ") — الواجهة مدمجة داخل الملف التنفيذي");
                 Log("مفتاح هذا التثبيت: " + InstanceKey);
                 string _fp, _un;
                 Log(LicenseOK(out _fp, out _un) ? ("الترخيص مفعّل حتى: " + _un) : ("غير مفعّل — بصمة الجهاز: " + _fp));
@@ -1091,7 +1106,9 @@ namespace Qirtasiya
 
             if (path == "/api/info")
             {
-                SendJson(s, "{\"ok\":true,\"version\":" + JsonStr(AppVersion) + ",\"dataDir\":" + JsonStr(DataDir) + ",\"port\":" + Port.ToString(CultureInfo.InvariantCulture) + "}");
+                SendJson(s, "{\"ok\":true,\"version\":" + JsonStr(AppVersion) +
+                    ",\"build\":" + JsonStr(BuildStamp()) +
+                    ",\"dataDir\":" + JsonStr(DataDir) + ",\"port\":" + Port.ToString(CultureInfo.InvariantCulture) + "}");
                 return;
             }
 
