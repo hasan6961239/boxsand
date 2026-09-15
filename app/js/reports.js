@@ -911,7 +911,9 @@ var Rep = (function () {
           body: JSON.stringify({ name: name })
         }).then(function (r) { return r.json(); }).then(function (res) {
           if (res && res.ok) { App.toast("استُعيدت النسخة. سيُعاد تحميل البرنامج."); setTimeout(function () { location.reload(); }, 900); }
-          else App.toast("تعذّرت الاستعادة.", "bad");
+          else App.toast((res && res.error) || "تعذّرت الاستعادة.", "bad");
+        }).catch(function (e) {
+          App.toast("تعذّرت الاستعادة: " + (e && e.message ? e.message : "سبب غير معروف"), "bad");
         });
       }, { danger: true, yes: "استعادة" });
   }
@@ -1046,13 +1048,37 @@ var Rep = (function () {
     App.confirm("سيتم استبدال كل البيانات الحالية بمحتوى الملف. تأكد أنك أخذت نسخة احتياطية أولاً.",
       function () {
         App.pickFile(".json,application/json", function (txt) {
+          var d;
           try {
-            var d = JSON.parse(txt);
-            if (!d || !d.meta) throw new Error("ملف غير صالح");
-            App.api("/api/save", {
-              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d)
-            }).then(function () { App.toast("استُعيدت البيانات."); setTimeout(function () { location.reload(); }, 800); });
-          } catch (e) { App.toast("الملف غير صالح.", "bad"); }
+            d = JSON.parse(txt);
+          } catch (e) {
+            App.toast("الملف ليس ملف بيانات صالحاً (JSON).", "bad");
+            return;
+          }
+          if (!d || typeof d !== "object" || !d.meta) {
+            App.toast("هذا ليس ملف نسخة من المنظومة — لا يحتوي بيانات المحل.", "bad");
+            return;
+          }
+
+          var n = (d.books || []).length + (d.stationery || []).length;
+          /* الكتابة تمر بـapiWrite فيظهر سبب الفشل الحقيقي بدل صمت
+             كان يبدو معه أن الزر لا يفعل شيئاً. */
+          App.apiWrite("/api/save", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(d)
+          }).then(function () {
+            App.toast("استُعيدت البيانات — " + n + " صنف. يُعاد التحميل…", "ok");
+            setTimeout(function () { location.reload(); }, 900);
+          }).catch(function (err) {
+            App.modal({
+              title: "تعذّرت الاستعادة",
+              body: '<p style="line-height:1.9;margin:0 0 10px">' +
+                App.esc(err && err.message ? err.message : "سبب غير معروف") + "</p>" +
+                '<p class="muted small" style="line-height:1.85;margin:0">' +
+                "لم يتغيّر شيء في بياناتك الحالية. الملف الذي اخترته سليم، " +
+                "والمشكلة في قبول البرنامج للكتابة.</p>"
+            });
+          });
         });
       }, { danger: true, yes: "استبدال البيانات" });
   }
@@ -1100,11 +1126,25 @@ var Rep = (function () {
           click: function (close) { close(); setupForm(); }
         },
         {
+          /* لا نوقف المحرك من تحت الواجهة: كان ذلك يترك النافذة مفتوحة
+             على محرك ميت، فتفشل كل محاولة حفظ وتتكدّس التنبيهات.
+             نكتفي بالتعليمات، وإغلاق النافذة يوقف البرنامج وحده. */
           label: "أنقل بياناتي أولاً",
           click: function (close) {
             close();
-            App.api("/api/quit", { method: "POST" }).catch(function () { });
-            App.toast("انسخ بياناتك ثم شغّل البرنامج من جديد.");
+            App.modal({
+              title: "انقل بياناتك ثم ارجع",
+              body:
+                '<p style="line-height:1.95;margin:0 0 12px">' +
+                "<b>١.</b> أغلق نافذة البرنامج (زر ✕ في أعلى النافذة).<br>" +
+                "<b>٢.</b> انسخ كل ما بداخل مجلد <span class=\"num\">data</span> القديم " +
+                "— وفيه <span class=\"num\">store.json</span> و<span class=\"num\">license.txt</span> — " +
+                "إلى مجلد بيانات هذه النسخة.<br>" +
+                "<b>٣.</b> شغّل البرنامج من جديد.</p>" +
+                '<p class="muted small" style="line-height:1.85;margin:0">' +
+                "انسخ المجلد كاملاً ولا تنسَ <span class=\"num\">license.txt</span> — " +
+                "بدونه يطلب البرنامج تفعيلاً من جديد.</p>"
+            });
           }
         }
       ],

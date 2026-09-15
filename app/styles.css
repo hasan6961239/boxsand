@@ -929,3 +929,18 @@ table.tbl tbody tr:hover { background: var(--surface-2); }
   #view > *, .stat, .modal, .overlay, .lbl-dot, .dot-live.saving { animation: none !important; }
   .btn:active, .nav-item:active { transform: none !important; }
 }
+
+/* شريط انقطاع المحرك — حالة مستمرة تُعرض مرة، لا تنبيه يتكرّر */
+.disc-bar{
+  position: fixed; inset-inline: 0; bottom: 0; z-index: 900;
+  background: var(--stamp); color: #fff;
+  padding: 12px 18px; display: flex; align-items: center; gap: 12px;
+  font-size: 13.5px; line-height: 1.6; box-shadow: 0 -4px 14px rgba(0,0,0,.18);
+}
+.disc-bar b{ flex-shrink: 0; }
+.disc-bar span{ flex: 1; opacity: .92; }
+.disc-bar .btn{
+  flex-shrink: 0; background: rgba(255,255,255,.16);
+  border-color: rgba(255,255,255,.3); color: #fff;
+}
+.disc-bar[hidden]{ display: none; }

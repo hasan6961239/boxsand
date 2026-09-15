@@ -742,6 +742,118 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('وأيقونة الجرد ليست سلة مهملات', tally.indexOf('M9 3h6v3H9V3z') === 0, tally.slice(0, 32));
   }
 
+  console.log('\n== 14ج3. الاستعادة تفشل بصوت مسموع ==');
+  {
+    /* الخلل الذي بلّغ عنه صاحب المحل: ضغط «استعادة من ملف» فلم يحدث شيء.
+       السبب: fetch لا يرفض الوعد عند 403، فكان الكود يعلن النجاح ويعيد
+       التحميل على لا شيء. والسبب الجذري أن الترخيص كان داخل مجلد
+       البيانات، فالتثبيت — وهو يغيّر المجلد — كان يفقده. */
+    await closePage(pg); writeStore(seed()); pg = await open();
+
+    const shape = await pg.evaluate(() => typeof App.apiWrite);
+    check('توجد دالة كتابة تفحص رد الخادم', shape === 'function', shape);
+
+    /* 403 غير مرخّص: يجب أن يُرفض الوعد برسالة مفهومة */
+    const denied = await pg.evaluate(() => {
+      const realFetch = window.fetch;
+      window.fetch = function () {
+        return Promise.resolve(new Response('{"ok":false,"error":"unlicensed"}',
+          { status: 403, headers: { 'Content-Type': 'application/json' } }));
+      };
+      return App.apiWrite('/api/save', { method: 'POST', body: '{}' })
+        .then(function () { return 'نجح بالخطأ'; })
+        .catch(function (e) { return e.message; })
+        .then(function (r) { window.fetch = realFetch; return r; });
+    });
+    check('403 غير مرخّص يُرفض برسالة مفهومة', /غير مفعَّل/.test(denied), denied);
+
+    /* 409 نافذة أخرى */
+    const busy = await pg.evaluate(() => {
+      const realFetch = window.fetch;
+      window.fetch = function () {
+        return Promise.resolve(new Response('{"ok":false,"notOwner":true}',
+          { status: 409, headers: { 'Content-Type': 'application/json' } }));
+      };
+      return App.apiWrite('/api/save', { method: 'POST', body: '{}' })
+        .then(function () { return 'نجح بالخطأ'; })
+        .catch(function (e) { return e.message; })
+        .then(function (r) { window.fetch = realFetch; return r; });
+    });
+    check('409 نافذة أخرى يُرفض برسالة مفهومة', /نافذة أخرى/.test(busy), busy);
+
+    /* النجاح يمر كما هو */
+    const okRes = await pg.evaluate(() => {
+      const realFetch = window.fetch;
+      window.fetch = function () {
+        return Promise.resolve(new Response('{"ok":true}',
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      };
+      return App.apiWrite('/api/save', { method: 'POST', body: '{}' })
+        .then(function (d) { return 'ok:' + (d && d.ok); })
+        .catch(function (e) { return 'رُفض: ' + e.message; })
+        .then(function (r) { window.fetch = realFetch; return r; });
+    });
+    check('والنجاح يمر كما هو', okRes === 'ok:true', okRes);
+
+    /* شاشة الترخيص تشرح السبب الشائع بعد التثبيت */
+    const licTxt = await pg.evaluate(() => {
+      App.lic.active = false; App.lic.fp = 'TEST-FP'; App.lic.hasFile = false;
+      App.licScreen();
+      return document.getElementById('view').textContent;
+    });
+    check('شاشة الترخيص تدلّ على مجلد data القديم',
+      /license\.txt/.test(licTxt) && /data/.test(licTxt), licTxt.slice(0, 90));
+  }
+
+  console.log('\n== 14ج4. انقطاع المحرك: شريط واحد لا عشرات التنبيهات ==');
+  {
+    /* ما رآه صاحب المحل: عشرات من «انقطع الاتصال بمحرك البرنامج»
+       متكدّسة تغطّي الشاشة. السبب أن إعادة الحفظ تُطلق تنبيهاً كل مرة. */
+    await closePage(pg); writeStore(seed()); pg = await open();
+
+    const flood = await pg.evaluate(async () => {
+      const host = document.getElementById('toasts');
+      host.innerHTML = '';
+      for (let i = 0; i < 12; i++) App.toast('رسالة مكرّرة', 'bad');
+      await new Promise(r => setTimeout(r, 80));
+      return { n: host.children.length, txt: (host.textContent || '').trim() };
+    });
+    check('١٢ تنبيهاً متطابقاً تصير واحداً', flood.n === 1, JSON.stringify(flood));
+    check('ويقول كم تكرّر', /×12/.test(flood.txt), flood.txt);
+
+    const mixed = await pg.evaluate(async () => {
+      const host = document.getElementById('toasts');
+      host.innerHTML = '';
+      App.toast('أولى', 'bad'); App.toast('ثانية', 'bad');
+      await new Promise(r => setTimeout(r, 80));
+      return host.children.length;
+    });
+    check('ورسالتان مختلفتان تبقيان اثنتين', mixed === 2, 'n=' + mixed);
+
+    /* الانقطاع الحقيقي: شريط ثابت، ولا يتكرّر مهما تكرّر الفشل */
+    const bar = await pg.evaluate(async () => {
+      const realFetch = window.fetch;
+      window.fetch = function () { return Promise.reject(new Error('down')); };
+      document.getElementById('toasts').innerHTML = '';
+      App.S.meta.shopName = 'تعديل ١'; await App.saveNow().catch(() => { });
+      App.S.meta.shopName = 'تعديل ٢'; await App.saveNow().catch(() => { });
+      App.S.meta.shopName = 'تعديل ٣'; await App.saveNow().catch(() => { });
+      await new Promise(r => setTimeout(r, 120));
+      const b = document.getElementById('discBar');
+      const out = {
+        barShown: !!b && !b.hidden,
+        barText: b ? b.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : '',
+        toasts: document.getElementById('toasts').children.length
+      };
+      window.fetch = realFetch;
+      return out;
+    });
+    check('انقطاع المحرك يعرض شريطاً ثابتاً', bar.barShown, JSON.stringify(bar));
+    check('والشريط يقول ماذا يفعل المستخدم',
+      /شغّل البرنامج من جديد/.test(bar.barText) || bar.barText.length > 20, bar.barText);
+    check('وثلاث محاولات فاشلة تنبّه مرة واحدة', bar.toasts <= 1, 'toasts=' + bar.toasts);
+  }
+
   console.log('\n== 15أ. أحجام الواجهة الخمسة ==');
   {
     await closePage(pg); writeStore(seed()); pg = await open();

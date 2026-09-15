@@ -19,7 +19,7 @@ namespace Qirtasiya
     static class Program
     {
         const string AppTitle = "منظومة المكتبة والقرطاسية";
-        const string AppVersion = "2.5";
+        const string AppVersion = "2.6";
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
            في مجلد يكتب فيه المستخدم — فمن يضع app\index.html معدّلاً يتخطّى
@@ -222,13 +222,48 @@ namespace Qirtasiya
             catch { return false; }
         }
 
-        static string LicPath() { return Path.Combine(DataDir, "license.txt"); }
+        /* الترخيص وقفل الأرباح مربوطان بالجهاز لا بمجلد البيانات.
+           كانا داخل DataDir، فتثبيتُ البرنامج — وهو يغيّر مجلد
+           البيانات — كان يفقد الترخيص، فتُرفض كل كتابة بـ«unlicensed»
+           ويبدو زر الاستعادة وكأنه لا يفعل شيئاً.
+           صارا في مجلد المستخدم الثابت، ويُنقلان من المكان القديم
+           تلقائياً إن وُجدا فيه. */
+        static string UserRoot()
+        {
+            string r = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Qirtasiya");
+            try { Directory.CreateDirectory(r); } catch { }
+            return r;
+        }
+
+        /* يعيد المسار الثابت، وينقل إليه الملف القديم مرة واحدة */
+        static string MachineFile(string name)
+        {
+            string stable = Path.Combine(UserRoot(), name);
+            try
+            {
+                if (!File.Exists(stable))
+                {
+                    string old = Path.Combine(DataDir, name);
+                    if (File.Exists(old))
+                    {
+                        File.Copy(old, stable);
+                        Log("نُقل " + name + " إلى مجلد المستخدم الثابت");
+                    }
+                }
+            }
+            catch (Exception ex) { Log("تعذّر نقل " + name + ": " + ex.Message); }
+            return stable;
+        }
+
+        static string LicPath() { return MachineFile("license.txt"); }
 
         static DateTime LastSeenDate()
         {
             try
             {
-                string f = Path.Combine(DataDir, "lastseen.txt");
+                string f = MachineFile("lastseen.txt");
                 if (!File.Exists(f)) return DateTime.MinValue;
                 DateTime d;
                 if (DateTime.TryParseExact(File.ReadAllText(f).Trim(), "yyyy-MM-dd",
@@ -243,7 +278,7 @@ namespace Qirtasiya
             try
             {
                 if (d <= LastSeenDate()) return;
-                File.WriteAllText(Path.Combine(DataDir, "lastseen.txt"),
+                File.WriteAllText(MachineFile("lastseen.txt"),
                     d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), new UTF8Encoding(false));
             }
             catch { }
@@ -252,7 +287,7 @@ namespace Qirtasiya
         // ---------- رمز الأرباح ----------
         // كان بالنص الصريح داخل store.json ويُقدَّم على /api/load لأي متصفح.
 
-        static string ProfitCodePath() { return Path.Combine(DataDir, "profit.hash"); }
+        static string ProfitCodePath() { return MachineFile("profit.hash"); }
 
         static string HashCode(string code)
         {
@@ -1193,7 +1228,12 @@ namespace Qirtasiya
             {
                 string fp, until;
                 bool ok = LicenseOK(out fp, out until);
+                /* «لا يوجد ملف ترخيص» و«الترخيص غير صالح» مشكلتان
+                   مختلفتان وحلّاهما مختلفان، وكانتا تظهران متطابقتين. */
+                bool has = false;
+                try { has = File.Exists(LicPath()); } catch { }
                 SendJson(s, "{\"ok\":true,\"active\":" + (ok ? "true" : "false") +
+                    ",\"hasFile\":" + (has ? "true" : "false") +
                     ",\"fp\":" + JsonStr(fp) + ",\"until\":" + JsonStr(until) + "}");
                 return;
             }

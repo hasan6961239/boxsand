@@ -107,6 +107,37 @@ var App = (function () {
     return api(path, opts).then(function (r) { return r.json(); });
   }
 
+  /* نداء كتابة يفشل بصوت مسموع.
+
+     fetch لا يرفض الوعد عند 403 أو 409 — يرفض عند انقطاع الشبكة فقط.
+     فكل نداء كُتب `api(...).then(نجاح)` كان يعلن النجاح ولو ردّ الخادم
+     «غير مرخّص» أو «ليست النافذة المالكة». هكذا بدا زر الاستعادة وكأنه
+     لا يفعل شيئاً: يقول «استُعيدت البيانات» ثم يعيد التحميل على لا شيء.
+
+     هذه الدالة ترفض الوعد برسالة مفهومة، فلا يمر فشل بصمت. */
+  function apiWrite(path, opts) {
+    return api(path, opts).then(function (r) {
+      return r.text().then(function (t) {
+        var d = null;
+        try { d = JSON.parse(t); } catch (e) { }
+
+        if (r.status === 403 && d && d.error === "unlicensed") {
+          throw new Error("البرنامج غير مفعَّل على هذا الجهاز — فعّله من الإعدادات ثم أعد المحاولة.");
+        }
+        if (r.status === 409 || (d && d.notOwner)) {
+          throw new Error("المنظومة مفتوحة في نافذة أخرى. أغلقها أو اضغط «تحكّم من هذه النافذة».");
+        }
+        if (!r.ok) {
+          throw new Error((d && d.error) ? d.error : ("تعذّرت العملية (رمز " + r.status + ")"));
+        }
+        if (d && d.ok === false) {
+          throw new Error(d.error || "تعذّرت العملية.");
+        }
+        return d;
+      });
+    });
+  }
+
   /* ---------- التحميل والحفظ ---------- */
 
   /* الملف التالف لا يُبتلع بصمت: نتوقف ونعرض شاشة استرجاع.
@@ -187,8 +218,52 @@ var App = (function () {
       })
       .catch(function () {
         saving = false; setState("error");
-        toast("انقطع الاتصال بمحرك البرنامج. لا تغلق النافذة.", "bad");
+        /* الانقطاع حالة مستمرة لا حدث يتكرّر: شريط ثابت مرة واحدة. */
+        showDisconnected();
       });
+  }
+
+  var disconnectedShown = false;
+
+  function showDisconnected() {
+    if (disconnectedShown) return;
+    disconnectedShown = true;
+    toast("انقطع الاتصال بمحرك البرنامج.", "bad");
+
+    var bar = document.getElementById("discBar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "discBar";
+      bar.className = "disc-bar";
+      bar.innerHTML =
+        "<b>انقطع الاتصال بمحرك البرنامج.</b> " +
+        "<span>آخر تعديلاتك لم تُحفظ. أغلق النافذة وشغّل البرنامج من جديد — " +
+        "ما حُفظ قبل الانقطاع سليم.</span>" +
+        '<button class="btn sm" onclick="App.retryConnect()">أعد المحاولة</button>';
+      document.body.appendChild(bar);
+    }
+    bar.hidden = false;
+  }
+
+  function clearDisconnected() {
+    disconnectedShown = false;
+    var bar = document.getElementById("discBar");
+    if (bar) bar.hidden = true;
+  }
+
+  /* يتأكد أن النواة عادت قبل أن يزيل الشريط — لا يخفيه على أمل */
+  function retryConnect() {
+    apiJson("/api/info").then(function (d) {
+      if (d && d.ok) {
+        clearDisconnected();
+        toast("عاد الاتصال. يُعاد التحميل…", "ok");
+        setTimeout(function () { location.reload(); }, 700);
+      } else showStillDown();
+    }).catch(showStillDown);
+  }
+
+  function showStillDown() {
+    toast("المحرك ما زال متوقفاً. أغلق النافذة وشغّل البرنامج من جديد.", "bad");
   }
 
   window.addEventListener("beforeunload", function () {
@@ -457,11 +532,30 @@ var App = (function () {
 
   /* ---------- التنبيهات المنبثقة ---------- */
 
+  var lastToast = { msg: "", at: 0 };
+
   function toast(msg, kind) {
     var host = document.getElementById("toasts");
+
+    /* نفس الرسالة مرتين متتاليتين لا تُفيد شيئاً. وحين يتكرّر الخلل
+       (كانقطاع النواة، ويعيد الحفظ المحاولة كل ثانية) كانت التنبيهات
+       تتكدّس بالعشرات حتى تغطّي الشاشة ولا يقرأ منها شيئاً. */
+    var now = Date.now();
+    if (msg === lastToast.msg && now - lastToast.at < 6000) {
+      var prev = host.lastChild;
+      if (prev && prev.__msg === msg) {
+        prev.__n = (prev.__n || 1) + 1;
+        prev.textContent = msg + " (×" + prev.__n + ")";
+        lastToast.at = now;
+        return;
+      }
+    }
+    lastToast.msg = msg; lastToast.at = now;
+
     var t = document.createElement("div");
     t.className = "toast" + (kind ? " " + kind : "");
     t.textContent = msg;
+    t.__msg = msg;
     host.appendChild(t);
     setTimeout(function () {
       t.style.transition = "opacity .25s"; t.style.opacity = "0";
@@ -1098,6 +1192,7 @@ var App = (function () {
           lic.active = false;
           lic.fp = l.fp || "";
           lic.until = l.until || "";
+          lic.hasFile = !!l.hasFile;
         } else lic.active = true;
       })
       .catch(function () { lic.active = true; });   // نواة قديمة بلا ترخيص: لا نمنع العمل
@@ -1117,14 +1212,29 @@ var App = (function () {
     }).catch(function () { });
   }
 
-  var lic = { active: true, fp: "", until: "" };
+  var lic = { active: true, fp: "", until: "", hasFile: false };
 
   function licScreen() {
     document.getElementById("view").innerHTML =
       '<div class="lic-wrap"><div class="card"><div class="card-body" style="padding:34px">' +
       '<h2 style="font-family:var(--font-head);margin:0 0 6px;font-size:26px;text-align:center">تفعيل المنظومة</h2>' +
-      '<p class="muted" style="text-align:center;margin:0 0 18px;line-height:1.8">' +
-      "هذه النسخة غير مفعّلة على هذا الجهاز.<br>أرسل الرمز التالي لمن باعك المنظومة ليعطيك رمز التفعيل.</p>" +
+      '<p class="muted" style="text-align:center;margin:0 0 14px;line-height:1.8">' +
+      (lic.until === "expired"
+        ? "انتهت مدة الترخيص على هذا الجهاز.<br>أرسل الرمز التالي لتجديده."
+        : (lic.hasFile
+            ? "يوجد ملف ترخيص لكنه لا يطابق هذا الجهاز.<br>أرسل الرمز التالي لتحصل على ترخيص لهذا الجهاز."
+            : "هذه النسخة غير مفعّلة على هذا الجهاز.<br>أرسل الرمز التالي لمن باعك المنظومة ليعطيك رمز التفعيل.")) +
+      "</p>" +
+      /* السبب الشائع بعد التثبيت: الترخيص بقي مع البيانات القديمة.
+         قوله صراحةً يوفّر على صاحب المحل طلب ترخيص جديد بلا داعٍ. */
+      (!lic.hasFile
+        ? '<p class="muted small" style="text-align:center;margin:0 0 18px;line-height:1.85;' +
+          'background:var(--amber-wash);padding:11px 13px;border-radius:8px">' +
+          "<b>هل كنت مفعَّلاً قبل التثبيت؟</b> ملف الترخيص كان مع بياناتك القديمة. " +
+          "انسخ مجلد <span class=\"num\">data</span> القديم كاملاً (وفيه " +
+          "<span class=\"num\">license.txt</span>) إلى مجلد بيانات هذه النسخة، " +
+          "ثم أعد التشغيل — يعود التفعيل وحده.</p>"
+        : "") +
       '<label style="font-size:13px;color:var(--muted)">بصمة هذا الجهاز</label>' +
       '<div class="lic-fp" id="licFp">' + esc(lic.fp) + "</div>" +
       '<button class="btn" style="width:100%;margin-bottom:18px" onclick="App.copyFp()">نسخ البصمة</button>' +
@@ -1243,8 +1353,9 @@ var App = (function () {
     save: save, saveNow: saveNow,
     uid: uid, esc: esc, num: num, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm,
-    api: api, apiJson: apiJson,
+    api: api, apiJson: apiJson, apiWrite: apiWrite,
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
+    retryConnect: retryConnect,
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,
     today: today, nowStamp: nowStamp, dateAr: dateAr, log: log,
     listOf: listOf, itemName: itemName, findItem: findItem, allItems: allItems,
@@ -1252,7 +1363,7 @@ var App = (function () {
     nextCode: nextCode, locChip: locChip, locPin: locPin,
     toast: toast, modal: modal, confirm: confirm, form: form, table: table, setField: setField,
     canProfit: canProfit, unlockProfit: unlockProfit, lockProfit: lockProfit,
-    copyFp: copyFp, activate: activate, lic: lic, checkLicense: checkLicense,
+    copyFp: copyFp, activate: activate, lic: lic, checkLicense: checkLicense, licScreen: licScreen,
     paintBranchTag: paintBranchTag, branchLabel: branchLabel, applyUiSize: applyUiSize,
     icon: icon, applyTheme: applyTheme, THEMES: THEMES,
     download: download, toCsv: toCsv, parseCsv: parseCsv, pickFile: pickFile, xls: xls,

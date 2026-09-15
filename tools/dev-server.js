@@ -127,7 +127,15 @@ http.createServer((req, res) => {
       if (!fs.existsSync(src)) return json(res, { ok: false, error: 'النسخة غير موجودة' });
       fs.copyFileSync(src, STORE); return json(res, { ok: true });
     }
-    if (p === '/api/license') return json(res, { ok: true, active: true, fp: 'ABCD-EFGH-JKLM', until: 'دائم' });
+    /* محاكاة رفض الخادم للاختبار: QI_DENY=unlicensed أو notowner */
+    if (process.env.QI_DENY === 'unlicensed' && p.startsWith('/api/') &&
+        !['/api/license','/api/info','/api/activate','/api/preset','/api/quit'].includes(p)) {
+      return json(res, { ok: false, error: 'unlicensed' }, 403);
+    }
+    if (p === '/api/license') return json(res, {
+      ok: true, active: process.env.QI_DENY !== 'unlicensed',
+      hasFile: process.env.QI_HASFILE !== '0',
+      fp: 'ABCD-EFGH-JKLM', until: 'دائم' });
     if (p === '/api/activate') return json(res, { ok: true, until: 'دائم' });
     if (p === '/api/preset') return json(res, { ok: false });
     if (p === '/api/notify') { console.log('[notify]', body.toString().slice(0, 300)); return json(res, { ok: true }); }
