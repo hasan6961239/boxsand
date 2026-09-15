@@ -108,9 +108,29 @@ var Labels = (function () {
      الطباعة ونحذّر بدل أن يكتشفه صاحب المحل بعد لصق مئة لاصقة. */
 
   var MM_PX = 3.7795;          // بكسل CSS لكل مليمتر
-  var SAFE_MM = 0.19;          // أقل عرض وحدة موثوق
   var PAD_MM = 1.2;            // هامش داخلي لكل جهة
   var QUIET = 10;              // وحدات المنطقة الهادئة لكل جهة
+
+  /* ---------- لماذا لا تُقرأ بعض اللاصقات ----------
+
+     القارئ لا يقيس عرض العمود، بل **نسب** الأعمدة إلى بعضها. وأعمدة
+     CODE128 بعروض ١ و٢ و٣ و٤ وحدات.
+
+     الطابعة لا تطبع إلا نقاطاً كاملة. فإن كانت الوحدة ٢٫٢٣ نقطة:
+       عمود ١ وحدة  = 2.23 نقطة → يُطبع 2
+       عمود ٣ وحدات = 6.69 نقطة → يُطبع 7   (المفروض 6)
+       عمود ٤ وحدات = 8.92 نقطة → يُطبع 9   (المفروض 8)
+     فتنكسر النسب ويفشل فكّ الترميز — والباركود يبدو سليماً للعين.
+
+     العلاج: نثبّت الوحدة على عدد **صحيح** من نقاط الطابعة. عندها كل
+     العروض مضاعفات صحيحة ولا تتشوّه نسبة واحدة.
+
+     و0.19 مم كان حدّاً نظرياً لطابعات وقارئات ممتازة. الحدّ العملي
+     لقارئ المحل الرخيص 0.25 مم. */
+  var DPI = 203;               // أشيع طابعات اللاصقات الحرارية
+  var DOT_MM = 25.4 / DPI;     // ‏0.1251 مم
+  var SAFE_MM = 0.25;          // أقل عرض وحدة يُقرأ عملياً (10 mil)
+  var MIN_DOTS = Math.ceil(SAFE_MM / DOT_MM);   // نقطتان = 0.2502 مم
 
   function moduleCount(code) {
     var s2 = String(code || "");
@@ -121,19 +141,38 @@ var Labels = (function () {
   }
 
   /* أوسع وحدة تدخل في اللاصقة، وهل هي آمنة */
+  /* عرض الوحدة مثبَّتاً على نقاط كاملة، ولا ينزل تحت الحدّ العملي.
+     الباركود يخرج أضيق قليلاً من عرض اللاصقة — وهذا مقصود: يُتوسَّط،
+     وتكبر المنطقة الهادئة حوله، وكلاهما في صالح القراءة. */
   function fit(code, widthMm) {
     var usable = Math.max(5, App.num(widthMm) - PAD_MM * 2);
     var mods = moduleCount(code) + QUIET * 2;
-    var mm = usable / mods;
-    return { mm: mm, px: Math.max(0.5, mm * MM_PX), safe: mm >= SAFE_MM, mods: mods };
+    var raw = usable / mods;
+    var dots = Math.floor(raw / DOT_MM);          // لا نتجاوز عرض اللاصقة
+    if (dots < MIN_DOTS) dots = MIN_DOTS;         // ولا ننزل تحت الحدّ العملي
+    var mm = dots * DOT_MM;
+    var need = mm * mods + PAD_MM * 2;            // العرض اللازم فعلاً
+    return {
+      mm: mm, px: Math.max(0.5, mm * MM_PX), mods: mods, dots: dots,
+      need: need,
+      safe: need <= App.num(widthMm) + 0.01,      // يدخل بعرض آمن؟
+      width: mm * mods
+    };
   }
 
-  /* أضيق باركود ممكن = أطول رمز يدخل بأمان على هذا العرض */
+  /* أطول رمز رقمي يدخل بأمان على هذا العرض */
   function maxDigitsFor(widthMm) {
     var usable = Math.max(5, App.num(widthMm) - PAD_MM * 2);
-    var maxMods = usable / SAFE_MM;
+    var maxMods = Math.floor(usable / (MIN_DOTS * DOT_MM));
     var symbols = Math.floor((maxMods - QUIET * 2 - 35) / 11);
     return Math.max(0, symbols * 2);
+  }
+
+  /* أقل عرض لاصقة يكفي هذا الرمز */
+  function widthNeeded(code) {
+    return moduleCount(code) + QUIET * 2 > 0
+      ? (moduleCount(code) + QUIET * 2) * MIN_DOTS * DOT_MM + PAD_MM * 2
+      : 0;
   }
 
   function worstFit() {
@@ -142,9 +181,54 @@ var Labels = (function () {
       var it = App.findItem("book", id) || App.findItem("stat", id);
       if (!it) return;
       var f = fit(codeOf(it) || "12345678", L.w);
-      if (!worst || f.mm < worst.mm) worst = f;
+      if (!worst || f.need > worst.need) worst = f;
     });
     return worst;
+  }
+
+  /* الأصناف التي لا يدخل باركودها على عرض اللاصقة بحجم يُقرأ.
+     تسميتها بالاسم توفّر على صاحب المحل تخمين أيّها المعطِّل. */
+  function tooLong() {
+    var L = cfg(), out = [];
+    Object.keys(sel).forEach(function (id) {
+      var it = App.findItem("book", id) || App.findItem("stat", id);
+      if (!it) return;
+      var code = codeOf(it) || "12345678";
+      var f = fit(code, L.w);
+      if (!f.safe) out.push({ it: it, id: id, code: code, need: f.need });
+    });
+    return out;
+  }
+
+  /* يستبدل الباركود الطويل برمز قصير من توليد المنظومة.
+
+     الكتاب الذي عليه ISBN مطبوع من الناشر لا يحتاج لاصقة أصلاً —
+     امسح باركود الغلاف. وهذا الزر لمن يريد لاصقة موحّدة على كل شيء:
+     يولّد رمزاً من ٨ أرقام يدخل على لاصقة ٣٠ مم بعرض مقروء،
+     ويحفظه على الصنف فيتطابق ما على اللاصقة مع ما في المنظومة. */
+  function shortenCodes() {
+    var list = tooLong();
+    if (!list.length) { App.toast("كل الباركودات تدخل على هذه اللاصقة.", "ok"); return; }
+    var names = list.slice(0, 6).map(function (x) { return App.itemName(x.it); }).join("\n• ");
+    App.confirm(
+      "سيُستبدل الباركود الطويل بـ" + list.length + " صنفاً برمز قصير من ٨ أرقام يدخل على " +
+      "اللاصقة ويُقرأ.\n\n• " + names + (list.length > 6 ? "\n… و" + (list.length - 6) + " غيرها" : "") +
+      "\n\nانتبه: الباركود المطبوع على غلاف الكتاب لن يعمل بعدها في نقطة البيع — " +
+      "استعمل اللاصقة الجديدة.",
+      function () {
+        var taken = allBarcodes(), n = 0;
+        list.forEach(function (x) {
+          var code = newBarcode(taken);
+          taken[code] = 1;
+          x.it.barcode = code;
+          n++;
+        });
+        App.log("لاصقات", "قُصّر باركود " + n + " صنف");
+        App.saveNow();
+        App.rerender();
+        App.toast("قُصّر باركود " + n + " صنف — أعد الطباعة الآن.", "ok");
+      },
+      { danger: true, yes: "استبدل الباركود" });
   }
 
   /* تُستدعى قبل الطباعة: تملأ الباركود الناقص وتحفظ */
@@ -408,21 +492,34 @@ var Labels = (function () {
   /* ---------- الرسم والطباعة ---------- */
 
   /* ارتفاع الأعمدة: ما يتبقّى من طول اللاصقة بعد الاسم والسعر.
-     على لاصقة 25 مم يبقى نحو 11 مم — كافٍ للقراءة، فالقارئ يهمّه
-     عرض الوحدة لا الارتفاع. */
+
+     العمود الأطول يسامح ميلان القارئ: الشعاع يقطع الباركود مائلاً
+     فيمرّ على أعمدة أكثر. لذلك نعطيه كل ما يفيض ولا ننزل عن ٨ مم —
+     الحدّ الذي توصي به مواصفات القراءة اليدوية. */
   function barHeightPx(L) {
-    var used = 2.2;                               // الهوامش العلوية والسفلية
-    used += 3.4;                                  // سطر الاسم
-    used += 3.0;                                  // رقم الباركود تحته
-    if (L.showPrice) used += 3.6;
-    if (L.showLoc) used += 2.8;
-    var mm = App.num(L.h) - used;
-    return Math.max(22, Math.round(mm * MM_PX));  // لا ننزل تحت 22px مهما ضاقت
+    var used = 2.0;                               // الهوامش العلوية والسفلية
+    used += 3.2;                                  // سطر الاسم
+    used += 2.8;                                  // رقم الباركود تحته
+    if (L.showPrice) used += 3.4;
+    if (L.showLoc) used += 2.6;
+    var mm = Math.max(8, App.num(L.h) - used);
+    return Math.max(30, Math.round(mm * MM_PX));
   }
 
   function svgFor(code, L) {
     /* JsBarcode يحتاج عنصراً في الصفحة، فنرسم في عنصر مؤقت ونأخذ ناتجه */
     var f = fit(code, L.w);
+
+    /* باركود أعرض من اللاصقة يُقصّ عند الطباعة، فيخرج ناقصاً — ويبدو
+       سليماً للعين تماماً. طباعته أسوأ من عدمها: يلصقه صاحب المحل على
+       الكتاب ثم يكتشف عند البيع أنه لا يُقرأ. نعرض مكانه سبب المنع. */
+    if (!f.safe) {
+      return '<div class="lbl-nofit">' +
+        "<b>الباركود أطول من اللاصقة</b>" +
+        '<span class="num">' + App.esc(code) + "</span>" +
+        "<span>يلزمها " + f.need.toFixed(0) + " مم</span></div>";
+    }
+
     var holder = document.createElement("div");
     holder.style.position = "absolute";
     holder.style.left = "-9999px";
@@ -496,20 +593,37 @@ var Labels = (function () {
       "line-height:1.1;text-align:center;max-height:" + nameMm + "mm;overflow:hidden;" +
       "width:100%;white-space:nowrap;text-overflow:ellipsis}" +
       ".lbl-bc{width:100%;display:flex;justify-content:center;line-height:0}" +
-      ".lbl-bc svg{max-width:100%;height:auto;display:block}" +
+      /* بلا max-width: تصغير الباركود ليدخل يُنقص عرض العمود تحت الحدّ
+         الذي يقرؤه الماسح، فيخرج باركود يبدو سليماً ولا يُقرأ. الحجم
+         محسوب ليدخل أصلاً، وما لا يدخل لا يُرسم. */
+      ".lbl-bc svg{display:block}" +
+      ".lbl-nofit{display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+      "gap:1mm;border:0.4mm dashed #A4232B;border-radius:1mm;color:#A4232B;" +
+      "padding:1.5mm;width:100%;font-size:6pt;line-height:1.3;text-align:center}" +
+      ".lbl-nofit b{font-size:6.5pt}" +
+      ".lbl-nofit .num{font-family:monospace;font-size:7pt;color:#17222E}" +
       ".lbl-sub{font-size:5.5pt;color:#333}" +
       ".lbl-price{font-size:" + (App.num(L.w) < 36 ? "8pt" : "9.5pt") + ";font-weight:700;line-height:1.1}" +
       "</style>";
 
+    var bad = tooLong();
     var wf = worstFit();
     var warn = "";
-    if (wf && !wf.safe) {
-      warn = '<div style="background:var(--warn-bg,#FBF3E2);border:1px solid var(--warn-line,#E8D5A8);' +
-        'border-radius:9px;padding:11px 13px;margin-bottom:12px;line-height:1.8;font-size:13.5px">' +
-        "<b>تحذير: قد لا يقرأ القارئ هذه اللاصقات.</b><br>" +
-        "عرض أنحف عمود فيها " + wf.mm.toFixed(3) + " مم، والقارئات تحتاج " + SAFE_MM + " مم فأكثر.<br>" +
-        "الحل: قصّر الباركود إلى <b>" + maxDigitsFor(L.w) + " رقماً أو أقل</b> (امسح خانة البادئة " +
-        "من إعدادات اللاصقة)، أو زد عرض اللاصقة." +
+    if (bad.length) {
+      var need = Math.ceil(wf.need * 2) / 2;
+      warn = '<div style="background:var(--amber-wash);border:1px solid #EDDCB0;' +
+        'border-radius:9px;padding:12px 14px;margin-bottom:12px;line-height:1.85;font-size:13.5px">' +
+        "<b>" + bad.length + " لاصقة لن يقرأها القارئ.</b><br>" +
+        "باركودها أطول مما يسع عرض " + App.num(L.w) + " مم بحجم مقروء — " +
+        "يلزمها <b>" + need.toFixed(1) + " مم</b>.<br>" +
+        '<span class="muted small">' +
+        bad.slice(0, 4).map(function (x) {
+          return App.esc(App.itemName(x.it)) + " (" + x.code.length + " خانة)";
+        }).join(" · ") + (bad.length > 4 ? " … و" + (bad.length - 4) + " غيرها" : "") + "</span><br>" +
+        '<div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn sm primary" onclick="Labels.shortenCodes()">استبدلها برمز قصير</button>' +
+        '<span class="muted small" style="align-self:center">أو اجعل عرض اللاصقة ' +
+        need.toFixed(0) + " مم فأكثر</span></div>" +
         "</div>";
     }
 
@@ -581,7 +695,9 @@ var Labels = (function () {
   return {
     page: page, setV: setV, more: more, settings: settings,
     toggle: toggle, setCount: setCount, selectAll: selectAll, clearSel: clearSel,
-    preview: preview, forItems: forItems, one: one,
+    preview: preview, shortenCodes: shortenCodes, tooLong: tooLong,
+    /* للاختبار: قياس الهندسة الفعلية */
+    __fit: fit, __svgFor: svgFor, __barH: barHeightPx, __cfg: cfg, forItems: forItems, one: one,
     shortName: shortName, hasPrinted: hasPrinted, codeOf: codeOf,
     fit: fit, moduleCount: moduleCount, maxDigitsFor: maxDigitsFor, barHeightPx: barHeightPx,
     needsLabel: needsLabel, pendingCount: pendingCount, mark: mark,

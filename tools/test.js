@@ -520,19 +520,33 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   {
     await closePage(pg); writeStore(seed()); pg = await open();
 
-    /* عرض الوحدة هو ما يحكم قراءة القارئ. الرمز الحرفي على لاصقة 30 مم
-       ينزل تحت الحد الآمن، والرقمي لا — لأن CODE128 يضغط الأرقام. */
+    /* عرض الوحدة صار ثابتاً عند أصغر عدد صحيح من نقاط الطابعة يبلغ
+       الحدّ العملي (نقطتان = 0.25 مم). فما يتغيّر بطول الرمز هو
+       **العرض اللازم** لا عرض العمود — والرمز الذي لا يسعه عرض
+       اللاصقة يُمنع بدل أن يُصغَّر حتى لا يُقرأ. */
     const f = await pg.evaluate(() => ({
-      num30: Labels.fit('47392015', 30),
-      alpha30: Labels.fit('LIB-473920', 30),
-      num50: Labels.fit('47392015', 50),
-      isbn30: Labels.fit('9780323672658', 30)
+      num30: Labels.__fit('47392015', 30),
+      alpha30: Labels.__fit('LIB-473920', 30),
+      num50: Labels.__fit('47392015', 50),
+      isbn30: Labels.__fit('9780323672658', 30),
+      isbn40: Labels.__fit('9780323672658', 40)
     }));
-    check('الرمز الرقمي يُقرأ على 30 مم', f.num30.safe === true, f.num30.mm.toFixed(3) + ' mm');
-    check('والحرفي لا يُقرأ عليها', f.alpha30.safe === false, f.alpha30.mm.toFixed(3) + ' mm');
-    check('والرقمي أعرض عموداً من الحرفي', f.num30.mm > f.alpha30.mm * 1.5);
-    check('واللاصقة الأوسع أريح', f.num50.mm > f.num30.mm);
-    check('وISBN يمرّ على 30 مم', f.isbn30.safe === true, f.isbn30.mm.toFixed(3) + ' mm');
+    check('الرمز الرقمي يدخل على 30 مم', f.num30.safe === true, f.num30.need.toFixed(1) + ' mm');
+    check('والحرفي لا يدخل عليها', f.alpha30.safe === false, f.alpha30.need.toFixed(1) + ' mm');
+    check('والحرفي يلزمه عرض أكبر من الرقمي', f.alpha30.need > f.num30.need,
+      f.alpha30.need.toFixed(1) + ' > ' + f.num30.need.toFixed(1));
+    /* القاعدة: أوسع عمود يقع على عدد صحيح من نقاط الطابعة ويسعه
+       العرض، ولا ينزل عن نقطتين. فاللاصقة الأوسع تعطي أعمدة أوسع
+       وقراءة أسهل. */
+    const DOTMM = 25.4 / 203;
+    check('كل العروض أعداد صحيحة من نقاط الطابعة',
+      [f.num30.mm, f.num50.mm, f.alpha30.mm, f.isbn40.mm]
+        .every(m => Math.abs(m / DOTMM - Math.round(m / DOTMM)) < 0.01),
+      [f.num30.mm, f.num50.mm, f.alpha30.mm].map(x => (x / DOTMM).toFixed(2) + 'د').join(' '));
+    check('واللاصقة الأوسع تعطي عموداً أوسع', f.num50.mm > f.num30.mm,
+      f.num50.mm.toFixed(4) + ' > ' + f.num30.mm.toFixed(4));
+    check('وISBN لا يدخل على 30 مم', f.isbn30.safe === false, f.isbn30.need.toFixed(1) + ' mm');
+    check('ويدخل على 40 مم', f.isbn40.safe === true, f.isbn40.need.toFixed(1) + ' mm');
 
     const gen = await pg.evaluate(() => { const t = {}; return [0, 1, 2].map(() => Labels.newBarcode(t)); });
     check('الباركود المولَّد أرقام فقط', gen.every(c => /^\d+$/.test(c)), gen.join(','));
@@ -803,6 +817,66 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     });
     check('شاشة الترخيص تدلّ على مجلد data القديم',
       /license\.txt/.test(licTxt) && /data/.test(licTxt), licTxt.slice(0, 90));
+  }
+
+  console.log('\n== 14ج7. الباركود يُقرأ فعلاً: أعمدة على نقاط كاملة ==');
+  {
+    /* شكا صاحب المحل أن القارئ لا يقرأ اللاصقات. السبب ليس صغر
+       الباركود: عرض الوحدة كان 0.279 مم = 2.23 نقطة على طابعة 203
+       DPI. والطابعة لا تطبع إلا نقاطاً كاملة، فعمود ٣ وحدات يُطبع ٧
+       نقاط بدل ٦ وعمود ٤ يُطبع ٩ بدل ٨ — تنكسر النسب التي يقرؤها
+       الماسح، والباركود يبدو سليماً للعين. */
+    await closePage(pg); writeStore(seed()); pg = await open();
+
+    const DOT = 25.4 / 203;
+    const geo = await pg.evaluate(() => {
+      const L = { w: 30, h: 25, showPrice: true, showLoc: false, maxChars: 18, prefix: '' };
+      const f = Labels.__fit('47392015', L.w);
+      return { mm: f.mm, dots: f.dots, need: f.need, safe: f.safe, h: Labels.__barH(L) };
+    });
+    const dotsExact = geo.mm / DOT;
+    check('عرض الوحدة عدد صحيح من نقاط الطابعة',
+      Math.abs(dotsExact - Math.round(dotsExact)) < 0.01, dotsExact.toFixed(3) + ' نقطة');
+    check('ولا ينزل تحت الحدّ العملي 0.25 مم', geo.mm >= 0.2499, geo.mm.toFixed(4));
+    check('وارتفاع الأعمدة 8 مم فأكثر', geo.h / 3.7795 >= 8, (geo.h / 3.7795).toFixed(1) + ' مم');
+
+    /* كل عروض الأعمدة المرسومة مضاعفات صحيحة للوحدة */
+    const bars = await pg.evaluate(() => {
+      const L = { w: 30, h: 25, showPrice: true, showLoc: false, maxChars: 18, prefix: '' };
+      const host = document.createElement('div');
+      host.style.position = 'absolute'; host.style.left = '-9999px';
+      host.innerHTML = Labels.__svgFor('47392015', L);
+      document.body.appendChild(host);
+      const ws = Array.from(host.querySelectorAll('rect'))
+        .filter(r => r.getAttribute('fill') !== '#ffffff')
+        .map(r => parseFloat(r.getAttribute('width'))).filter(x => x > 0);
+      document.body.removeChild(host);
+      const base = Math.min.apply(null, ws);
+      return { n: ws.length, ratios: ws.map(w => w / base) };
+    });
+    check('رُسمت أعمدة الباركود', bars.n > 10, 'n=' + bars.n);
+    check('وكل عرض مضاعف صحيح للوحدة (1× 2× 3× 4×)',
+      bars.ratios.every(r => Math.abs(r - Math.round(r)) < 0.02),
+      bars.ratios.slice(0, 6).map(x => x.toFixed(2)).join(' '));
+
+    /* الباركود الأطول من اللاصقة لا يُطبع مقصوصاً */
+    const fits = await pg.evaluate(() => {
+      const mk = w => ({ w: w, h: 25, showPrice: true, showLoc: false, maxChars: 18, prefix: '' });
+      const draw = (code, w) => {
+        const h = Labels.__svgFor(code, mk(w));
+        return h.indexOf('<svg') >= 0 ? 'باركود' : (h.indexOf('lbl-nofit') >= 0 ? 'منع' : 'آخر');
+      };
+      return {
+        short30: draw('47392015', 30),
+        isbn30: draw('9789991234567', 30),
+        isbn40: draw('9789991234567', 40),
+        need: Labels.__fit('9789991234567', 30).need
+      };
+    });
+    check('الرمز القصير يُرسم على 30 مم', fits.short30 === 'باركود', fits.short30);
+    check('وISBN لا يُرسم مقصوصاً على 30 مم بل يُمنع', fits.isbn30 === 'منع', fits.isbn30);
+    check('ويُرسم على 40 مم', fits.isbn40 === 'باركود', fits.isbn40);
+    check('ويُعلن كم يلزمه (نحو 35 مم)', fits.need > 34 && fits.need < 37, fits.need.toFixed(1));
   }
 
   console.log('\n== 14ج6. المرتجع يُخصم من الأرقام ==');
