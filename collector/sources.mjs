@@ -89,6 +89,24 @@ function spanIsUsable(span) {
   return true;
 }
 
+/**
+ * The cheque / transfer tier.
+ *
+ * Buying cash dollars while paying in dinars by bank transfer or cheque costs
+ * more than paying cash for cash, so Libyan sources quote it as a separate,
+ * higher number ("الدولار الدفتري (الصكوك والحوالات المصرفية)"). These are the
+ * words that mark it — the very same ones that disqualify a quote from being
+ * read as a cash rate, used here in the opposite direction.
+ */
+const CHEQUE_MARKERS = NON_CASH_MARKERS;
+
+/** True when this stretch of text is quoting the cheque / transfer tier. */
+function spanIsCheque(span) {
+  const hay = normalizeArabic(span);
+  if (HISTORICAL_MARKERS.some((m) => hay.includes(normalizeArabic(m)))) return false;
+  return CHEQUE_MARKERS.some((m) => hay.includes(normalizeArabic(m)));
+}
+
 /** Plausible LYD-per-unit bands — anything outside is a mis-parse, not a rate. */
 const BANDS = {
   USD: { min: 3, max: 30 },
@@ -181,28 +199,83 @@ function passCityMajor(text) {
   return result;
 }
 
-/** Market-wide rate with no city attached — the national headline number. */
-export function extractNationalRates(text) {
+/**
+ * Read both price tiers in one pass.
+ *
+ * Libyan reports put them in the same paragraph — "صعد الدولار النقدي عند 9.46
+ * … اما الوسائل المصرفيه الدفتريه (الصكوك والحوالات) فسجل الدولار 9.75" — so a
+ * generous window around either quote contains the other's keywords. Each
+ * number is therefore classified by the text actually touching it: from a few
+ * words before its currency label through to the number itself.
+ */
+function readTiered(text) {
   const hay = normalizeArabic(text);
-  const out = {};
+  const cash = {};
+  const cheque = {};
+  const has = (context, markers) => markers.some((m) => context.includes(normalizeArabic(m)));
+
   for (const [code, aliases] of Object.entries(CURRENCY_ALIASES)) {
-    // Walk each mention and take the first that sits in a cash-market sentence,
-    // so a bank's counter rate or a weekly opening column is never the answer.
     for (const alias of aliases) {
       const needle = normalizeArabic(alias);
       let i = hay.indexOf(needle);
-      while (i !== -1 && out[code] == null) {
-        const span = hay.slice(Math.max(0, i - 40), i + 130);
-        if (spanIsUsable(span)) {
-          const val = findNearNumber(span, [alias], { ...BANDS[code], window: 70, requireDecimal: true });
-          if (val != null) out[code] = val;
+      while (i !== -1) {
+        // Prefer the number after the label ("الدولار 9.46"), but Arabic puts
+        // it before just as often ("9.74 دينار للدولار"), so fall back to the
+        // nearest number behind. Either way the context spans from a little
+        // before whichever comes first to a little after the other.
+        const after = hay.slice(i + needle.length, i + needle.length + 60);
+        const forward = after.match(/\d{1,4}[.,]\d{1,4}/);
+
+        let value = null;
+        let from = Math.max(0, i - 30);
+        let to = i + needle.length;
+
+        if (forward) {
+          value = parseNum(forward[0]);
+          to = i + needle.length + forward.index + forward[0].length;
+        } else {
+          const before = hay.slice(Math.max(0, i - 60), i);
+          const all = [...before.matchAll(/\d{1,4}[.,]\d{1,4}/g)];
+          const last = all[all.length - 1];
+          if (last) {
+            value = parseNum(last[0]);
+            from = Math.max(0, i - 60 + last.index - 30);
+          }
+        }
+
+        const band = BANDS[code];
+        if (value != null && value >= band.min && value <= band.max) {
+          const context = hay.slice(from, to);
+          if (!has(context, HISTORICAL_MARKERS)) {
+            if (has(context, CHEQUE_MARKERS)) cheque[code] ??= value;
+            else cash[code] ??= value;
+          }
         }
         i = hay.indexOf(needle, i + 1);
       }
-      if (out[code] != null) break;
     }
   }
-  return out;
+
+  // Channels post the cheque line on its own — "💳 الصك=9.75" — with no currency
+  // word at all. Unqualified like that it is always the dollar.
+  if (cheque.USD == null) {
+    const standalone = findNearNumber(text, ['الصك', 'الصكوك', 'صك', 'حواله', 'الحواله', 'الدفتري'], {
+      ...BANDS.USD, window: 40, requireDecimal: true,
+    });
+    if (standalone != null) cheque.USD = standalone;
+  }
+
+  return { cash, cheque };
+}
+
+/** Market-wide cash rate with no city attached — the headline number. */
+export function extractNationalRates(text) {
+  return readTiered(text).cash;
+}
+
+/** The cheque / transfer tier: cash dollars paid for by bank transfer. */
+export function extractChequeRates(text) {
+  return readTiered(text).cheque;
 }
 
 /* ------------------------------------------------------ parallel-market feeds */
@@ -217,6 +290,7 @@ const LOCAL_GOLD_ALIASES = ['كسر الذهب عيار18', 'كسر الذهب �
 
 export async function parallelFromTelegram(channels) {
   const merged = {};
+  const cheque = {};
   let localGold18 = null;
   const seen = [];
 
@@ -237,11 +311,13 @@ export async function parallelFromTelegram(channels) {
         if (national[code] != null) merged[code].national ??= national[code];
       }
       localGold18 ??= findNearNumber(msg, LOCAL_GOLD_ALIASES, { min: 80, max: 6000, window: 40, requireDecimal: false });
+      const chequeHere = extractChequeRates(msg);
+      for (const [code, val] of Object.entries(chequeHere)) cheque[code] ??= val;
     }
   }
 
   if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error('no rates parsed from telegram');
-  return { rates: merged, localGold18, detail: `${seen.join(', ')}${localGold18 ? ` · ذهب18 ${localGold18}` : ''}` };
+  return { rates: merged, cheque, localGold18, detail: `${seen.join(', ')}${localGold18 ? ` · ذهب18 ${localGold18}` : ''}` };
 }
 
 /** Every href on a page, resolved against it. */
@@ -264,6 +340,7 @@ export async function parallelFromArticles({ listUrl, match, max = 4 }) {
   if (!links.length) throw new Error(`no article links matched on ${listUrl}`);
 
   const merged = {};
+  const cheque = {};
   const visited = [];
   const routes = new Set([list.via]);
   for (const link of links) {
@@ -276,6 +353,7 @@ export async function parallelFromArticles({ listUrl, match, max = 4 }) {
 
     const found = extractCityRates(text);
     const national = extractNationalRates(text);
+    for (const [code, val] of Object.entries(extractChequeRates(text))) cheque[code] ??= val;
     visited.push(link.split('/').pop());
 
     for (const code of Object.keys(BANDS)) {
@@ -289,7 +367,7 @@ export async function parallelFromArticles({ listUrl, match, max = 4 }) {
 
   const cityHits = CITY_KEYS.filter((c) => merged.USD?.[c] != null).length;
   if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error(`no rates in articles from ${listUrl}`);
-  return { rates: merged, detail: `${visited.length} مقال · ${cityHits}/3 مدن · ${[...routes].join('+')}` };
+  return { rates: merged, cheque, detail: `${visited.length} مقال · ${cityHits}/3 مدن · ${[...routes].join('+')}` };
 }
 
 /**
@@ -327,9 +405,11 @@ export async function parallelFromFeed({ feeds, max = 12 }) {
     .filter((t) => /دولار|يورو|صرف/.test(normalizeArabic(t)));
 
   const merged = {};
+  const cheque = {};
   for (const entry of entries) {
     const found = extractCityRates(entry);
     const national = extractNationalRates(entry);
+    for (const [code, val] of Object.entries(extractChequeRates(entry))) cheque[code] ??= val;
     for (const code of Object.keys(BANDS)) {
       merged[code] ||= {};
       for (const [city, val] of Object.entries(found[code] || {})) merged[code][city] ??= val;
@@ -339,7 +419,7 @@ export async function parallelFromFeed({ feeds, max = 12 }) {
 
   const cityHits = CITY_KEYS.filter((c) => merged.USD?.[c] != null).length;
   if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error(`no rates in feed ${used}`);
-  return { rates: merged, detail: `${entries.length} خبر · ${cityHits}/3 مدن · ${used}` };
+  return { rates: merged, cheque, detail: `${entries.length} خبر · ${cityHits}/3 مدن · ${used}` };
 }
 
 /** Pages that publish a straight rate table with no city breakdown. */
@@ -354,7 +434,7 @@ export async function parallelFromRatePage(url) {
     if (national[code] != null) merged[code].national ??= national[code];
   }
   if (!Object.values(merged).some((c) => Object.keys(c).length)) throw new Error(`no rates parsed from ${url}`);
-  return { rates: merged, detail: `${text.length} chars · ${page.via}` };
+  return { rates: merged, cheque: extractChequeRates(text), detail: `${text.length} chars · ${page.via}` };
 }
 
 const CITY_KEYS = Object.keys(CITIES);

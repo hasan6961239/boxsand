@@ -170,6 +170,55 @@
     });
   }
 
+  /* ---------------------------------------------------------------- cheque */
+
+  /**
+   * The cheque / transfer tier: you hand over dinars by bank transfer or cheque
+   * and take cash dollars. It costs more than paying cash for cash, so it is a
+   * separate, higher price that Libyan desks quote alongside the street rate —
+   * shown here directly under it, with the premium spelled out.
+   */
+  function renderCheque(state) {
+    const host = $('#cheque-panel');
+    const cheque = state.latest?.cheque || {};
+    const cash = state.latest?.parallel || {};
+    const carried = state.latest?.meta?.carried || [];
+
+    const rows = [
+      { code: 'USD', label: 'الدولار' },
+      { code: 'EUR', label: 'اليورو' },
+    ].filter((r) => Number.isFinite(cheque[r.code]));
+
+    if (!rows.length) {
+      host.innerHTML = `
+        <div class="panel-head"><h3>سعر الحوالة / الصك</h3></div>
+        <p class="chart-empty">لم يُنشر سعر الحوالة في آخر عملية جمع. يظهر هنا فور رصده.</p>`;
+      return;
+    }
+
+    host.innerHTML = `
+      <div class="panel-head">
+        <h3>سعر الحوالة / الصك</h3>
+        <span class="rc-market">تدفع ديناراً حوالةً مصرفية وتستلم دولاراً نقداً</span>
+      </div>
+      <div class="cheque-rows">
+        ${rows.map((r) => {
+          const value = cheque[r.code];
+          const street = cash[r.code]?.national ?? cash[r.code]?.tripoli;
+          const gap = Number.isFinite(street) ? value - street : null;
+          const pct = Number.isFinite(street) && street ? (gap / street) * 100 : null;
+          return `
+          <div class="cheque-row">
+            <span class="cheque-label">${r.label} ${carried.includes(`cheque.${r.code}`) ? '<span class="tag tag-stale" title="لم يصل رقم جديد في آخر جمع">قديم</span>' : ''}</span>
+            <b class="cheque-value num">${D.fmtRate(value)}</b>
+            <span class="cheque-unit">د.ل</span>
+            ${gap != null ? `<span class="cheque-gap">أعلى من النقدي بـ<b class="num">${D.fmtMoney(Math.abs(gap))}</b> <span class="num">(${D.fmtPct(pct)})</span></span>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      <p class="panel-note">السعر النقدي أعلى الصفحة هو الأساس؛ هذا سعر الشراء بالحوالة أو الصك، وهو دائماً أعلى لأن البائع يتحمّل تأخير التحصيل.</p>`;
+  }
+
   /* ---------------------------------------------------------------- spread */
 
   /**
@@ -581,5 +630,5 @@
       `<small>${D.fmtMoney(amount)} ${unitName} × ${D.fmtRate(rateFor)} — ${basisLabel}</small>`;
   }
 
-  global.UI = { renderHero, renderCityCards, renderSpread, renderOfficial, renderGold, renderCharts, renderSources, renderConverter, renderAlerts, checkAlerts, loadAlerts, saveAlerts, cssVar };
+  global.UI = { renderHero, renderCityCards, renderCheque, renderSpread, renderOfficial, renderGold, renderCharts, renderSources, renderConverter, renderAlerts, checkAlerts, loadAlerts, saveAlerts, cssVar };
 })(window);

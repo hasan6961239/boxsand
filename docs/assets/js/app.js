@@ -185,6 +185,7 @@
     window.UI.renderHero(state);
     window.UI.renderCityCards('#usd-cards', 'USD', state);
     window.UI.renderCityCards('#eur-cards', 'EUR', state);
+    window.UI.renderCheque(state);
     window.UI.renderSpread(state);
     window.UI.renderOfficial(state);
     window.UI.renderGold(state);
@@ -298,7 +299,8 @@
         b.classList.toggle('is-active', on);
         b.setAttribute('aria-selected', String(on));
       });
-      window.UI.renderSpread(state);
+      window.UI.renderCheque(state);
+    window.UI.renderSpread(state);
     });
 
     const alerts = $('#alerts');

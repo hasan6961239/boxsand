@@ -107,6 +107,23 @@ function dropOutliers(parallel) {
   return dropped;
 }
 
+/**
+ * Merge the cheque / transfer tier across sources, weighted median like the
+ * cash rates. It is quoted market-wide rather than per city, so it is a plain
+ * number per currency.
+ */
+function mergeCheque(results) {
+  const votes = {};
+  for (const { weight, cheque } of results) {
+    for (const [code, value] of Object.entries(cheque || {})) {
+      if (Number.isFinite(value)) (votes[code] ||= []).push(...Array(weight).fill(value));
+    }
+  }
+  const out = {};
+  for (const [code, values] of Object.entries(votes)) out[code] = round(median(values), 4);
+  return out;
+}
+
 /** How long a per-city observation stays relevant. */
 const OBSERVATION_WINDOW_MS = 21 * 86400e3;
 /** Below this many observations the measured gap is not yet trustworthy. */
@@ -228,6 +245,12 @@ function carryForward(current, previous, confidence) {
       carried.push(`official.${code}`);
     }
   }
+  for (const code of ['USD', 'EUR', 'GBP']) {
+    if (!Number.isFinite(current.cheque?.[code]) && Number.isFinite(previous.cheque?.[code])) {
+      (current.cheque ||= {})[code] = previous.cheque[code];
+      carried.push(`cheque.${code}`);
+    }
+  }
   for (const metal of ['XAU', 'XAG']) {
     if (!Number.isFinite(current.metals?.[metal]) && Number.isFinite(previous.metals?.[metal])) {
       (current.metals ||= {})[metal] = previous.metals[metal];
@@ -276,6 +299,7 @@ function snapshot(data, t) {
     o: round(data.official?.USD, 4) ?? undefined,
     oe: round(data.official?.EUR, 4) ?? undefined,
     lg: round(data.localGold?.k18PerGram, 2) ?? undefined,
+    cq: round(data.cheque?.USD, 4) ?? undefined,
   };
 }
 
@@ -297,7 +321,7 @@ async function main() {
   const [parallelResults, cbl, fx, metals] = await Promise.all([
     Promise.all(parallelSources.map(async (s) => {
       const out = await run(s.id, s.label, s.url, s.run);
-      return out ? { weight: s.weight, rates: out.rates, localGold18: out.localGold18 } : null;
+      return out ? { weight: s.weight, rates: out.rates, cheque: out.cheque, localGold18: out.localGold18 } : null;
     })),
     run('cbl', 'مصرف ليبيا المركزي', 'https://cbl.gov.ly/currency-exchange-rates/', officialFromCbl),
     (async () =>
@@ -318,6 +342,7 @@ async function main() {
   // A price quoted by Libyan dealers themselves, rather than derived from the
   // world spot price — it carries the local premium and the workmanship market.
   const localGold18 = liveParallel.map((r) => r.localGold18).find(Number.isFinite) ?? null;
+  const cheque = mergeCheque(liveParallel);
 
   // CBL is authoritative for the official rate; the international feed only
   // fills in when the bank's page could not be read.
@@ -335,6 +360,9 @@ async function main() {
     parallel,
     metals: { XAU: round(metals?.rates?.XAU, 2), XAG: round(metals?.rates?.XAG, 3), unit: 'USD/oz' },
     localGold: { k18PerGram: round(localGold18, 2), unit: 'LYD/g', source: 'قناة سوق المشير' },
+    // Buying cash dollars while paying in dinars by transfer or cheque — a
+    // separate, higher tier that Libyan sources quote alongside the cash rate.
+    cheque,
   };
 
   const carried = carryForward(data, previous, confidence);
