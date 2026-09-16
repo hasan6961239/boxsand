@@ -57,12 +57,18 @@ read_pid() {
   cat "$1" 2>/dev/null || true
 }
 
+# node:sqlite landed in 22.5 but stayed behind --experimental-sqlite until
+# 22.13, so "22.5 or newer" is not actually the line: a 22.5-22.12 runtime
+# passes a major-version check and then fails at the first query. Check both
+# numbers and name the version that works.
 require_node() {
-  command -v node >/dev/null 2>&1 || die "node is not installed. Run: pkg install nodejs"
-  local major
+  command -v node >/dev/null 2>&1 || die "node is not installed. Run: pkg install nodejs-lts"
+  local major minor
   major="$(node -p 'process.versions.node.split(".")[0]')"
-  if [ "$major" -lt 22 ]; then
-    die "Node $major is too old — NOVA HOST needs Node 22.5 or newer (24 recommended). Run: pkg upgrade nodejs"
+  minor="$(node -p 'process.versions.node.split(".")[1]')"
+  if [ "$major" -lt 22 ] || { [ "$major" -eq 22 ] && [ "$minor" -lt 13 ]; }; then
+    die "Node $(node -v) is too old — NOVA HOST needs Node 22.13 or newer (24 LTS recommended).
+Run: pkg install nodejs-lts"
   fi
 }
 

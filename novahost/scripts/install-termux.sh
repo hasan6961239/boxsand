@@ -18,10 +18,20 @@ pkg update -y >/dev/null 2>&1 || warn "pkg update reported a problem; continuing
 
 # nodejs-lts is the safer default for a machine meant to stay up for weeks.
 # openssh gives you SSH from the laptop; the rest are small and genuinely used.
-PACKAGES="nodejs-lts openssh termux-api termux-services git"
+PACKAGES="nodejs-lts openssh termux-api termux-services git curl"
 info "installing: $PACKAGES"
 # shellcheck disable=SC2086
 pkg install -y $PACKAGES || die "package installation failed"
+
+# cloudflared is only needed once you want the site reachable from outside the
+# house. Setup should not fail over it, so it is installed separately and a
+# missing package is reported rather than fatal.
+if pkg install -y cloudflared >/dev/null 2>&1; then
+  ok "cloudflared $(cloudflared --version 2>/dev/null | head -1)"
+else
+  warn "cloudflared did not install — local network access still works.
+     Retry later with:  pkg install cloudflared"
+fi
 
 if ! command -v node >/dev/null 2>&1; then
   info "nodejs-lts did not provide node; trying the latest nodejs package"
@@ -68,14 +78,12 @@ node backend/src/cli.js migrate || die "migrations failed"
 # ---------------------------------------------------------------------------
 BOOT_DIR="$HOME/.termux/boot"
 mkdir -p "$BOOT_DIR"
-cat > "$BOOT_DIR/novahost" <<BOOT
-#!/data/data/com.termux/files/usr/bin/sh
-# Installed by scripts/install-termux.sh — starts NOVA HOST after the phone boots.
-termux-wake-lock
-exec "$ROOT_DIR/scripts/start.sh"
-BOOT
+# Install the reviewed script itself rather than generating a second version of
+# it here. scripts/boot.sh locates the project whether it is copied or linked,
+# so there is one boot behaviour to read and one to debug.
+cp "$SCRIPT_DIR/boot.sh" "$BOOT_DIR/novahost"
 chmod +x "$BOOT_DIR/novahost"
-ok "boot script written to $BOOT_DIR/novahost"
+ok "boot script installed at $BOOT_DIR/novahost"
 
 # ---------------------------------------------------------------------------
 # 5. What the script cannot do for you
