@@ -77,7 +77,7 @@ scripts/start.sh
 | [**WINDOWS-QUICKSTART.md**](docs/WINDOWS-QUICKSTART.md) | دورة كاملة على اللابتوب قبل لمس الهاتف |
 | [ANALYSIS.md](docs/ANALYSIS.md) | تحليل المشروع، القرارات، القيود، التكاليف الحقيقية |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | المعمارية وبنية المجلدات وتدفّق الطلب |
-| [**ANDROID-SERVER-SETUP.md**](docs/ANDROID-SERVER-SETUP.md) | ٢٩ خطوة للـA36 تحديداً، أوامر جاهزة للنسخ |
+| [**ANDROID-SERVER-SETUP.md**](docs/ANDROID-SERVER-SETUP.md) | **ابدأ هنا للهاتف** — بداية سريعة، ٢٧ خطوة كاملة، وقسم حلول المشاكل |
 | [ANDROID-SERVER.md](docs/ANDROID-SERVER.md) | مرجع أشمل عن تشغيل أندرويد كسيرفر |
 | [NETWORKING.md](docs/NETWORKING.md) | الشبكة المحلية، الأنفاق، النطاقات، HTTPS |
 | [SECURITY.md](docs/SECURITY.md) | نموذج الأمان وما هو مشمول وما ليس |
