@@ -238,7 +238,10 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 0.86em; }
 }
 .topbar__spacer { flex: 1; min-width: 0; }
 .topbar > .btn, .topbar > .badge { flex: 0 0 auto; }
-.menu-toggle { display: none; }
+/* Specificity, not source order: .btn later in this file also sets `display`,
+   and an equal-specificity rule further down wins. Scoping to .topbar makes
+   this deterministic wherever the rules end up. */
+.topbar .menu-toggle { display: none; }
 
 .content { padding: 22px 20px 64px; max-width: 1240px; width: 100%; margin-inline: auto; }
 
@@ -744,7 +747,7 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 0.86em; }
   }
   :root[dir="rtl"] .sidebar { transform: translateX(100%); }
   .sidebar.is-open { transform: translateX(0); }
-  .menu-toggle { display: inline-flex; }
+  .topbar .menu-toggle { display: inline-flex; }
   .content { padding: 16px 14px 72px; }
   .topbar { padding-inline: 14px; }
 

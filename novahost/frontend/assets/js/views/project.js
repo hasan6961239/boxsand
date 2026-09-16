@@ -196,7 +196,14 @@ async function renderDomainsTab(container, { project, reload }) {
 
   const addDomain = async () => {
     const value = hostname.value.trim();
-    if (!value) return;
+    if (!value) {
+      // A button that silently does nothing reads as broken. Say what is missing.
+      hostname.setAttribute('aria-invalid', 'true');
+      hostname.focus();
+      toasts.warning(t('domains.hostname'), t('common.required'));
+      return;
+    }
+    hostname.removeAttribute('aria-invalid');
     try {
       const result = await api.addDomain(project.id, value);
       toasts.success(t('domains.verified'), value);
