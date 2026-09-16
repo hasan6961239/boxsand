@@ -153,7 +153,7 @@ export const config = {
   sessionSecret,
   sessionTtlHours: envInt('SESSION_TTL_HOURS', 720),
   secureCookies,
-  trustProxy: envBool('TRUST_PROXY', true),
+  trustProxy: envBool('TRUST_PROXY', false),
   sessionCookieName: 'nh_session',
 
   // Boot-time defaults for the runtime-tunable settings. Values stored in the

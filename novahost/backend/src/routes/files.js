@@ -8,7 +8,7 @@ import * as auditRepo from '../db/repo/audit.js';
 import * as settingsRepo from '../db/repo/settings.js';
 import * as storage from '../services/storage.js';
 import { sendFile } from '../http/static.js';
-import { isEditable, isImage, languageFor, contentTypeFor } from '../http/mime.js';
+import { isEditable, isInlinePreviewable, languageFor, contentTypeFor } from '../http/mime.js';
 import { safeJoin, ensureDir, removeRecursive, pathExists, isDirectory, atomicWriteFile } from '../util/fsx.js';
 import { str } from '../util/validate.js';
 import { loadProject } from './projects.js';
@@ -54,7 +54,7 @@ async function describeEntry(root, relative) {
     size: stat.size,
     modifiedAt: new Date(stat.mtimeMs).toISOString(),
     editable: isEditable(name) && stat.size <= MAX_EDIT_BYTES,
-    previewable: isImage(name),
+    previewable: isInlinePreviewable(name),
     contentType: contentTypeFor(name),
   };
 }
@@ -147,7 +147,9 @@ export function register(router) {
 
     const target = resolveInWorkspace(root, relative);
     const download = ctx.q('download') === '1';
-    const isPreviewableImage = isImage(path.basename(relative));
+    // Only raster images render inline; everything else, SVG included, is
+    // forced to download so it can never execute on the panel's origin.
+    const isPreviewableImage = isInlinePreviewable(path.basename(relative));
 
     const sent = await sendFile(ctx, target, {
       cacheControl: 'no-store',

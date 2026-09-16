@@ -79,6 +79,22 @@ export function isImage(filename) {
   return contentTypeFor(filename).startsWith('image/');
 }
 
+/**
+ * Images that are safe to render inline in the dashboard.
+ *
+ * SVG is deliberately excluded. It is an image by content type and a script
+ * container in practice: <svg onload>, <script> inside the document, and
+ * external references all execute when a browser renders it. Rendering one
+ * inline would place attacker-controlled script on the panel's own origin,
+ * next to the session cookie. A sandbox CSP does stop it, but a file that can
+ * only ever download cannot be a hole at all.
+ */
+export function isInlinePreviewable(filename) {
+  const type = contentTypeFor(filename);
+  if (!type.startsWith('image/')) return false;
+  return type !== 'image/svg+xml';
+}
+
 /** Language hint for the editor's syntax highlighting. */
 export function languageFor(filename) {
   const dot = String(filename).lastIndexOf('.');
