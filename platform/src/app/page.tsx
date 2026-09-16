@@ -10,11 +10,15 @@ import { Faq } from '@/components/marketing/faq';
 import { Reveal, Stagger, StaggerItem } from '@/components/reveal';
 import { ButtonLink } from '@/components/ui/button';
 import { getPlatformSettings, getPublicPlans } from '@/lib/platform';
-import { getSession } from '@/lib/auth';
 import { formatPrice } from '@/lib/money';
 
-// الصفحة تقرأ الخطط والإعدادات من قاعدة البيانات؛ نعيد توليدها كل خمس دقائق
-// بدل توليدها عند كل زيارة.
+/*
+ * الصفحة الرئيسية ثابتة تُعاد كل خمس دقائق.
+ *
+ * لهذا لا تقرأ جلسة المستخدم: صفحة مخزَّنة لا تستطيع إظهار حالة دخول صحيحة
+ * لكل زائر. وهذا لا يضرّ التجربة — الـ middleware يحوّل من سجّل دخوله من
+ * /login إلى لوحته مباشرة.
+ */
 export const revalidate = 300;
 
 const STEPS = [
@@ -34,15 +38,11 @@ const FEATURES = [
 ];
 
 export default async function LandingPage() {
-  const [settings, plans, session] = await Promise.all([
-    getPlatformSettings(),
-    getPublicPlans(),
-    getSession(),
-  ]);
+  const [settings, plans] = await Promise.all([getPlatformSettings(), getPublicPlans()]);
 
   return (
     <>
-      <SiteNav platformName={settings.platform_name} signedIn={Boolean(session)} />
+      <SiteNav platformName={settings.platform_name} signedIn={false} />
 
       <main id="main">
         {/* ── Hero ─────────────────────────────────────────────────────── */}
@@ -71,8 +71,8 @@ export default async function LandingPage() {
               {/* على الهاتف يمتد الزران بعرض الشاشة: نصّاهما معاً أعرض بقليل من
                   ٣٩٠px فينكسر السطر بشكل غير مقصود ويبدوان مائلين. */}
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <ButtonLink href={session ? '/dashboard' : '/register'} size="lg" className="w-full sm:w-auto">
-                  {session ? 'افتح لوحة التحكم' : 'ابدأ الآن مجاناً'}
+                <ButtonLink href="/register" size="lg" className="w-full sm:w-auto">
+                  ابدأ الآن مجاناً
                   <ArrowLeft className="size-4" aria-hidden />
                 </ButtonLink>
                 <ButtonLink href="/menu/demo" variant="outline" size="lg" className="w-full sm:w-auto">
