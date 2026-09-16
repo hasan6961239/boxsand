@@ -23,6 +23,7 @@ var Labels = (function () {
     if (L.showPrice === undefined) L.showPrice = true;
     if (L.showLoc === undefined) L.showLoc = true;    // المكتبة والرف على اللاصقة
     if (L.prefix === undefined) L.prefix = "";
+    if (L.dpi === undefined) L.dpi = 203;     // دقة طابعة اللاصقات
     return L;
   }
 
@@ -129,10 +130,18 @@ var Labels = (function () {
 
      و0.19 مم كان حدّاً نظرياً لطابعات وقارئات ممتازة. الحدّ العملي
      لقارئ المحل الرخيص 0.25 مم. */
-  var DPI = 203;               // أشيع طابعات اللاصقات الحرارية
-  var DOT_MM = 25.4 / DPI;     // ‏0.1251 مم
   var SAFE_MM = 0.25;          // أقل عرض وحدة يُقرأ عملياً (10 mil)
-  var MIN_DOTS = Math.ceil(SAFE_MM / DOT_MM);   // نقطتان = 0.2502 مم
+
+  /* دقة الطابعة تُقرأ من الإعدادات لا تُفترض.
+
+     وهذا هو بيت الداء: لو كانت الطابعة 300 dpi وحسبنا لها نقاط
+     203 dpi، خرج عرض الوحدة 0.2502 مم = 2.95 نقطة على طابعتها.
+     فتطبع عمود الوحدة الواحدة 3 نقاط وعمود الأربع وحدات 12 نقطة —
+     وتنكسر النسب التي يقرؤها الماسح. الباركود يبدو سليماً تماماً
+     للعين ولا يُقرأ أبداً. */
+  function dpi() { return App.num(cfg().dpi) || 203; }
+  function dotMm() { return 25.4 / dpi(); }
+  function minDots() { return Math.ceil(SAFE_MM / dotMm()); }
 
   /* ISBN المطبوع على الغلاف هو EAN-13، وترميزه الأصلي أضيق كثيراً من
      CODE128: ‏95 وحدة مقابل 145. بهذا تُطبع لاصقة الكتاب ذي الـISBN
@@ -145,13 +154,54 @@ var Labels = (function () {
     return (10 - (sum % 10)) % 10 === +s2[12];
   }
 
+  /* ---------- عدد الوحدات: يُقاس لا يُخمَّن ----------
+
+     كان يُحسب بقاعدة تقريبية: «فيه حرف واحد غير رقمي ⇦ كل خانة رمز
+     مستقل». وهذا خطأ: CODE128 يبدّل إلى وضع الأرقام في منتصف الرمز.
+     فالرمز «0-646466» يحتاج 101 وحدة لا 123 — أي أن الشَرطة تكلّف
+     11 وحدة (نحو 1.4 مم) لا 44 وحدة.
+
+     على هذا الخطأ بُني «الرمز لا يدخل» وعليه استُبدلت باركودات
+     مطبوعة وملصوقة فعلاً. فصار العدّ من JsBarcode نفسه — هو من
+     يرسم، فهو من يُسأل. */
+
+  var modCache = {};
+
+  function measureModules(code, format) {
+    var key = format + "|" + code;
+    if (modCache[key] !== undefined) return modCache[key];
+    var n = 0;
+    if (typeof document !== "undefined" && typeof JsBarcode === "function") {
+      var host = document.createElement("div");
+      host.style.position = "absolute";
+      host.style.left = "-9999px";
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      host.appendChild(svg);
+      document.body.appendChild(host);
+      try {
+        JsBarcode(svg, String(code), {
+          format: format, flat: true, width: 10, height: 20,
+          displayValue: false, margin: 0
+        });
+        n = Math.round(parseFloat(svg.getAttribute("width")) / 10);
+      } catch (e) { n = 0; }
+      document.body.removeChild(host);
+    }
+    if (!n || !isFinite(n)) n = estimateModules(code);   // احتياط لو تعذّر الرسم
+    modCache[key] = n;
+    return n;
+  }
+
+  /* تقدير احتياطي فقط — لا يُبنى عليه منعٌ ولا تعديل */
+  function estimateModules(code) {
+    var s2 = String(code || "");
+    var symbols = /^\d+$/.test(s2) ? Math.ceil(s2.length / 2) : s2.length;
+    return 11 + symbols * 11 + 11 + 13;
+  }
+
   function moduleCount(code) {
     var s2 = String(code || "");
-    if (isEan13(s2)) return 95;                 // ترميز EAN-13 الكامل
-    // كل الأرقام: وضع C يضغط رقمين في رمز واحد
-    var symbols = /^\d+$/.test(s2) ? Math.ceil(s2.length / 2) : s2.length;
-    // بداية + بيانات + تدقيق + إيقاف
-    return 11 + symbols * 11 + 11 + 13;
+    return measureModules(s2, isEan13(s2) ? "EAN13" : "CODE128");
   }
 
   /* أوسع وحدة تدخل في اللاصقة، وهل هي آمنة */
@@ -164,13 +214,14 @@ var Labels = (function () {
     /* عرض الوحدة نقاطٌ كاملة تدخل في اللاصقة دائماً — فالباركود يُطبع
        كاملاً غير مقصوص مهما ضاقت. و«safe» تقول هل بلغ الحدّ المريح
        للقارئ الرخيص: إن لم يبلغه نطبع وننبّه، ولا نمتنع. */
-    var dots = Math.max(1, Math.floor(usable / mods / DOT_MM));
-    var mm = dots * DOT_MM;
-    var need = MIN_DOTS * DOT_MM * mods + PAD_MM * 2;   // عرض اللاصقة المريح
+    var dot = dotMm(), min = minDots();
+    var dots = Math.max(1, Math.floor(usable / mods / dot));
+    var mm = dots * dot;
+    var need = min * dot * mods + PAD_MM * 2;           // عرض اللاصقة المريح
     return {
       mm: mm, px: Math.max(0.5, mm * MM_PX), mods: mods, dots: dots,
       need: need,
-      safe: dots >= MIN_DOTS,
+      safe: dots >= min,
       width: mm * mods
     };
   }
@@ -178,7 +229,7 @@ var Labels = (function () {
   /* أطول رمز رقمي يدخل بأمان على هذا العرض */
   function maxDigitsFor(widthMm) {
     var usable = Math.max(5, App.num(widthMm) - PAD_MM * 2);
-    var maxMods = Math.floor(usable / (MIN_DOTS * DOT_MM));
+    var maxMods = Math.floor(usable / (minDots() * dotMm()));
     var symbols = Math.floor((maxMods - QUIET * 2 - 35) / 11);
     return Math.max(0, symbols * 2);
   }
@@ -186,7 +237,7 @@ var Labels = (function () {
   /* أقل عرض لاصقة يكفي هذا الرمز */
   function widthNeeded(code) {
     return moduleCount(code) + QUIET * 2 > 0
-      ? (moduleCount(code) + QUIET * 2) * MIN_DOTS * DOT_MM + PAD_MM * 2
+      ? (moduleCount(code) + QUIET * 2) * minDots() * dotMm() + PAD_MM * 2
       : 0;
   }
 
@@ -246,59 +297,34 @@ var Labels = (function () {
       { danger: true, yes: "استبدل الباركود" });
   }
 
-  /* ---------- رمز يدخل على اللاصقة دائماً ----------
+  /* ---------- الباركود المسجَّل لا يُمسّ ----------
 
-     الحروف والرموز (كالشَرطة) تكسر ضغط الأرقام في CODE128: رمز مثل
-     «0-200469» يحتاج 38 مم بينما «0200469» يحتاج 27 مم — الشَرطة
-     وحدها تكلّف 11 مم.
+     كان البرنامج «يُصلح» الرمز عند الطباعة: يحذف منه الشَرطة ويحفظه.
+     فتغيّرت باركودات كتب مطبوعة وملصوقة على الرفوف بلا إذن صاحبها،
+     وبطل ما على الغلاف. ولم يكن للتغيير داعٍ أصلاً — الشَرطة تكلّف
+     1.4 مم فقط.
 
-     فبدل أن نقول «لا يدخل»، نُصلحه: نحذف ما ليس رقماً، وإن بقي
-     طويلاً نولّد رمزاً أقصر. ويُحفظ على الصنف فيتطابق ما على اللاصقة
-     مع ما في المنظومة، ويعمل المسح في نقطة البيع. */
-  function fixCode(it, L, taken) {
-    /* بلا باركود: يُولَّد واحد ويُحفظ — فيُمسح في نقطة البيع.
-       (كود المنظومة K0001 ليس باركوداً: حروفه تضاعف عرض الأعمدة.) */
-    var had = String(it.barcode || "").trim();
-    if (!had) return { code: newBarcode(taken, maxDigitsFor(L.w)), why: "رمز جديد" };
+     القاعدة الآن: ما سجّلته يُطبع حرفياً. ولا يُكتب في الصنف شيء إلا
+     إن كانت خانة الباركود **فارغة تماماً**، وحينها يُقال لك بأي صنف. */
 
-    if (fit(had, L.w).safe) return null;                 // يدخل كما هو
-
-    /* باركود الناشر لا يُستبدل تلقائياً أبداً: هو المطبوع على الغلاف،
-       وتغييره يُبطل مسح الغلاف في نقطة البيع. يُطبع كما هو — ومن أراد
-       استبداله فزرّ «تقصير الباركود» يفعلها بعد تحذير صريح. */
-    if (hasPrinted(it)) return null;
-
-    var digits = had.replace(/\D/g, "");
-    if (digits && digits.length >= 4 && fit(digits, L.w).safe &&
-        (!taken[digits] || digits === had)) {
-      return { code: digits, why: "حُذفت الرموز غير الرقمية" };
-    }
-    return { code: newBarcode(taken, maxDigitsFor(L.w)), why: "رمز أقصر" };
-  }
-
-  /* تُستدعى قبل الطباعة: تملأ الباركود الناقص وتحفظ */
   function ensureBarcodes(ids) {
     var taken = allBarcodes();
     var L = cfg();
-    var made = 0, fixed = 0;
+    var made = 0, names = [];
     (ids || []).forEach(function (id) {
       var it = App.findItem("book", id) || App.findItem("stat", id);
       if (!it) return;
-      var had = String(it.barcode || "").trim();
-      /* لا يُطبع رمز لا يُقرأ: يُصلَح قبل الطباعة ويُحفظ */
-      var f = fixCode(it, L, taken);
-      if (!f) return;
-      delete taken[had];
-      it.barcode = f.code;
-      taken[f.code] = 1;
+      if (String(it.barcode || "").trim()) return;      // مسجَّل ⇦ لا يُمسّ
+      it.barcode = newBarcode(taken, maxDigitsFor(L.w));
       it.updated = App.nowStamp();
-      if (had) fixed++; else made++;
+      made++;
+      if (names.length < 6) names.push(App.itemName(it));
     });
-    if (made || fixed) {
-      if (fixed) App.log("لاصقات", "صُحّح باركود " + fixed + " صنف ليدخل على اللاصقة");
+    if (made) {
+      App.log("لاصقات", "وُلِّد باركود لـ" + made + " صنف بلا باركود");
       App.save();
     }
-    return { made: made, fixed: fixed };
+    return { made: made, names: names };
   }
 
   /* ---------- «لم تُطبع لاصقته» ----------
@@ -510,13 +536,26 @@ var Labels = (function () {
     App.form({
       title: "مقاس اللاصقة",
       size: "narrow",
-      values: { w: L.w, h: L.h, maxChars: L.maxChars, showPrice: L.showPrice, showLoc: L.showLoc, prefix: L.prefix },
+      values: { w: L.w, h: L.h, dpi: L.dpi, maxChars: L.maxChars,
+                showPrice: L.showPrice, showLoc: L.showLoc, prefix: L.prefix },
       fields: [
         {
           k: "w", label: "العرض (مم)", type: "number", min: 15,
           hint: "قِس لاصقتك بالمسطرة — هذا العرض يحدّ طول الباركود"
         },
         { k: "h", label: "الطول (مم)", type: "number", min: 10 },
+        {
+          k: "dpi", label: "دقة طابعة اللاصقات", type: "select", full: true,
+          options: [
+            { v: "203", t: "‏203 نقطة/إنش — الأشيع" },
+            { v: "300", t: "‏300 نقطة/إنش" },
+            { v: "600", t: "‏600 نقطة/إنش" }
+          ],
+          hint: "أهمّ إعداد لقراءة الباركود. الطابعة لا تطبع إلا نقاطاً كاملة، " +
+            "فتُحسب أعمدة الباركود على نقاط طابعتك أنت. لو كان الرقم خطأً خرجت " +
+            "نسب الأعمدة مكسورة — الباركود يبدو سليماً للعين ولا يقرؤه الماسح أبداً. " +
+            "الرقم مكتوب على ملصق الطابعة أو في مواصفاتها (203 dpi = 8 dots/mm، 300 dpi = 12 dots/mm)."
+        },
         {
           k: "maxChars", label: "أقصى حروف للاسم", type: "number", min: 8, full: true,
           hint: "الاسم الأطول يُقطع عند آخر كلمة كاملة تدخل — مثال: «أساسيات الهندسة لتقنيات الورش» ← «أساسيات الهندسة»"
@@ -532,6 +571,7 @@ var Labels = (function () {
       onSave: function (v) {
         L.w = Math.max(15, App.num(v.w));
         L.h = Math.max(10, App.num(v.h));
+        L.dpi = [203, 300, 600].indexOf(App.num(v.dpi)) >= 0 ? App.num(v.dpi) : 203;
         L.maxChars = Math.max(8, App.num(v.maxChars));
         L.showLoc = !!v.showLoc;
         L.showPrice = !!v.showPrice;
@@ -671,9 +711,12 @@ var Labels = (function () {
     var ids = Object.keys(sel);
     if (!ids.length) { App.toast("اختر أصنافاً أولاً.", "warn"); return; }
 
+    /* لا يُكتب شيء إلا على صنف خانة باركوده فارغة — ويُسمّى لك */
     var r = ensureBarcodes(ids);
-    if (r.made) App.toast("وُلِّد باركود لـ" + r.made + " صنف بلا باركود، وحُفظ عليه.", "ok");
-    if (r.fixed) App.toast("صُحّح باركود " + r.fixed + " صنف ليدخل على اللاصقة ويُقرأ.", "ok");
+    if (r.made) {
+      App.toast("وُلِّد باركود لـ" + r.made + " صنف كانت خانته فارغة: " +
+        r.names.join("، ") + (r.made > r.names.length ? " …" : ""), "ok");
+    }
 
     var body = "";
     var n = 0;
@@ -687,17 +730,18 @@ var Labels = (function () {
     if (!n) { App.toast("لا لاصقات للطباعة.", "warn"); return; }
 
     var css = labelCss(L);
-    /* لا امتناع: كل رمز أُصلح قبل الطباعة ليدخل، وكل باركود يُرسم.
-       يبقى تنبيهٌ واحد فوق المعاينة لحالة نادرة — لاصقة أضيق من أن
-       يخرج عمودها بالعرض المريح للقارئ الرخيص. تُطبع على أي حال. */
+    /* لا امتناع ولا تعديل: يُطبع ما هو مسجَّل كما هو. ويبقى تنبيهٌ
+       واحد فوق المعاينة إن ضاقت اللاصقة عن العرض المريح للماسح. */
     var bad = tooLong();
     var wf = worstFit();
     var warn = "";
     if (bad.length) {
       warn = '<div style="background:var(--amber-wash);border:1px solid #EDDCB0;' +
         'border-radius:9px;padding:12px 14px;margin-bottom:12px;line-height:1.85;font-size:13.5px">' +
-        "<b>ستُطبع كلها،</b> لكن " + bad.length + " لاصقة عمودها أدقّ من المريح للماسح. " +
-        "لو تعثّرت القراءة اجعل عرض اللاصقة " + Math.ceil(wf.need) + " مم فأكثر من «مقاس اللاصقة»." +
+        "<b>ستُطبع كلها بأرقامها كما هي،</b> لكن " + bad.length + " لاصقة عمودها أدقّ من " +
+        "المريح للماسح. لو تعثّرت القراءة: تأكّد أولاً من «دقة طابعة اللاصقات» في " +
+        "«مقاس اللاصقة» — هي أشيع سبب لباركود يبدو سليماً ولا يُقرأ. ثم جرّب لاصقة " +
+        "عرضها " + Math.ceil(wf.need) + " مم فأكثر." +
         "</div>";
     }
 
@@ -707,7 +751,8 @@ var Labels = (function () {
       body: warn +
         '<p class="muted small" style="margin-top:0;line-height:1.8">' +
         "كل لاصقة في صفحة مستقلة بمقاس " + L.w + "×" + L.h + " مم" +
-        (wf ? " · عرض العمود " + wf.mm.toFixed(3) + " مم" + (wf.safe ? " ✓" : "") : "") + ". " +
+        (wf ? " · عرض العمود " + wf.mm.toFixed(3) + " مم (" + wf.dots + " نقطة على " +
+          L.dpi + " dpi)" + (wf.safe ? " ✓" : "") : "") + ". " +
         'قبل الطباعة: اختر طابعة اللاصقات، وأطفئ «رؤوس وتذييلات الصفحات» من إعدادات الطباعة.</p>' +
         css.replace("@page { size: " + L.w + "mm " + L.h + "mm; margin: 0; }", "") +
         '<div class="lbl-sheet" style="display:flex;flex-wrap:wrap;gap:6px;max-height:50vh;overflow:auto;' +
