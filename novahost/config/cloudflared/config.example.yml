@@ -1,0 +1,69 @@
+# ============================================================================
+# Cloudflare Tunnel — NOVA HOST
+# ----------------------------------------------------------------------------
+# Copy to ~/.cloudflared/config.yml on the phone and replace the three
+# placeholders: <TUNNEL-NAME>, <TUNNEL-UUID> and example.com.
+#
+#   cp config/cloudflared/config.example.yml ~/.cloudflared/config.yml
+#   nano ~/.cloudflared/config.yml
+#
+# Then:  scripts/tunnel.sh run <TUNNEL-NAME>
+# ============================================================================
+
+tunnel: <TUNNEL-NAME>
+
+# Written by `cloudflared tunnel create`. THIS FILE IS A SECRET — anyone with
+# it can serve traffic on your hostnames. It must never enter git; the
+# project's .gitignore already excludes .cloudflared/.
+credentials-file: /data/data/com.termux/files/home/.cloudflared/<TUNNEL-UUID>.json
+
+# Do not let cloudflared replace its own binary: on Termux the package manager
+# owns it, and a self-update would install a glibc build that cannot run.
+no-autoupdate: true
+
+# A tunnel that dies silently is worse than one that logs. Keep this modest —
+# `info` is enough to see connection churn without filling the phone's flash.
+loglevel: info
+
+# ----------------------------------------------------------------------------
+# Ingress rules.
+#
+# Matched top to bottom, first match wins, so the specific panel rule MUST come
+# before the wildcard. Getting this order wrong routes your dashboard to the
+# hosted-sites port, where the API does not exist and nothing works.
+#
+# The two ports are the security boundary: the dashboard holds your session and
+# the API; hosted sites are arbitrary uploaded JavaScript. They are different
+# origins so an uploaded site cannot touch the dashboard.
+# ----------------------------------------------------------------------------
+ingress:
+  # --- The dashboard and API -------------------------------------------------
+  - hostname: panel.example.com
+    service: http://localhost:8080
+    originRequest:
+      # The panel talks to itself only; a generous timeout matters because a
+      # ZIP upload holds the connection open while the phone extracts it.
+      connectTimeout: 30s
+      # Cloudflare will still refuse bodies over 100 MB on the free plan,
+      # before the request ever reaches this tunnel.
+      noTLSVerify: false
+      httpHostHeader: panel.example.com
+
+  # --- Every project subdomain ----------------------------------------------
+  # One level deep on purpose: Cloudflare's free Universal SSL certificate
+  # covers example.com and *.example.com, but NOT *.sites.example.com.
+  # Going deeper needs the paid Advanced Certificate Manager.
+  - hostname: "*.example.com"
+    service: http://localhost:8081
+    originRequest:
+      connectTimeout: 10s
+
+  # --- The apex, if you want it to answer ------------------------------------
+  # Uncomment to send example.com itself to the dashboard. Leave it commented
+  # to keep the bare domain free for something else.
+  # - hostname: example.com
+  #   service: http://localhost:8080
+
+  # --- Required catch-all ----------------------------------------------------
+  # cloudflared refuses to start without a final rule that has no hostname.
+  - service: http_status:404
