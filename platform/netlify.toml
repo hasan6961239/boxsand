@@ -1,0 +1,25 @@
+# إعدادات نشر منصة سُفرة على Netlify.
+# في لوحة Netlify اضبط:  Base directory = platform
+# (المستودع يحتوي مشروعاً آخر في الجذر، لذلك لا بد من تحديد المجلد الأساسي.)
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# الخطوط مبنية بأسماء ثابتة ولا تتغير — خزّنها سنة كاملة.
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
