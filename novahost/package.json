@@ -1,0 +1,27 @@
+{
+  "name": "novahost",
+  "version": "1.0.0",
+  "description": "NOVA HOST \u2014 self-hosted personal static-site deployment platform, built to run on an Android phone via Termux.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "node --watch backend/src/server.js",
+    "test": "node --test \"backend/test/**/*.test.js\"",
+    "db:migrate": "node backend/src/cli.js migrate",
+    "db:status": "node backend/src/cli.js status",
+    "admin:create": "node backend/src/cli.js create-admin",
+    "admin:password": "node backend/src/cli.js reset-password",
+    "backup": "node backend/src/cli.js backup",
+    "restore": "node backend/src/cli.js restore",
+    "cleanup": "node backend/src/cli.js cleanup",
+    "doctor": "node backend/src/cli.js doctor",
+    "test:watch": "node --test --watch \"backend/test/**/*.test.js\""
+  },
+  "dependencies": {},
+  "optionalDependencies": {},
+  "license": "MIT"
+}

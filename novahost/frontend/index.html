@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0a0d13" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="robots" content="noindex, nofollow">
+  <title>NOVA HOST</title>
+
+  <!--
+    The favicon is an inline SVG data URI so the dashboard needs exactly two
+    network requests to become usable: this document and app.css. No CDN, no
+    font download, nothing that fails when the router is offline.
+  -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d84ff'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='15' font-weight='700' fill='white' text-anchor='middle'%3ENH%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+  <!--
+    The shell is built in JavaScript; this is what shows while app.js loads.
+    It is plain markup rather than a spinner component so it renders before a
+    single byte of script has run.
+  -->
+  <div id="app">
+    <div class="auth">
+      <div class="auth__card">
+        <div class="auth__brand">
+          <div class="auth__logo">NH</div>
+          <div class="auth__title">NOVA HOST</div>
+          <div class="auth__sub">…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <noscript>
+    <div class="auth">
+      <div class="auth__card">
+        <div class="card"><div class="card__body">
+          <p><strong>JavaScript is required.</strong></p>
+          <p class="muted small">
+            The NOVA HOST dashboard is a client-side application.
+            Your hosted sites do not need JavaScript and are served as plain files.
+          </p>
+        </div></div>
+      </div>
+    </div>
+  </noscript>
+
+  <script type="module" src="/assets/js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+# Runtime data — never commit. Contains the database, uploaded sites and logs.
+/data/
+data/
+
+# Secrets
+.env
+.env.local
+*.pem
+*.key
+cert/
+
+# Dependencies (the project has none, but a local better-sqlite3 install is allowed)
+node_modules/
+package-lock.json
+
+# Backups
+*.db
+*.db-wal
+*.db-shm
+*.backup
+backups/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# Cloudflare tunnel credentials — these are secrets
+.cloudflared/
+*.json.tunnel
+tunnel-credentials.json
