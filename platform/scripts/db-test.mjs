@@ -294,6 +294,40 @@ async function main() {
   arabic.rows[0].slug === 'مطعم-الذوق' ? ok('يقبل الروابط العربية') : fail('الروابط العربية', 'رُفضت');
   await client.query('rollback');
 
+  // ══════════════════════════════════════════════════════════════════════
+  group('٧) الشكاوى العامة وتحديد المعدل');
+  await client.query('begin');
+  await as(client, 'anon');
+  await expectDenied(client, 'الزائر لا يستطيع استدعاء دالة إرسال الشكوى',
+    `select public.submit_complaint($1, null, null, 'complaint', null, 'محاولة')`, [restA]);
+  await expectDenied(client, 'الزائر لا يستطيع استدعاء عدّاد تحديد المعدل',
+    `select public.hit_rate_limit('x', 5, 60)`, []);
+  await expectDenied(client, 'الزائر لا يقرأ جدول تحديد المعدل', 'select * from public.rate_limits', []);
+  await client.query('rollback');
+
+  await client.query('begin');
+  const ref = (await client.query(
+    `select public.submit_complaint($1, 'زبون', '0911111111', 'suggestion', 5, 'رسالة عبر الخادم') as r`,
+    [restA],
+  )).rows[0].r;
+  typeof ref === 'number' ? ok('الخادم يستطيع إدراج شكوى ويحصل على رقمها') : fail('إدراج شكوى', String(ref));
+
+  await expectDenied(client, 'ترفض الدالة الشكاوى إلى مطعم معطّل',
+    `select public.submit_complaint($1, null, null, 'complaint', null, 'رسالة')`, [restOff]);
+
+  await client.query(`update public.restaurants set accept_complaints = false where id = $1`, [restB]);
+  await expectDenied(client, 'ترفض الدالة الشكاوى حين يوقفها المطعم',
+    `select public.submit_complaint($1, null, null, 'complaint', null, 'رسالة')`, [restB]);
+
+  const allowed = [];
+  for (let i = 0; i < 5; i++) {
+    allowed.push((await client.query(`select public.hit_rate_limit('test-key', 3, 3600) as a`)).rows[0].a);
+  }
+  JSON.stringify(allowed) === JSON.stringify([true, true, true, false, false])
+    ? ok('تحديد المعدل يسمح بثلاث محاولات ثم يرفض')
+    : fail('تحديد المعدل', JSON.stringify(allowed));
+  await client.query('rollback');
+
   await client.end();
 
   console.log(`\n${'─'.repeat(60)}`);

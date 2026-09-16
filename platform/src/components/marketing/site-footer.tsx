@@ -16,13 +16,13 @@ export function SiteFooter({ settings }: { settings: PlatformSettings }) {
               {settings.contact_email && (
                 <a href={`mailto:${settings.contact_email}`} className="inline-flex items-center gap-2 hover:text-text">
                   <Mail className="size-4" aria-hidden />
-                  <span className="nums">{settings.contact_email}</span>
+                  <span className="ltr-nums">{settings.contact_email}</span>
                 </a>
               )}
               {settings.contact_phone && (
                 <a href={`tel:${settings.contact_phone}`} className="inline-flex items-center gap-2 hover:text-text">
                   <Phone className="size-4" aria-hidden />
-                  <span className="nums">{settings.contact_phone}</span>
+                  <span className="ltr-nums">{settings.contact_phone}</span>
                 </a>
               )}
             </div>

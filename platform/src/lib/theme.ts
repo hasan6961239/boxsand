@@ -117,3 +117,100 @@ export function themeToCssVars(theme: ThemeValues): Record<string, string> {
 export function mergeTheme(theme: Partial<ThemeValues> | null | undefined): ThemeValues {
   return { ...DEFAULT_THEME, ...(theme ?? {}) };
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   الوضع الليلي لصفحة المنيو
+
+   الوضع الليلي هنا ليس عكساً لألوان المطعم. عكس الألوان يُنتج خلفيات صارخة
+   ونصوصاً باهتة. بدلاً من ذلك: لوحة المطعم تمثّل أحد الوضعين (حسب سطوع
+   خلفيته)، والوضع الآخر يُبنى على أسطح محايدة دافئة مع تعديل لون الهوية
+   وحده ليحافظ على تباين كافٍ.
+   ════════════════════════════════════════════════════════════════════════ */
+
+interface Hsl {
+  h: number;
+  s: number;
+  l: number;
+}
+
+function hexToHsl(hex: string): Hsl {
+  const value = hex.replace('#', '');
+  const r = (parseInt(value.slice(0, 2), 16) || 0) / 255;
+  const g = (parseInt(value.slice(2, 4), 16) || 0) / 255;
+  const b = (parseInt(value.slice(4, 6), 16) || 0) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const l = (max + min) / 2;
+
+  if (delta === 0) return { h: 0, s: 0, l };
+
+  const s = delta / (1 - Math.abs(2 * l - 1));
+  let h: number;
+  if (max === r) h = ((g - b) / delta) % 6;
+  else if (max === g) h = (b - r) / delta + 2;
+  else h = (r - g) / delta + 4;
+
+  return { h: (h * 60 + 360) % 360, s, l };
+}
+
+function hslToHex({ h, s, l }: Hsl): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+
+  const [r, g, b] =
+    h < 60 ? [c, x, 0] :
+    h < 120 ? [x, c, 0] :
+    h < 180 ? [0, c, x] :
+    h < 240 ? [0, x, c] :
+    h < 300 ? [x, 0, c] : [c, 0, x];
+
+  const toHex = (channel: number) =>
+    Math.round((channel + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/** يرفع سطوع اللون ليقرأ بوضوح على خلفية داكنة، مع إبقاء الصبغة كما هي. */
+function forDarkSurface(hex: string): string {
+  const hsl = hexToHsl(hex);
+  if (hsl.s < 0.05) return '#E6E1D9';           // رمادي: نعيده رمادياً فاتحاً
+  return hslToHex({ h: hsl.h, s: Math.min(0.62, Math.max(hsl.s, 0.34)), l: Math.max(hsl.l, 0.6) });
+}
+
+/** يخفض سطوع اللون ليقرأ على خلفية فاتحة. */
+function forLightSurface(hex: string): string {
+  const hsl = hexToHsl(hex);
+  if (hsl.s < 0.05) return '#2E2A25';
+  return hslToHex({ h: hsl.h, s: Math.min(0.72, Math.max(hsl.s, 0.36)), l: Math.min(hsl.l, 0.38) });
+}
+
+const NEUTRAL_DARK = { bg: '#121110', card: '#1C1A17', text: '#F3EFE9' };
+const NEUTRAL_LIGHT = { bg: '#FBF9F6', card: '#FFFFFF', text: '#1A1713' };
+
+/** هل لوحة المطعم نفسها داكنة؟ */
+export function themeIsDark(theme: ThemeValues): boolean {
+  return !isLight(theme.background_color);
+}
+
+/**
+ * متغيّرات CSS للمنيو في الوضع المطلوب.
+ * إن وافق الوضعُ لوحةَ المطعم استُعملت كما هي؛ وإلا بُني نظيرها.
+ */
+export function buildThemeVars(theme: ThemeValues, dark: boolean): Record<string, string> {
+  const baseIsDark = themeIsDark(theme);
+  if (dark === baseIsDark) return themeToCssVars(theme);
+
+  const surface = dark ? NEUTRAL_DARK : NEUTRAL_LIGHT;
+  const adjust = dark ? forDarkSurface : forLightSurface;
+
+  return themeToCssVars({
+    ...theme,
+    primary_color: adjust(theme.primary_color),
+    secondary_color: adjust(theme.secondary_color),
+    background_color: surface.bg,
+    card_color: surface.card,
+    text_color: surface.text,
+  });
+}

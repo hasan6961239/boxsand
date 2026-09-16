@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Download, Printer, QrCode, Info } from 'lucide-react';
+import { Download, Printer, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle, CardDescription, PageHeader } from '@/components/ui/primitives';
 import { CopyLink } from '@/components/dashboard/copy-link';

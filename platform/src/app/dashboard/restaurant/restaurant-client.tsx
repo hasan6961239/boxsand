@@ -135,7 +135,7 @@ function ProfileTab({ restaurant }: { restaurant: Restaurant }) {
                 aria-invalid={invalid}
                 required
               />
-              <p className="nums mt-1.5 truncate text-xs text-subtle" dir="ltr">
+              <p className="ltr-nums mt-1.5 truncate text-xs text-subtle">
                 {siteUrl()}/menu/{slug || '…'}
               </p>
             </>

@@ -20,7 +20,7 @@ export function CopyLink({ url, className }: { url: string; className?: string }
 
   return (
     <div className={cn('flex items-stretch gap-2', className)}>
-      <code className="nums min-w-0 flex-1 truncate rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-xs text-muted">
+      <code className="ltr-nums min-w-0 flex-1 truncate rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-xs text-muted">
         {url}
       </code>
       <button

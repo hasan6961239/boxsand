@@ -151,7 +151,7 @@ export function ComplaintsClient({
                   )}
 
                   <time
-                    className="nums ms-auto text-xs text-subtle"
+                    className="ltr-nums ms-auto text-xs text-subtle"
                     dateTime={complaint.created_at}
                   >
                     {formatDateTime(complaint.created_at)}
@@ -167,7 +167,7 @@ export function ComplaintsClient({
                   {complaint.customer_phone && (
                     <a
                       href={`tel:${complaint.customer_phone}`}
-                      className="nums inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                      className="ltr-nums inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
                     >
                       <Phone className="size-3.5" aria-hidden />
                       {complaint.customer_phone}

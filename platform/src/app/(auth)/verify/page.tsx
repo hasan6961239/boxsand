@@ -21,7 +21,7 @@ export default async function VerifyPage({
       <h1 className="mt-5 text-2xl font-bold text-text">فعّل بريدك الإلكتروني</h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
         أرسلنا رابط تفعيل إلى{' '}
-        {email ? <span className="nums font-medium text-text">{email}</span> : 'بريدك الإلكتروني'}.
+        {email ? <span className="ltr-nums font-medium text-text">{email}</span> : 'بريدك الإلكتروني'}.
         افتح الرابط لتفعيل حسابك والدخول إلى لوحة التحكم.
       </p>
       <p className="mt-3 text-xs text-subtle">
