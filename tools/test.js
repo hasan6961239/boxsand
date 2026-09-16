@@ -564,7 +564,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1500);
     const lab = await pg.evaluate(() => ({
       n: document.querySelectorAll('#modalHost .lbl-one').length,
-      price: (document.querySelector('#modalHost .lbl-price') || {}).textContent || '',
+      price: (document.querySelector('#modalHost .lf-price') || {}).textContent || '',
       name: (document.querySelector('#modalHost .lbl-name') || {}).textContent || '',
       bars: document.querySelectorAll('#modalHost .lbl-bc svg rect').length,
       bc: App.S.books[0].barcode
@@ -859,24 +859,147 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       bars.ratios.every(r => Math.abs(r - Math.round(r)) < 0.02),
       bars.ratios.slice(0, 6).map(x => x.toFixed(2)).join(' '));
 
-    /* الباركود الأطول من اللاصقة لا يُطبع مقصوصاً */
+    /* لا امتناع بعد اليوم: كل باركود يُرسم، ويدخل كاملاً غير مقصوص.
+       صاحب المحل طلبها صراحة — لاصقة فيها باركود خيرٌ من اعتذار. */
     const fits = await pg.evaluate(() => {
-      const mk = w => ({ w: w, h: 25, showPrice: true, showLoc: false, maxChars: 18, prefix: '' });
+      const mk = w => ({ w: w, h: 25, showPrice: true, showLoc: true, maxChars: 18, prefix: '' });
       const draw = (code, w) => {
-        const h = Labels.__svgFor(code, mk(w));
-        return h.indexOf('<svg') >= 0 ? 'باركود' : (h.indexOf('lbl-nofit') >= 0 ? 'منع' : 'آخر');
+        const L = mk(w);
+        const h = Labels.__svgFor(code, L);
+        const host = document.createElement('div');
+        host.style.position = 'absolute'; host.style.left = '-9999px';
+        host.innerHTML = h; document.body.appendChild(host);
+        const svg = host.querySelector('svg');
+        const wpx = svg ? parseFloat(svg.getAttribute('width')) : 0;
+        document.body.removeChild(host);
+        return { svg: h.indexOf('<svg') >= 0, nofit: h.indexOf('lbl-nofit') >= 0,
+                 mm: wpx / 3.7795, fit: Labels.__fit(code, w) };
       };
       return {
         short30: draw('47392015', 30),
-        isbn30: draw('9789991234567', 30),
-        isbn40: draw('9789991234567', 40),
-        need: Labels.__fit('9789991234567', 30).need
+        isbn30: draw('9780306406157', 30),
+        isbn40: draw('9780306406157', 40),
+        long30: draw('LIB-4739201555', 30)
       };
     });
-    check('الرمز القصير يُرسم على 30 مم', fits.short30 === 'باركود', fits.short30);
-    check('وISBN لا يُرسم مقصوصاً على 30 مم بل يُمنع', fits.isbn30 === 'منع', fits.isbn30);
-    check('ويُرسم على 40 مم', fits.isbn40 === 'باركود', fits.isbn40);
-    check('ويُعلن كم يلزمه (نحو 35 مم)', fits.need > 34 && fits.need < 37, fits.need.toFixed(1));
+    check('الرمز القصير يُرسم على 30 مم', fits.short30.svg, JSON.stringify(fits.short30.svg));
+    check('وISBN يُرسم على 30 مم ولا يُمنع', fits.isbn30.svg && !fits.isbn30.nofit);
+    check('ويُرسم على 40 مم بعرض مريح', fits.isbn40.svg && fits.isbn40.fit.safe,
+      fits.isbn40.fit.mm.toFixed(3) + ' مم');
+    check('والرمز الحرفي الطويل يُرسم أيضاً بلا امتناع', fits.long30.svg && !fits.long30.nofit);
+    check('ولا شيء منها يخرج عن عرض اللاصقة',
+      fits.short30.mm <= 27.7 && fits.isbn30.mm <= 27.7 && fits.long30.mm <= 27.7,
+      [fits.short30.mm, fits.isbn30.mm, fits.long30.mm].map(x => x.toFixed(1)).join(' / '));
+
+    /* ISBN يُرمَّز EAN-13 لا CODE128: 95 وحدة بدل 145، فيدخل بعرض يُقرأ */
+    const ean = await pg.evaluate(() => ({
+      isbn: Labels.moduleCount('9780306406157'),
+      notIsbn: Labels.moduleCount('9780306406150'),   // رقم تدقيق خاطئ
+      eight: Labels.moduleCount('47392015')
+    }));
+    check('ISBN صحيح يُرمَّز EAN-13 (95 وحدة)', ean.isbn === 95, 'got ' + ean.isbn);
+    check('ورقم من 13 خانة برقم تدقيق خاطئ يبقى CODE128', ean.notIsbn === 112, 'got ' + ean.notIsbn);
+    check('و8 أرقام CODE128 = 79 وحدة', ean.eight === 79, 'got ' + ean.eight);
+  }
+
+  console.log('\n== 14ج8. اللاصقة تكتمل: باركود ورقمه والسعر والمكتبة والرف ==');
+  {
+    /* رمز صاحب المحل «0-200469» فيه شَرطة، والشَرطة تكسر ضغط الأرقام
+       في CODE128: 143 وحدة بدل 99 — أي 38 مم بدل 27. فكان يُمنع من
+       الطباعة. الآن يُصلَح تلقائياً ويُحفظ على الصنف، فتُطبع اللاصقة
+       ويتطابق ما عليها مع ما في المنظومة عند المسح. */
+    await closePage(pg);
+    const st = seed();
+    st.meta.label = { w: 35, h: 25, maxChars: 18, showPrice: true, showLoc: true, prefix: '' };
+    st.books = [{ id: 'b1', code: 'K0001', title: 'كتاب الرياضيات', lib: 'A', shelf: '3',
+      barcode: '0-200469', cost: 10, price: 15, priceW: 13, qty: 20, min: 3 }];
+    writeStore(st); pg = await open();
+
+    const dash = await pg.evaluate(() => ({
+      before: Labels.fit('0-200469', 35),
+      after: Labels.fit('0200469', 35)
+    }));
+    check('الشَرطة وحدها تكلّف نحو 11 مم',
+      dash.before.need - dash.after.need > 9 && dash.before.need - dash.after.need < 13,
+      (dash.before.need - dash.after.need).toFixed(1) + ' مم');
+
+    const out = await pg.evaluate(() => {
+      const ids = ['b1'];
+      const r = Labels.ensureBarcodes(ids);
+      const it = App.findItem('book', 'b1');
+      const L = Labels.__cfg();
+      const host = document.createElement('div');
+      host.style.position = 'absolute'; host.style.left = '-9999px';
+      host.innerHTML = Labels.__svgFor(it.barcode, L);
+      document.body.appendChild(host);
+      const bars = Array.from(host.querySelectorAll('rect'))
+        .filter(x => x.getAttribute('fill') !== '#ffffff').length;
+      const text = (host.textContent || '').replace(/\s+/g, '');
+      document.body.removeChild(host);
+      return { r: r, code: it.barcode, bars: bars, text: text,
+               fit: Labels.fit(it.barcode, L.w), showLoc: L.showLoc };
+    });
+    check('الرمز أُصلح تلقائياً إلى أرقام فقط', out.code === '0200469', out.code);
+    check('وأُحصي كمُصحَّح لا كمُولَّد', out.r.fixed === 1 && out.r.made === 0, JSON.stringify(out.r));
+    check('ويُرسم بعرض وحدة مريح على لاصقة 35 مم', out.fit.safe, out.fit.mm.toFixed(3) + ' مم');
+    check('ورُسمت أعمدته فعلاً', out.bars > 20, 'bars=' + out.bars);
+    check('ورقم الباركود مكتوب تحته', out.text.indexOf('0200469') >= 0, out.text);
+
+    /* اللاصقة الكاملة: الاسم والباركود ورقمه والمكان والسعر معاً */
+    const lbl = await pg.evaluate(() => {
+      const it = App.findItem('book', 'b1');
+      const html = Labels.__labelHtml(it, Labels.__cfg());
+      const host = document.createElement('div');
+      host.style.position = 'absolute'; host.style.left = '-9999px';
+      host.innerHTML = html; document.body.appendChild(host);
+      const txt = (host.textContent || '').replace(/\s+/g, ' ').trim();
+      const loc = host.querySelector('.lf-loc'), pr = host.querySelector('.lf-price');
+      const foot = host.querySelector('.lbl-foot');
+      const one = host.querySelector('.lbl-one');
+      document.body.removeChild(host);
+      return { txt: txt, hasSvg: html.indexOf('<svg') >= 0, nofit: html.indexOf('lbl-nofit') >= 0,
+               loc: loc && loc.textContent, price: pr && pr.textContent,
+               oneFoot: !!foot && foot.children.length === 2, hasOne: !!one };
+    });
+    check('اللاصقة فيها باركود مرسوم لا رسالة امتناع', lbl.hasSvg && !lbl.nofit);
+    check('واسم الكتاب عليها', lbl.txt.indexOf('كتاب الرياضيات') >= 0, lbl.txt);
+    check('ورقم الباركود عليها', lbl.txt.indexOf('0200469') >= 0, lbl.txt);
+    check('والمكتبة والرف (A·3)', (lbl.loc || '').indexOf('A') >= 0 && (lbl.loc || '').indexOf('3') >= 0, lbl.loc);
+    check('والسعر بعملته', (lbl.price || '').indexOf('15') >= 0 && (lbl.price || '').indexOf('د.ل') >= 0, lbl.price);
+    check('والمكان والسعر في سطر واحد لا سطرين', lbl.oneFoot);
+
+    /* باركود الناشر لا يُستبدل تلقائياً: تغييره يُبطل مسح الغلاف */
+    const isbn = await pg.evaluate(() => {
+      App.S.books.push({ id: 'b2', code: 'K0002', title: 'كتاب مطبوع', lib: 'B', shelf: '1',
+        barcode: '9780306406157', cost: 5, price: 9, qty: 3, min: 1 });
+      const r = Labels.ensureBarcodes(['b2']);
+      return { r: r, code: App.findItem('book', 'b2').barcode };
+    });
+    check('باركود الناشر (ISBN) يبقى كما هو', isbn.code === '9780306406157', isbn.code);
+    check('ولم يُعدّ تصحيحاً', isbn.r.fixed === 0 && isbn.r.made === 0, JSON.stringify(isbn.r));
+
+    /* المحتوى لا يفيض عن طول اللاصقة: كان اسم الكتاب يُقصّ من أسفله
+       لأن ارتفاع الأعمدة حُسب بالتقريب لا بأرقام الـCSS نفسها. */
+    for (const [w, h] of [[35, 25], [30, 25], [30, 20], [25, 15]]) {
+      const box = await pg.evaluate(([w, h]) => {
+        App.S.meta.label = { w: w, h: h, maxChars: 18, showPrice: true, showLoc: true, prefix: '' };
+        const it = App.findItem('book', 'b1');
+        const L = Labels.__cfg();
+        const host = document.createElement('div');
+        host.style.position = 'absolute'; host.style.left = '-9999px';
+        /* الـCSS من البرنامج نفسه لا نسخة مكتوبة هنا: النسخة المنفصلة
+           هي التي انحرفت عن الحساب أصلاً فقُصّ اسم الكتاب. */
+        host.innerHTML = Labels.__labelCss(L) + Labels.__labelHtml(it, L);
+        document.body.appendChild(host);
+        const e = host.querySelector('.lbl-one');
+        const r = { sh: e.scrollHeight, ch: e.clientHeight, bars: e.querySelectorAll('rect').length };
+        document.body.removeChild(host);
+        return r;
+      }, [w, h]);
+      check('لاصقة ' + w + '×' + h + ': المحتوى لا يفيض ولا يُقصّ',
+        box.sh <= box.ch + 1, box.sh + ' / ' + box.ch);
+      check('وفيها باركود مرسوم', box.bars > 20, 'rects=' + box.bars);
+    }
   }
 
   console.log('\n== 14ج6. المرتجع يُخصم من الأرقام ==');
