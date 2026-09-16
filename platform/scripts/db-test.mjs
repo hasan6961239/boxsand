@@ -89,6 +89,15 @@ async function as(client, role, userId = null) {
 async function main() {
   const client = new pg.Client({ connectionString: DB_URL });
   await client.connect();
+  try {
+    await run(client);
+  } finally {
+    // بدون هذا يبقى الاتصال مفتوحاً عند أي خطأ فتتعلّق العملية بلا رسالة
+    await client.end();
+  }
+}
+
+async function run(client) {
 
   group('تهيئة قاعدة بيانات نظيفة');
   await client.query('drop schema if exists public cascade; drop schema if exists auth cascade; create schema public');
@@ -328,7 +337,37 @@ async function main() {
     : fail('تحديد المعدل', JSON.stringify(allowed));
   await client.query('rollback');
 
-  await client.end();
+  // ══════════════════════════════════════════════════════════════════════
+  group('٨) دوال لوحة الأدمن');
+  await client.query('begin');
+  await as(client, 'authenticated', userA);
+  await expectDenied(client, 'صاحب مطعم لا يستدعي ملخّص المنصة', 'select public.admin_overview()', []);
+  await expectDenied(client, 'صاحب مطعم لا يستدعي قائمة كل المطاعم', 'select * from public.admin_restaurants()', []);
+  await client.query('rollback');
+
+  await client.query('begin');
+  await as(client, 'anon');
+  await expectDenied(client, 'الزائر لا يستدعي ملخّص المنصة', 'select public.admin_overview()', []);
+  await expectDenied(client, 'الزائر لا يسجّل في سجل العمليات',
+    `select public.log_audit('hack', 'restaurant', null, null, '{}'::jsonb)`, []);
+  await client.query('rollback');
+
+  await client.query('begin');
+  await as(client, 'authenticated', admin);
+  const overview = (await client.query('select public.admin_overview() as o')).rows[0].o;
+  overview?.restaurants_total === 3 ? ok('المدير يحصل على ملخّص المنصة') : fail('ملخّص المنصة', JSON.stringify(overview));
+  const list = await client.query('select * from public.admin_restaurants()');
+  list.rowCount === 3 ? ok('المدير يحصل على قائمة كل المطاعم بعدّاداتها') : fail('قائمة المطاعم', String(list.rowCount));
+
+  await client.query(
+    `select public.log_audit('restaurant.suspend', 'restaurant', $1::text, $1::uuid, '{}'::jsonb)`,
+    [restB],
+  );
+  const logged = await client.query('select actor_id, action from public.audit_logs order by id desc limit 1');
+  logged.rows[0]?.actor_id === admin && logged.rows[0]?.action === 'restaurant.suspend'
+    ? ok('سجل العمليات يثبّت هوية الفاعل من الجلسة')
+    : fail('سجل العمليات', JSON.stringify(logged.rows[0]));
+  await client.query('rollback');
 
   console.log(`\n${'─'.repeat(60)}`);
   if (failures.length === 0) {
