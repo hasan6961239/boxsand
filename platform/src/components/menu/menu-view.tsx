@@ -222,6 +222,15 @@ export function MenuView({ menu, platformName }: { menu: PublicMenu; platformNam
         </button>
       </div>
 
+      {/*
+        البطاقات تبدأ شفافة ويكشفها JavaScript عند التمرير. لو تعطّل — حاجب
+        إعلانات، شبكة قطعت السكربت، متصفح قديم — لبقي المنيو فارغاً بصرياً
+        رغم أن محتواه في HTML. هذا السطر يُظهرها فوراً في تلك الحالة.
+      */}
+      <noscript>
+        <style>{'[data-reveal]{opacity:1!important;transform:none!important}'}</style>
+      </noscript>
+
       <main id="main">
         <MenuHero restaurant={restaurant} hours={hours} onShowHours={() => setHoursOpen(true)} />
 

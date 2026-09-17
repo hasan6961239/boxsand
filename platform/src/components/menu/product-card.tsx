@@ -1,7 +1,7 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { motion, useReducedMotion } from 'motion/react';
 import { UtensilsCrossed } from 'lucide-react';
 import { formatPrice, discountPercent, priceRange } from '@/lib/money';
 import { BADGE_LABELS } from '@/lib/config';
@@ -25,25 +25,62 @@ const BADGE_TONE: Record<string, string> = {
   vegetarian: '#2F9E5E',
 };
 
+/**
+ * ظهور تدريجي بـ IntersectionObserver وانتقال CSS، لا بمكتبة حركة.
+ *
+ * منيو كبير يحوي مئتَي صنف، ومكوّن حركة لكل بطاقة يعني مئتَي مكوّن حيّ يراقب
+ * التمرير — وهو ما يُحسّ فعلاً على هاتف متوسط. المراقب هنا يفصل نفسه بعد أول
+ * ظهور، والانتقال يجري على مسار المُركِّب وحده (opacity وtransform).
+ */
+function useReveal(delayMs: number) {
+  const ref = useRef<HTMLLIElement>(null);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    // من يفضّل تقليل الحركة يرى المحتوى فوراً بلا أي إزاحة
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setShown(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShown(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '0px 0px -40px 0px' },
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return {
+    ref,
+    style: {
+      opacity: shown ? 1 : 0,
+      transform: shown ? 'none' : 'translateY(14px)',
+      transition: `opacity .38s cubic-bezier(.22,1,.36,1) ${delayMs}ms, transform .38s cubic-bezier(.22,1,.36,1) ${delayMs}ms`,
+    } as React.CSSProperties,
+  };
+}
+
 export function ProductCard({ product, currency, showPrices, index, onOpen }: Props) {
-  const reduce = useReducedMotion();
+  // تأخير متدرّج داخل القسم الواحد، محدود بخمسة عناصر حتى لا ينتظر الزبون
+  // ظهور الصنف العشرين
+  const { ref, style } = useReveal(Math.min(index, 5) * 50);
+
   const range = priceRange(product.price, product.variants);
   const discount = discountPercent(product.price, product.compare_at_price);
   const unavailable = !product.is_available;
 
   return (
-    <motion.li
-      initial={reduce ? undefined : { opacity: 0, y: 14 }}
-      whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-40px' }}
-      transition={{
-        duration: 0.38,
-        // تأخير متدرّج داخل القسم الواحد فقط، ومحدود بـ 5 عناصر حتى لا
-        // ينتظر الزبون ظهور الصنف العشرين
-        delay: reduce ? 0 : Math.min(index, 5) * 0.05,
-        ease: [0.22, 1, 0.36, 1],
-      }}
-    >
+    <li ref={ref} data-reveal style={style}>
       <button
         type="button"
         onClick={() => onOpen(product)}
@@ -142,6 +179,6 @@ export function ProductCard({ product, currency, showPrices, index, onOpen }: Pr
           )}
         </div>
       </button>
-    </motion.li>
+    </li>
   );
 }

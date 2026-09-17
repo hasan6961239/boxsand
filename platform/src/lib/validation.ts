@@ -117,23 +117,32 @@ const price = z.coerce
   .min(0, 'السعر لا يكون سالباً')
   .max(999999, 'السعر كبير جداً');
 
+/**
+ * سعر اختياري قادم من نموذج HTML.
+ *
+ * الحقل الفارغ يصل كسلسلة فارغة، وz.coerce.number يحوّلها إلى صفر لا إلى
+ * «لا قيمة» — فيصبح «بلا خصم» خصماً بسعر صفر ويُرفض برسالة مُربكة. نحوّل
+ * الفارغ إلى undefined قبل أي تحويل رقمي.
+ */
+const optionalPrice = z.preprocess(
+  (value) => (value === '' || value === null ? undefined : value),
+  price.optional(),
+);
+
 export const productSchema = z
   .object({
     name: trimmed(80).min(1, 'اكتب اسم الصنف'),
     description: trimmed(500).optional(),
     category_id: z.uuid('اختر القسم'),
     base_price: price,
-    compare_at_price: z.union([price, z.literal('')]).optional(),
+    compare_at_price: optionalPrice,
     image_url: z.string().trim().max(500).optional(),
     badges: z.array(z.enum(['new', 'popular', 'offer', 'spicy', 'vegetarian'])).max(2, 'شارتان كحد أقصى'),
     is_available: z.boolean().default(true),
     is_visible: z.boolean().default(true),
   })
   .refine(
-    (value) =>
-      value.compare_at_price === '' ||
-      value.compare_at_price === undefined ||
-      Number(value.compare_at_price) > value.base_price,
+    (value) => value.compare_at_price === undefined || value.compare_at_price > value.base_price,
     { message: 'السعر قبل الخصم يجب أن يكون أعلى من السعر الحالي', path: ['compare_at_price'] },
   );
 
@@ -215,4 +224,33 @@ export function slugify(value: string): string {
     .replace(/^-+|-+$/g, '')
     .replace(/-{2,}/g, '-')
     .slice(0, 60);
+}
+
+/**
+ * يقبل عناوين الصور من مصدرين فقط: دلو التخزين في Supabase، أو مسار محلي
+ * داخل المشروع (صور العرض التجريبي).
+ *
+ * بدون هذا الفحص يستطيع صاحب مطعم — عبر استدعاء مباشر لا عبر النموذج — أن
+ * يضع عنوان صورة على أي نطاق، فيحمّل متصفح كل زبون موارد من خادم غريب
+ * يسجّل عناوينهم. الرافع يضع دائماً عنواناً من Supabase، فالتقييد لا يمنع
+ * أي استعمال مشروع.
+ */
+export function isAllowedImageUrl(value: string | null | undefined): boolean {
+  if (!value) return true;                      // لا صورة = مقبول
+  if (value.startsWith('/') && !value.startsWith('//')) return true;
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) return false;
+
+  try {
+    const candidate = new URL(value);
+    const allowed = new URL(supabaseUrl);
+    return (
+      candidate.protocol === 'https:' &&
+      candidate.hostname === allowed.hostname &&
+      candidate.pathname.startsWith('/storage/v1/object/public/')
+    );
+  } catch {
+    return false;
+  }
 }

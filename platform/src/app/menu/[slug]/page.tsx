@@ -134,8 +134,14 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
     <>
       <script
         type="application/ld+json"
-        // بيانات مبنية على الخادم من سجلات قاعدة البيانات، لا من مدخلات الزائر
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        /*
+         * البيانات تأتي من قاعدة البيانات، لكن صاحب المطعم يكتب اسمه ووصفه
+         * بحرية. اسم يحتوي «</script>» ينهي الوسم مبكراً فيتحوّل ما بعده إلى
+         * HTML تنفيذي. تهريب «<» يمنع ذلك ويبقى JSON صالحاً.
+         */
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c'),
+        }}
       />
       <MenuView menu={result} platformName={PLATFORM.name} />
     </>

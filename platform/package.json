@@ -14,7 +14,10 @@
     "db:push": "node scripts/db-push.mjs",
     "db:seed": "node scripts/db-seed.mjs",
     "db:test": "node scripts/db-test.mjs",
-    "create:admin": "node scripts/create-admin.mjs"
+    "create:admin": "node scripts/create-admin.mjs",
+    "test:e2e": "playwright test",
+    "test:db": "node scripts/local-db.mjs start && node scripts/db-test.mjs",
+    "test:all": "npm run typecheck && npm run test && npm run test:db"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

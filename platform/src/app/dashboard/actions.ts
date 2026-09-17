@@ -9,7 +9,7 @@ import {
   restaurantProfileSchema, themeSchema, categorySchema, productSchema,
   variantSchema, optionGroupSchema, optionSchema, offerSchema,
   openingHourSchema, complaintStatusSchema, slugify, fieldErrors,
-  type FieldErrors,
+  isAllowedImageUrl, type FieldErrors,
 } from '@/lib/validation';
 
 export interface ActionState {
@@ -176,6 +176,8 @@ export async function updateMediaAction(
 ): Promise<ActionState> {
   return run(async () => {
     const current = await assertCanManage(restaurantId);
+    if (!isAllowedImageUrl(url)) throw new UserFacingError('عنوان الصورة غير مسموح.');
+
     const supabase = await createServerSupabase();
     const { error } = await supabase.from('restaurants').update({ [field]: url }).eq('id', restaurantId);
     if (error) throw error;
@@ -355,6 +357,9 @@ export async function saveProductAction(_prev: ActionState, formData: FormData):
       is_visible: bool(formData.get('is_visible')),
     });
     if (!parsed.success) return { fields: fieldErrors(parsed.error) };
+    if (!isAllowedImageUrl(parsed.data.image_url)) {
+      return { fields: { image_url: 'عنوان الصورة غير مسموح. ارفعها من الزر أعلاه.' } };
+    }
 
     const supabase = await createServerSupabase();
     const payload = {
@@ -362,10 +367,7 @@ export async function saveProductAction(_prev: ActionState, formData: FormData):
       description: parsed.data.description || null,
       category_id: parsed.data.category_id,
       base_price: parsed.data.base_price,
-      compare_at_price:
-        parsed.data.compare_at_price === '' || parsed.data.compare_at_price === undefined
-          ? null
-          : Number(parsed.data.compare_at_price),
+      compare_at_price: parsed.data.compare_at_price ?? null,
       image_url: parsed.data.image_url || null,
       badges: parsed.data.badges,
       is_available: parsed.data.is_available,
@@ -561,6 +563,9 @@ export async function saveOfferAction(_prev: ActionState, formData: FormData): P
       is_active: bool(formData.get('is_active')),
     });
     if (!parsed.success) return { fields: fieldErrors(parsed.error) };
+    if (!isAllowedImageUrl(parsed.data.image_url)) {
+      return { fields: { image_url: 'عنوان الصورة غير مسموح. ارفعها من الزر أعلاه.' } };
+    }
 
     const supabase = await createServerSupabase();
     const payload = {
