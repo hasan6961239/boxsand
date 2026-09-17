@@ -3,7 +3,8 @@
  *
  * Two backends, one interface:
  *
- *   1. node:sqlite  — built into Node 22.5+ (release candidate in Node 24).
+ *   1. node:sqlite  — built into Node 22.13+ and 23.4+ (release candidate in
+ *      Node 24). Added in 22.5, but flagged until those versions.
  *      This is the default and the reason the project needs no `npm install`
  *      on the phone: no node-gyp, no clang, no twenty-minute build that fails
  *      at the end.
@@ -116,7 +117,7 @@ export async function createDriver(file, { preferred = process.env.NOVAHOST_SQLI
     `${detail}\n\n` +
     'Fix it with one of:\n' +
     '  * Use Node.js 24 or newer (it ships node:sqlite built in) — on Termux: pkg install nodejs\n' +
-    '  * On Node 22.5-23.3, start the server with: node --experimental-sqlite backend/src/server.js\n' +
+    '  * On Node 22.5-22.12 or 23.0-23.3, start with: node --experimental-sqlite backend/src/server.js\n' +
     '  * Or install the native driver: npm install better-sqlite3',
   );
 }
