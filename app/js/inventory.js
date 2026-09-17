@@ -21,7 +21,8 @@ var Inv = (function () {
       var it = x.it;
       var hay = App.norm(App.itemName(it) + " " + (it.author || "") + " " + (it.brand || "") +
         " " + (it.publisher || "") + " " + (it.code || "") + " " + (it.barcode || "") +
-        " " + (it.cat || "") + " " + (it.lib || "") + " " + (it.loc || "") + " " + (it.note || ""));
+        " " + (it.cat || "") + " " + (it.catFull || "") + " " + (it.lib || "") +
+        " " + (it.loc || "") + " " + (it.note || ""));
       if (hay.indexOf(nq) >= 0) out.push(x);
     });
     return out;
@@ -104,7 +105,8 @@ var Inv = (function () {
       if (f.st && App.stockState(b) !== f.st) return false;
       if (nq) {
         var hay = App.norm((b.title || "") + " " + (b.author || "") + " " + (b.publisher || "") +
-          " " + (b.code || "") + " " + (b.barcode || "") + " " + (b.cat || ""));
+          " " + (b.code || "") + " " + (b.barcode || "") + " " + (b.cat || "") +
+          " " + (b.catFull || ""));
         if (hay.indexOf(nq) < 0) return false;
       }
       return true;
@@ -377,6 +379,13 @@ var Inv = (function () {
         { k: "lib", label: "المكتبة (الخزانة)", type: "select", options: S().meta.libraries },
         { k: "shelf", label: "رقم الرف", type: "select", options: shelfOptions() },
         { k: "cat", label: "التصنيف", type: "select", options: catOptions("book", lb.cat) },
+        /* التصنيف قائمة قصيرة يُتصفَّح بها، والتخصص الدقيق نصٌّ حرّ
+           يشرح الكتاب. فصلهما يجعل القائمة قابلة للاستعمال ولا يضيع
+           التفصيل الذي كُتب أصلاً. */
+        {
+          k: "catFull", label: "التخصص الدقيق", full: true,
+          hint: "وصف تفصيلي للتخصص — لا يدخل في قائمة التصنيف، ويُبحث فيه"
+        },
         /* ليس إلزامياً: يُسجَّل الكتاب بلا باركود، ويُولَّد له رمز عند
            طباعة لاصقته من تبويب «طباعة اللاصقات». */
         { k: "barcode", label: "الباركود", hint: "امسحه بالقارئ، أو اتركه فارغاً ليُولَّد عند طباعة اللاصقة" },
