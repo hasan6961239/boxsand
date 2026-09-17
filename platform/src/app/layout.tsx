@@ -41,6 +41,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
+        {/*
+          تحميل مسبق لوزنَي الخط العربي المستعملَين في كل صفحة (عادي وعريض).
+          بدونه يكتشف المتصفح الخط في سلسلة: HTML ← CSS ← الخط، وهي ثلاث
+          رحلات متتالية تُحسّ على شبكة ضعيفة. باقي الأوزان والمقطع اللاتيني
+          تُترك للاكتشاف المعتاد فلا نهدر عرض نطاق على ما قد لا يُستعمل.
+        */}
+        <link rel="preload" href="/fonts/tajawal-01.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/tajawal-05.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
       </head>
       <body>

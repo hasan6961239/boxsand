@@ -198,6 +198,18 @@ async function run(client) {
   await expectRows(client, 'لا يقرأ سجل العمليات', 'select * from public.audit_logs', [], 0);
   await expectDenied(client, 'لا يقرأ تجزئات الزوار', 'select * from public.analytics_visitors', []);
 
+  // انحدار: «INSERT … RETURNING» يُقيَّم بسياسة القراءة أيضاً. حين كانت سياسة
+  // قراءة المطاعم تعتمد على العضوية وحدها — وهي من إنشاء مشغّل AFTER — كان
+  // إنشاء مطعم بهوية صاحبه يفشل فور طلب الصف المُنشأ.
+  const selfCreated = await client.query(
+    `insert into public.restaurants (owner_id, name, slug, short_id)
+     values ($1, 'مطعم جديد', 'matam-jadid-rls', 'rls991') returning id, slug`,
+    [userA],
+  );
+  selfCreated.rowCount === 1
+    ? ok('ينشئ مطعماً جديداً ويستعيد صفّه في الاستعلام نفسه')
+    : fail('إنشاء مطعم بـ RETURNING', 'فشل');
+
   const okWrite = await client.query(
     `insert into public.products (restaurant_id, category_id, name, base_price) values ($1,$2,'صنف جديد',12) returning id`,
     [restA, catA],

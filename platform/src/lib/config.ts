@@ -12,13 +12,36 @@ export const PLATFORM = {
     'أنشئ منيو مطعمك الإلكتروني، شاركه عبر QR Code، وأدر أصنافك وأسعارك بنفسك من لوحة تحكم بسيطة.',
 } as const;
 
-/** عنوان الموقع — يُستخدم في روابط QR ووسوم المشاركة وخريطة الموقع. */
+const LOCAL_FALLBACK = 'http://localhost:3000';
+
+/**
+ * عنوان الموقع — يدخل في روابط QR ووسوم المشاركة وخريطة الموقع.
+ *
+ * ترتيب المصادر مقصود:
+ *  ١) NEXT_PUBLIC_SITE_URL — المصدر الصحيح، ويُدمَج في حزمة المتصفح أيضاً.
+ *  ٢) عنوان الصفحة في المتصفح — يصحّح روابط اللوحة تلقائياً لو نُسي المتغيّر.
+ *  ٣) URL من Netlify — متاح على الخادم وقت البناء فقط (لا يُدمَج في الحزمة
+ *     لأن اسمه لا يبدأ بـ NEXT_PUBLIC_).
+ *  ٤) localhost — للتطوير وحده.
+ */
 export function siteUrl(): string {
-  const url =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    (process.env.URL ?? '') ||            // Netlify
-    'http://localhost:3000';
-  return url.replace(/\/+$/, '');
+  const configured = process.env.NEXT_PUBLIC_SITE_URL;
+  if (configured) return configured.replace(/\/+$/, '');
+
+  if (typeof window !== 'undefined') return window.location.origin;
+
+  return (process.env.URL || LOCAL_FALLBACK).replace(/\/+$/, '');
+}
+
+/**
+ * هل عنوان الموقع مضبوط فعلاً؟
+ *
+ * يُستعمل لمنع كارثة صامتة: رمز QR يُولَّد بعنوان localhost ثم يُطبع ويُلصق
+ * على الطاولات. الملصق لا يُصلَح بعد ذلك، فالتحذير قبل الطباعة أرخص بكثير.
+ */
+export function isSiteUrlConfigured(): boolean {
+  const url = siteUrl();
+  return !url.includes('localhost') && !url.includes('127.0.0.1');
 }
 
 export const CURRENCIES: Record<string, { code: string; label: string; symbol: string }> = {

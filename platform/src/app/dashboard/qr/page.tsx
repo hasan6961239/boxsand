@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getCurrentRestaurant } from '@/lib/auth';
 import { generateQrSvg, qrTarget } from '@/lib/qr';
-import { siteUrl } from '@/lib/config';
+import { siteUrl, isSiteUrlConfigured } from '@/lib/config';
 import { QrClient } from './qr-client';
 
 export const metadata: Metadata = { title: 'رمز QR' };
@@ -18,6 +18,7 @@ export default async function QrPage() {
     <QrClient
       svg={svg}
       target={target}
+      urlConfigured={isSiteUrlConfigured()}
       menuUrl={`${siteUrl()}/menu/${restaurant.slug}`}
       restaurantName={restaurant.name}
       logoUrl={restaurant.logo_url}

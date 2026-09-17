@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   slugSchema, productSchema, complaintSchema, registerSchema,
-  openingHourSchema, optionGroupSchema, slugify, fieldErrors, isAllowedImageUrl,
+  openingHourSchema, optionGroupSchema, slugify, fieldErrors, isAllowedImageUrl, toSafeJsonLd,
 } from '@/lib/validation';
 
 describe('slugify', () => {
@@ -214,5 +214,42 @@ describe('isAllowedImageUrl', () => {
     expect(isAllowedImageUrl('javascript:alert(1)')).toBe(false);
     expect(isAllowedImageUrl('//evil.example/x.png')).toBe(false);
     expect(isAllowedImageUrl('data:image/svg+xml,<svg onload=alert(1)>')).toBe(false);
+  });
+});
+
+describe('toSafeJsonLd', () => {
+  it('ينتج JSON صالحاً للحالة العادية', () => {
+    const output = toSafeJsonLd({ name: 'مطعم الذوق', price: 25 });
+    expect(JSON.parse(output)).toEqual({ name: 'مطعم الذوق', price: 25 });
+  });
+
+  it('يهرّب «<» فلا يُغلق وسم script مبكّراً', () => {
+    const output = toSafeJsonLd({ name: '</script><img src=x onerror=alert(1)>' });
+    expect(output).not.toContain('</script>');
+    expect(output).not.toContain('<img');
+    expect(output).toContain('\\u003c');
+  });
+
+  it('يبقى الناتج بعد التهريب مطابقاً للأصل عند التحليل', () => {
+    const evil = '</script><script>alert(1)</script>';
+    expect(JSON.parse(toSafeJsonLd({ name: evil })).name).toBe(evil);
+  });
+
+  it('يهرّب فواصل الأسطر التي تكسر JavaScript', () => {
+    const output = toSafeJsonLd({ name: 'a b c' });
+    expect(output).toContain('\\u2028');
+    expect(output).toContain('\\u2029');
+  });
+
+  it('يتعامل مع بنية المنيو المتشعّبة', () => {
+    const menu = {
+      '@type': 'Restaurant',
+      name: 'مطعم <b>الذوق</b>',
+      hasMenu: { hasMenuSection: [{ name: 'البرجر', hasMenuItem: [{ name: '</script>' }] }] },
+    };
+    const output = toSafeJsonLd(menu);
+    expect(output).not.toContain('</script>');
+    expect(output).not.toContain('<b>');
+    expect(JSON.parse(output)).toEqual(menu);
   });
 });

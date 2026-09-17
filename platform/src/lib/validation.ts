@@ -254,3 +254,26 @@ export function isAllowedImageUrl(value: string | null | undefined): boolean {
     return false;
   }
 }
+
+/**
+ * يسلسِل كائناً لإدراجه داخل وسم `<script>`.
+ *
+ * `JSON.stringify` وحده لا يكفي لثلاثة محارف:
+ *   «<»       اسم مطعم يحتوي «</script>» ينهي الوسم مبكّراً فيصير ما بعده
+ *             HTML تنفيذياً.
+ *   U+2028/9  فاصلا سطر في JavaScript، يكسران السكربت وإن كانا JSON صالحاً.
+ *
+ * التهريب لا يغيّر القيمة: «\\u003c» تمثيل مشروع للمحرف نفسه، فيعود النص
+ * كما هو عند التحليل.
+ */
+const UNSAFE_IN_SCRIPT = /[<\u2028\u2029]/g;
+
+const SCRIPT_ESCAPES: Record<string, string> = {
+  '<': '\\u003c',
+  '\u2028': '\\u2028',
+  '\u2029': '\\u2029',
+};
+
+export function toSafeJsonLd(value: unknown): string {
+  return JSON.stringify(value).replace(UNSAFE_IN_SCRIPT, (char) => SCRIPT_ESCAPES[char] ?? char);
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Download, Printer, Info } from 'lucide-react';
+import { Download, Printer, Info, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle, CardDescription, PageHeader } from '@/components/ui/primitives';
 import { CopyLink } from '@/components/dashboard/copy-link';
@@ -13,9 +13,11 @@ interface Props {
   menuUrl: string;
   restaurantName: string;
   logoUrl: string | null;
+  /** هل عنوان الموقع مضبوط؟ إن لم يكن، الرمز يشير إلى localhost. */
+  urlConfigured: boolean;
 }
 
-export function QrClient({ svg, target, menuUrl, restaurantName, logoUrl }: Props) {
+export function QrClient({ svg, target, menuUrl, restaurantName, logoUrl, urlConfigured }: Props) {
   const printRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -79,6 +81,23 @@ export function QrClient({ svg, target, menuUrl, restaurantName, logoUrl }: Prop
         description="اطبعه وضعه على الطاولات أو عند المدخل."
       />
 
+      {!urlConfigured && (
+        <div
+          role="alert"
+          className="mb-5 flex items-start gap-3 rounded-xl border border-danger/35 bg-danger-soft px-4 py-3.5 print:hidden"
+        >
+          <TriangleAlert className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden />
+          <div className="text-sm">
+            <p className="font-bold text-danger">لا تطبع هذا الرمز بعد</p>
+            <p className="mt-1 leading-relaxed text-danger/90">
+              عنوان الموقع غير مضبوط، فالرمز الحالي يشير إلى عنوان محلي لن يعمل على أي هاتف.
+              اضبط <code className="ltr-nums rounded bg-danger/10 px-1">NEXT_PUBLIC_SITE_URL</code> ثم
+              أعد نشر الموقع، وحدّث هذه الصفحة قبل الطباعة.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-[auto_1fr]">
         <Card className="flex flex-col items-center print:border-0 print:shadow-none">
           <div
@@ -91,15 +110,15 @@ export function QrClient({ svg, target, menuUrl, restaurantName, logoUrl }: Prop
           <p className="mt-0.5 text-center text-xs text-muted print:text-black">امسح لعرض المنيو</p>
 
           <div className="mt-4 flex flex-wrap justify-center gap-2 print:hidden">
-            <Button variant="outline" size="sm" onClick={downloadSvg}>
+            <Button variant="outline" size="sm" onClick={downloadSvg} disabled={!urlConfigured}>
               <Download className="size-4" aria-hidden />
               SVG
             </Button>
-            <Button variant="outline" size="sm" onClick={downloadPng} loading={busy} loadingText="…">
+            <Button variant="outline" size="sm" onClick={downloadPng} loading={busy} loadingText="…" disabled={!urlConfigured}>
               <Download className="size-4" aria-hidden />
               PNG
             </Button>
-            <Button variant="outline" size="sm" onClick={print}>
+            <Button variant="outline" size="sm" onClick={print} disabled={!urlConfigured}>
               <Printer className="size-4" aria-hidden />
               طباعة
             </Button>

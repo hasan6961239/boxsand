@@ -503,7 +503,12 @@ export function MenuView({ menu, platformName }: { menu: PublicMenu; platformNam
 
           <p className="mt-8 text-center text-xs" style={{ color: 'rgb(var(--r-text-rgb) / 0.4)' }}>
             هذا المنيو من إنشاء{' '}
-            <Link href="/" className="font-medium underline-offset-2 hover:underline">
+            {/* الحشوة السالبة تبقي السطر متماسكاً بصرياً وتمنح الرابط
+                مساحة لمس مقبولة على الهاتف */}
+            <Link
+              href="/"
+              className="-m-2 inline-block p-2 font-medium underline-offset-2 hover:underline"
+            >
               {platformName}
             </Link>
           </p>
