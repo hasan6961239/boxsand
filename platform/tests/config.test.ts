@@ -77,3 +77,27 @@ describe('ثوابت الواجهة', () => {
     expect(WEEKDAYS[0]).toBe('الأحد');
   });
 });
+
+describe('isSupabaseConfigured', () => {
+  const original = { ...process.env };
+  afterEach(() => {
+    process.env = { ...original };
+  });
+
+  it('تعتبر المنصة غير مربوطة حين يغيب أي مفتاح', async () => {
+    const { isSupabaseConfigured } = await import('@/lib/supabase/env');
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    expect(isSupabaseConfigured()).toBe(false);
+
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://x.supabase.co';
+    expect(isSupabaseConfigured()).toBe(false);
+  });
+
+  it('تعتبرها مربوطة حين يوجد المفتاحان', async () => {
+    const { isSupabaseConfigured } = await import('@/lib/supabase/env');
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://x.supabase.co';
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
+    expect(isSupabaseConfigured()).toBe(true);
+  });
+});

@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { isSupabaseConfigured } from '@/lib/supabase/env';
 import { siteUrl } from '@/lib/config';
 import { translateAuthError, GENERIC_ERROR } from '@/lib/errors';
 import {
@@ -16,6 +17,19 @@ export interface FormState {
   success?: string;
 }
 
+/**
+ * رسالة واضحة حين تكون المنصة منشورة بلا قاعدة بيانات.
+ *
+ * بدونها يصطدم النموذج بخطأ من مكتبة Supabase فيرى المستخدم «حدث خطأ غير
+ * متوقع» — وهي رسالة لا تدلّ صاحب المنصة على أن المتغيّرات ناقصة.
+ */
+const NOT_CONFIGURED =
+  'المنصة غير مربوطة بقاعدة البيانات بعد. إن كنت مالك المنصة: أضف متغيّرات Supabase في إعدادات النشر ثم أعد النشر.';
+
+function configurationError(): FormState | null {
+  return isSupabaseConfigured() ? null : { error: NOT_CONFIGURED };
+}
+
 /** يمنع فتح تحويل إلى موقع خارجي عبر ?next= — ثغرة تصيّد كلاسيكية. */
 function safeNext(value: FormDataEntryValue | null): string {
   const next = typeof value === 'string' ? value : '';
@@ -23,6 +37,9 @@ function safeNext(value: FormDataEntryValue | null): string {
 }
 
 export async function loginAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const unconfigured = configurationError();
+  if (unconfigured) return unconfigured;
+
   const parsed = loginSchema.safeParse({
     email: formData.get('email'),
     password: formData.get('password'),
@@ -48,6 +65,9 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
 }
 
 export async function registerAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const unconfigured = configurationError();
+  if (unconfigured) return unconfigured;
+
   const parsed = registerSchema.safeParse({
     fullName: formData.get('fullName'),
     email: formData.get('email'),
@@ -90,6 +110,9 @@ export async function registerAction(_prev: FormState, formData: FormData): Prom
 }
 
 export async function forgotPasswordAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const unconfigured = configurationError();
+  if (unconfigured) return unconfigured;
+
   const parsed = forgotPasswordSchema.safeParse({ email: formData.get('email') });
   if (!parsed.success) return { fields: fieldErrors(parsed.error) };
 
@@ -104,6 +127,9 @@ export async function forgotPasswordAction(_prev: FormState, formData: FormData)
 }
 
 export async function resetPasswordAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const unconfigured = configurationError();
+  if (unconfigured) return unconfigured;
+
   const parsed = resetPasswordSchema.safeParse({
     password: formData.get('password'),
     confirm: formData.get('confirm'),
@@ -129,6 +155,9 @@ export async function logoutAction() {
 }
 
 export async function resendVerificationAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const unconfigured = configurationError();
+  if (unconfigured) return unconfigured;
+
   const email = String(formData.get('email') ?? '');
   if (!email) return { error: GENERIC_ERROR };
 
