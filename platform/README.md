@@ -395,9 +395,16 @@ npm run start        # http://localhost:3000
 
 ## ١٥) النشر على Netlify
 
+> **موقع Netlify مُنشأ بالفعل لهذا المشروع:**
+> `sufra-platform` — https://sufra-platform.netlify.app
+> لم يُبنَ بعد: ينقصه ربط المستودع ومتغيّرات Supabase. الخطوات أدناه تكمله.
+
 ### الخطوة ١ — اربط المستودع
 
-**Add new site ← Import an existing project** واختر المستودع.
+في **app.netlify.com ← sufra-platform ← Site configuration ← Build & deploy ←
+Link repository**، اختر المستودع والفرع.
+
+(أو لموقع جديد: **Add new site ← Import an existing project**.)
 
 ### الخطوة ٢ — اضبط البناء
 
