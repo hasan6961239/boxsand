@@ -545,7 +545,8 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       [f.num30.mm, f.num50.mm, f.alpha30.mm].map(x => (x / DOTMM).toFixed(2) + 'د').join(' '));
     check('واللاصقة الأوسع تعطي عموداً أوسع', f.num50.mm > f.num30.mm,
       f.num50.mm.toFixed(4) + ' > ' + f.num30.mm.toFixed(4));
-    check('وISBN لا يدخل على 30 مم', f.isbn30.safe === false, f.isbn30.need.toFixed(1) + ' mm');
+    /* بهامش 2.5 مم ثابت و EAN-13 (95 وحدة) صار ISBN يدخل على 30 مم بعمود 0.25 */
+    check('وISBN يدخل على 30 مم بعمود مريح', f.isbn30.safe === true, f.isbn30.need.toFixed(1) + ' mm');
     check('ويدخل على 40 مم', f.isbn40.safe === true, f.isbn40.need.toFixed(1) + ' mm');
 
     const gen = await pg.evaluate(() => { const t = {}; return [0, 1, 2].map(() => Labels.newBarcode(t)); });
@@ -1047,6 +1048,18 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('والسعر بعملته', (lbl.price || '').indexOf('15') >= 0 && (lbl.price || '').indexOf('د.ل') >= 0, lbl.price);
     check('والمكان والسعر في سطر واحد', lbl.oneFoot);
     check('ولا يفيض المحتوى عن اللاصقة', !lbl.over);
+
+    /* ملء العرض: على 35 مم يقفز الرمز الثماني من نقطتين إلى ثلاث
+       (0.25 ⇦ 0.375 مم)، والرمز ذو الشَرطة يبقى 0.25 ولا ينزل لنقطة. */
+    const fill = await pg.evaluate(() => {
+      App.S.meta.label.dpi = 203; App.S.meta.label.w = 35;
+      const a = Labels.fit('57030282', 35), d = Labels.fit('0-646466', 35), n = Labels.fit('0-646466', 30);
+      return { a: a.dots, aw: a.width, d: d.dots, dw: d.width, n: n.dots };
+    });
+    check('35 مم: الرمز الثماني بثلاث نقاط (0.375 مم)', fill.a === 3, fill.a + ' نقطة');
+    check('والرمز ذو الشَرطة بنقطتين (0.25 مم)', fill.d === 2, fill.d + ' نقطة');
+    check('ويبقى 2.5 مم أبيض على كل جانب', (35 - fill.aw) / 2 >= 2.49 && (35 - fill.dw) / 2 >= 2.49,
+      ((35 - fill.aw) / 2).toFixed(2) + ' / ' + ((35 - fill.dw) / 2).toFixed(2) + ' مم');
 
     /* دقة الطابعة تُقرأ من الإعدادات: بيت الداء في باركود لا يُقرأ */
     const dots = await pg.evaluate(() => {

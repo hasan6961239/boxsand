@@ -112,7 +112,16 @@ var Labels = (function () {
 
   var MM_PX = 3.7795;          // بكسل CSS لكل مليمتر
   var PAD_MM = 1.2;            // هامش داخلي لكل جهة
-  var QUIET = 10;              // وحدات المنطقة الهادئة لكل جهة
+  /* الهامش الأبيض على جانبي الأعمدة، ثابت بالمليمتر.
+
+     كان 10 وحدات من كل جهة فوق الهامش الداخلي، أي نحو 5 مم لكل جهة
+     على لاصقة 35 مم — ثلث العرض أبيض. ولأن الطابعة لا ترسم إلا نقاطاً
+     كاملة، يُقرَّب العمود للأسفل: 2.9 نقطة تصير نقطتين ويضيع الثلث.
+     فخرجت الأعمدة متلاصقة والملصق نصفه فارغ.
+
+     2.5 مم لكل جهة تكفي قارئات المحلات، وبها يقفز الرمز ذو الثمانية
+     أرقام على 35 مم من 0.25 مم إلى 0.375 مم — أعرض بالنصف. */
+  var SIDE_MM = 2.5;
 
   /* ---------- لماذا لا تُقرأ بعض اللاصقات ----------
 
@@ -209,15 +218,15 @@ var Labels = (function () {
      الباركود يخرج أضيق قليلاً من عرض اللاصقة — وهذا مقصود: يُتوسَّط،
      وتكبر المنطقة الهادئة حوله، وكلاهما في صالح القراءة. */
   function fit(code, widthMm) {
-    var usable = Math.max(5, App.num(widthMm) - PAD_MM * 2);
-    var mods = moduleCount(code) + QUIET * 2;
+    var usable = Math.max(5, App.num(widthMm) - SIDE_MM * 2);
+    var mods = moduleCount(code);
     /* عرض الوحدة نقاطٌ كاملة تدخل في اللاصقة دائماً — فالباركود يُطبع
        كاملاً غير مقصوص مهما ضاقت. و«safe» تقول هل بلغ الحدّ المريح
        للقارئ الرخيص: إن لم يبلغه نطبع وننبّه، ولا نمتنع. */
     var dot = dotMm(), min = minDots();
     var dots = Math.max(1, Math.floor(usable / mods / dot));
     var mm = dots * dot;
-    var need = min * dot * mods + PAD_MM * 2;           // عرض اللاصقة المريح
+    var need = min * dot * mods + SIDE_MM * 2;          // عرض اللاصقة المريح
     return {
       mm: mm, px: Math.max(0.5, mm * MM_PX), mods: mods, dots: dots,
       need: need,
@@ -228,16 +237,16 @@ var Labels = (function () {
 
   /* أطول رمز رقمي يدخل بأمان على هذا العرض */
   function maxDigitsFor(widthMm) {
-    var usable = Math.max(5, App.num(widthMm) - PAD_MM * 2);
+    var usable = Math.max(5, App.num(widthMm) - SIDE_MM * 2);
     var maxMods = Math.floor(usable / (minDots() * dotMm()));
-    var symbols = Math.floor((maxMods - QUIET * 2 - 35) / 11);
+    var symbols = Math.floor((maxMods - 35) / 11);
     return Math.max(0, symbols * 2);
   }
 
   /* أقل عرض لاصقة يكفي هذا الرمز */
   function widthNeeded(code) {
-    return moduleCount(code) + QUIET * 2 > 0
-      ? (moduleCount(code) + QUIET * 2) * minDots() * dotMm() + PAD_MM * 2
+    return moduleCount(code) > 0
+      ? moduleCount(code) * minDots() * dotMm() + SIDE_MM * 2
       : 0;
   }
 
@@ -648,8 +657,8 @@ var Labels = (function () {
         fontSize: numPt(L),
         textMargin: 0,
         margin: 0,
-        marginLeft: QUIET * f.px,       // المنطقة الهادئة ضرورية للقراءة
-        marginRight: QUIET * f.px
+        marginLeft: 0,                  // الهامش الأبيض من عرض اللاصقة نفسها:
+        marginRight: 0                  // الأعمدة متوسّطة ولا تتجاوز العرض ناقص 2×SIDE_MM
       });
       out = holder.innerHTML;
     } catch (e) {
