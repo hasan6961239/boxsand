@@ -258,6 +258,11 @@ table.tbl tbody tr.out  { background: #FDF3F1; }
 table.tbl tbody tr.low:hover { background: #FDF4E2; }
 table.tbl tbody tr.out:hover { background: #FBEAE6; }
 table.tbl td.act { white-space: nowrap; width: 1%; }
+/* التصنيف الطويل لا يوسّع العمود: يُقصّ بنقاط، وكاملاً عند وقوف الفأرة */
+table.tbl .badge.cat {
+  display: inline-block; max-width: 220px; vertical-align: middle;
+  overflow: hidden; text-overflow: ellipsis; cursor: default;
+}
 table.tbl .name { font-weight: 600; }
 table.tbl .sub  { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
 

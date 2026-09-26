@@ -1125,28 +1125,55 @@ var App = (function () {
   function rerender() { route(); paintBlockBar(); }
 
   /* ---------- حقل بحث يفهم قارئ الباركود ----------
-     القارئ يكتب الرمز دفعة سريعة ثم Enter. بلا هذا يبقى الرمز السابق
-     في الحقل فيلتصق به الجديد ولا يطابق شيئاً. هنا: بعد Enter — أو بعد
-     سكون يعقبه إدخال جديد — يُمسح القديم وحده. */
+
+     القارئ يكتب الرمز دفعة واحدة. بلا معالجة يبقى الرمز السابق في الحقل
+     فيلتصق به الجديد ولا يطابق شيئاً.
+
+     كان التمييز بالسكون: «توقّف أكثر من 0.7 ثانية ثم كتب ⇦ امسح». فكان
+     صاحب المحل يكتب اسم كتاب، ويتردّد نصف ثانية عند حرف، فيُمسح كل ما
+     كتبه. التوقّف لا يميّز القارئ من الإنسان — الإنسان يتوقّف أيضاً.
+
+     الذي يميّزهما السرعة: القارئ يكتب الحرف كل 5–30 جزءاً من الألف من
+     الثانية، وأسرع كاتب على لوحة المفاتيح لا يقترب من ذلك. فلا يُمسح
+     القديم إلا بدليل قاطع على القارئ:
+       • Enter — القارئ يضغطه آخر كل رمز. ما يُكتب بعده بداية جديدة.
+       • أو أربعة أحرف متتالية كلٌّ منها بعد سابقه بأقل من 50 جزءاً من
+         الألف — لا يصنعها إلا قارئ، ولو كان مضبوطاً بلا Enter.
+     كتابتك مهما أبطأت أو تردّدت لا تُمسح أبداً. */
+
+  var SCAN_GAP = 50;      // أقصى فاصل بين حرفين من القارئ (جزء من الألف من الثانية)
+  var SCAN_RUN = 4;       // أحرف سريعة متتالية تكفي للجزم بأنه قارئ
+
   function scanField(el, onEnter) {
     if (!el || el.__scan) return;
     el.__scan = true;
     var lastAt = 0, done = false;
+    var before = null;    // نص الحقل لحظة بدء الدفعة الحالية
+    var run = 0;          // أحرف الدفعة السريعة الحالية
 
     el.addEventListener("keydown", function (e) {
-      var now = Date.now();
-      var typing = e.key && e.key.length === 1;
-
-      if (typing && el.value) {
-        // إدخال مكتمل سابقاً، أو بداية دفعة جديدة بعد سكون
-        if (done || now - lastAt > 700) { el.value = ""; done = false; }
-      }
-      if (typing) lastAt = now;
-
       if (e.key === "Enter") {
         e.preventDefault();
         done = true;
+        run = 0; before = null;
         if (onEnter) onEnter(el.value.trim(), el);
+        return;
+      }
+      var typing = e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (!typing) return;
+
+      // بعد Enter: ما يُكتب الآن رمز أو بحث جديد
+      if (done) { el.value = ""; done = false; }
+
+      var now = Date.now();
+      if (now - lastAt > SCAN_GAP) { before = el.value; run = 1; }
+      else run++;
+      lastAt = now;
+
+      // دفعة لا يكتبها إلا قارئ: احذف ما كان قبلها وأبقِ الرمز الجديد وحده
+      if (run === SCAN_RUN && before && el.value.indexOf(before) === 0) {
+        el.value = el.value.slice(before.length);
+        before = "";
       }
     });
     el.addEventListener("focus", function () { try { el.select(); } catch (x) { } });

@@ -634,6 +634,67 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     const v2 = await pg.$eval('#bq', e => e.value);
     check('المسح الأول يبقى في الحقل', v1 === '47392015', JSON.stringify(v1));
     check('والمسح الثاني يمسحه ولا يلتصق به', v2 === '99887766', JSON.stringify(v2));
+
+    /* شكوى صاحب المحل بعد أسبوع استعمال: يكتب اسم كتاب، يتردّد لحظة عند
+       حرف، فيُمسح كل ما كتبه. كان الحقل يمسح بعد أي سكون فوق 0.7 ثانية
+       ظنّاً أن ما بعده رمز من القارئ. */
+    await pg.$eval('#bq', e => { e.value = ''; e.blur(); });
+    await pg.click('#bq');
+    await pg.keyboard.type('anat', { delay: 140 }); await sleep(1500);   // تردّد ثانية ونصف
+    await pg.keyboard.type('omy', { delay: 160 }); await sleep(300);
+    const slow = await pg.$eval('#bq', e => e.value);
+    check('الكتابة البطيئة مع تردّد لا تُمسح', slow === 'anatomy', JSON.stringify(slow));
+
+    await sleep(6000);                                                     // سكون طويل
+    await pg.keyboard.type(' atlas', { delay: 110 }); await sleep(300);
+    const slow2 = await pg.$eval('#bq', e => e.value);
+    check('ولا بعد سكون ست ثوانٍ', slow2 === 'anatomy atlas', JSON.stringify(slow2));
+
+    /* قارئ مضبوط بلا Enter: الدفعة السريعة تحلّ محلّ النص القديم */
+    await pg.keyboard.type('0-868810', { delay: 8 }); await sleep(300);
+    const burst = await pg.$eval('#bq', e => e.value);
+    check('دفعة القارئ السريعة تحلّ محلّ النص ولو بلا Enter', burst === '0-868810', JSON.stringify(burst));
+
+    /* كتابة إنسان سريع (90 جزءاً من الألف بين الحرفين) لا تُحسب قارئاً */
+    await pg.keyboard.press('Enter'); await sleep(200);
+    await pg.keyboard.type('abc', { delay: 20 });                          // بعد Enter: بحث جديد
+    await pg.keyboard.type('defgh', { delay: 90 }); await sleep(300);
+    const fastHuman = await pg.$eval('#bq', e => e.value);
+    check('وكتابة الإنسان السريعة تُضاف ولا تُمسح', fastHuman === 'abcdefgh', JSON.stringify(fastHuman));
+  }
+
+  console.log('\n== 14ب2د. التصنيف الطويل لا يدفع الأعمدة خارج الشاشة ==');
+  {
+    /* الشارة كانت لا تنكسر، فاتّسع عمود التصنيف لأطول تخصص (1136 بكسل
+       على شاشة صاحب المحل) وخرجت الكمية والحالة والأزرار عن الشاشة. */
+    const LONG = 'العلوم القانونية والدستورية / القانون الدستوري والنظم السياسية ' +
+      '(Legal and Constitutional Sciences / Constitutional Law and Political Systems)';
+    const st = seed();
+    st.books = [
+      { id: 'w1', code: 'K1', title: 'كتاب قصير التصنيف', lib: 'A', shelf: '1', cat: 'قانون',
+        barcode: '111', cost: 10, price: 15, qty: 5, min: 1 },
+      { id: 'w2', code: 'K2', title: 'كتاب طويل التصنيف', lib: 'A', shelf: '1', cat: LONG,
+        catFull: LONG, barcode: '222', cost: 10, price: 25, qty: 3, min: 1 }
+    ];
+    await closePage(pg); writeStore(st); pg = await open();
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(400);
+    await pg.evaluate(() => { Inv.gset('mode', 'view'); Inv.gset('type', 'book'); }); await sleep(800);
+    const tb = await pg.evaluate(() => {
+      const w = document.querySelector('#invBody .table-wrap'), t = w.querySelector('table');
+      const cat = Array.from(t.querySelectorAll('thead th')).find(h => h.textContent === 'التصنيف');
+      const long = Array.from(t.querySelectorAll('.badge.cat')).find(b => b.textContent.length > 60);
+      return {
+        over: t.scrollWidth - w.clientWidth,
+        catW: Math.round(cat.getBoundingClientRect().width),
+        tip: long ? long.getAttribute('title') : '',
+        cut: long ? long.scrollWidth > long.clientWidth : false,
+        editBtns: t.querySelectorAll('button').length
+      };
+    });
+    check('الجدول لا يحتاج سحباً يميناً ويساراً', tb.over <= 0, 'زائد=' + tb.over + ' بكسل');
+    check('وعمود التصنيف لا يتّسع لأطول تخصص', tb.catW < 300, tb.catW + ' بكسل');
+    check('والتصنيف الطويل يُقصّ بنقاط', tb.cut);
+    check('ويظهر كاملاً عند وقوف الفأرة', tb.tip.indexOf('Constitutional Law') >= 0, tb.tip.slice(0, 50));
   }
 
   console.log('\n== 14ب3. النقطة الحمراء في كل القوائم ==');

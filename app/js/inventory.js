@@ -86,6 +86,18 @@ var Inv = (function () {
     });
   }
 
+  /* شارة التصنيف في الجداول: تُقصّ بنقاط والنص كاملاً عند وقوف الفأرة.
+
+     كانت الشارة لا تنكسر لسطر ثانٍ، فيتّسع العمود كله ليساوي أطول
+     تصنيف في القائمة. بتخصص من 193 حرفاً صار عمود التصنيف 1136 بكسل،
+     وخرجت الكمية والحالة والأزرار عن الشاشة يساراً، وانضغط اسم الكتاب
+     في 162 بكسل. */
+  function catBadge(it) {
+    if (!it.cat) return '<span class="muted">—</span>';
+    var tip = it.cat + (it.catFull && it.catFull !== it.cat ? "\n" + it.catFull : "");
+    return '<span class="badge cat" title="' + App.esc(tip) + '">' + App.esc(it.cat) + "</span>";
+  }
+
   /* نقطة حمراء بجانب اسم الصنف الذي لم تُطبع لاصقته بعد */
   function lblMark(it) {
     return (typeof Labels !== "undefined" && Labels.mark) ? Labels.mark(it) : "";
@@ -169,7 +181,7 @@ var Inv = (function () {
         }
       },
       { h: "الموقع", c: function (b) { return App.locChip(b); } },
-      { h: "التصنيف", c: function (b) { return b.cat ? '<span class="badge">' + App.esc(b.cat) + "</span>" : '<span class="muted">—</span>'; } },
+      { h: "التصنيف", c: catBadge },
       { h: "الرمز", c: function (b) { return '<span class="num small">' + App.esc(b.barcode || b.code || "") + "</span>"; } },
       { h: "الجملة", cls: "num", c: function (b) { return App.money0(b.cost); } },
       { h: "البيع", cls: "num", c: function (b) { return "<b>" + App.money0(b.price) + "</b>"; } },
@@ -1053,7 +1065,7 @@ var Inv = (function () {
             '<div class="sub">' + App.esc(p.brand || "") + (p.unit ? " · " + App.esc(p.unit) : "") + "</div>";
         }
       },
-      { h: "التصنيف", c: function (p) { return p.cat ? '<span class="badge">' + App.esc(p.cat) + "</span>" : '<span class="muted">—</span>'; } },
+      { h: "التصنيف", c: catBadge },
       { h: "المكان", c: function (p) { return p.loc ? App.esc(p.loc) : '<span class="muted">—</span>'; } },
       { h: "الرمز", c: function (p) { return '<span class="num small">' + App.esc(p.barcode || p.code || "") + "</span>"; } },
       { h: "الجملة", cls: "num", c: function (p) { return App.money0(p.cost); } },
