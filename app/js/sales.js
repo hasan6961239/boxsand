@@ -205,19 +205,19 @@ var Sales = (function () {
 
   /* ---------- الحساب والرسم ---------- */
 
-  function subtotal() { return cart.reduce(function (s, l) { return s + App.num(l.price) * App.num(l.qty); }, 0); }
+  function subtotal() { return App.r3(cart.reduce(function (s, l) { return s + App.num(l.price) * App.num(l.qty); }, 0)); }
 
   /* الخصم لا يتجاوز المجموع أبداً. سابقاً كان الصافي يُقصّ عند الصفر
      بينما الربح يطرح الخصم كاملاً — فخصم 500 على فاتورة 30 كان يسجّل
      ربحاً بـ‎−490‎ ويفسد تقارير اليوم والشهر والسنة. */
   function discountNow() { return Math.min(Math.max(App.num(discount), 0), subtotal()); }
   function clampDiscount() { discount = discountNow(); }
-  function total() { return subtotal() - discountNow(); }
+  function total() { return App.r3(subtotal() - discountNow()); }
   function profit() {
     var gross = cart.reduce(function (s, l) {
       return s + (App.num(l.price) - App.num(l.cost)) * App.num(l.qty);
     }, 0);
-    return gross - discountNow();
+    return App.r3(gross - discountNow());
   }
 
   function paint() {
@@ -516,8 +516,13 @@ var Sales = (function () {
     payScreens = { pay: payScreen, credit: creditScreen };
     payScreen();
 
+    /* الاختصارات 1/2/3 لشاشة الاختيار وحدها — لا وأنت تكتب رقماً.
+       كانت تعمل داخل خانة «المدفوع الآن» في شاشة الآجل: كتابة 15
+       تضغط «1» ⇦ تُتمّ البيع نقداً بالمبلغ كله ويضيع دين 85 بلا أثر؛
+       وكتابة 30 تضغط «3» ⇦ تعيد رسم الشاشة وتمسح اختيار الزبون. */
     payKeys = function (e) {
       if (!payModal) return;
+      if (!box.querySelector(".pay-choices")) return;          // شاشة الآجل: الأرقام مبالغ لا اختصارات
       if (e.key === "1") { e.preventDefault(); pick("cash"); }
       else if (e.key === "2") { e.preventDefault(); pick("card"); }
       else if (e.key === "3") { e.preventDefault(); pick("credit"); }
@@ -588,7 +593,7 @@ var Sales = (function () {
       customerId: method === "credit" ? customerId : "",
       paid: method === "credit" ? Math.min(App.num(paid), t) : t
     };
-    inv.due = Math.max(t - inv.paid, 0);
+    inv.due = App.r3(Math.max(t - inv.paid, 0));
 
     // خصم المخزون + تسجيل ما بِيع من الكتب على المباع
     inv.items.forEach(function (l) {
@@ -608,7 +613,7 @@ var Sales = (function () {
 
     if (inv.due > 0 && inv.customerId) {
       var c = People.customer(inv.customerId);
-      if (c) c.balance = App.num(c.balance) + inv.due;
+      if (c) c.balance = App.r3(App.num(c.balance) + inv.due);
     }
 
     S().invoices.unshift(inv);
@@ -682,7 +687,7 @@ var Sales = (function () {
           return '<button class="btn sm" onclick="Sales.showInvoice(\'' + v.id + '\')">عرض</button> ' +
             '<button class="btn sm ghost" onclick="Sales.printInvoice(\'' + v.id + '\')">طباعة</button>' +
             (v.kind === "sale" ? ' <button class="btn sm ghost" onclick="Sales.startReturn(\'' + v.id + '\')">إرجاع</button>' : "") +
-            ' <button class="btn sm ghost" onclick="Sales.editInvoice(\'' + v.id + '\')">تعديل</button>' +
+            (v.kind === "sale" ? ' <button class="btn sm ghost" onclick="Sales.editInvoice(\'' + v.id + '\')">تعديل</button>' : "") +
             ' <button class="btn sm ghost" onclick="Sales.deleteInvoice(\'' + v.id + '\')">حذف</button>';
         }
       }
@@ -733,13 +738,13 @@ var Sales = (function () {
         ], v.items) +
         '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">' +
         '<div class="t-row" style="display:flex;justify-content:space-between"><span>المجموع</span><span class="num">' + App.money0(v.subtotal) + "</span></div>" +
-        (App.num(v.discount) ? '<div style="display:flex;justify-content:space-between"><span>الخصم</span><span class="num">' + App.money0(v.discount) + "</span></div>" : "") +
+        (App.num(v.discount) ? '<div style="display:flex;justify-content:space-between"><span>الخصم</span><span class="num">' + App.money0(Math.abs(App.num(v.discount))) + "</span></div>" : "") +
         '<div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;margin-top:6px"><span>الصافي</span><span class="num">' + App.money0(v.total) + "</span></div>" +
         (App.num(v.due) > 0 ? '<div style="display:flex;justify-content:space-between;color:var(--stamp)"><span>المتبقي ديناً</span><span class="num">' + App.money0(v.due) + "</span></div>" : "") +
         "</div>",
       actions: [
         { label: "طباعة", kind: "primary", click: function () { printInvoice(id); } },
-        { label: "تعديل", click: function (close) { close(); editInvoice(id); } },
+        (v.kind === "sale" ? { label: "تعديل", click: function (close) { close(); editInvoice(id); } } : null),
         (v.kind === "sale" ? { label: "إرجاع", click: function (close) { close(); startReturn(id); } } : null),
         { label: "حذف الفاتورة", kind: "danger", click: function (close) { close(); deleteInvoice(id); } }
       ].filter(function (x) { return x; })
@@ -768,8 +773,10 @@ var Sales = (function () {
     if (v.customerId) {
       var c = People.customer(v.customerId);
       if (c) {
-        if (v.kind === "return") c.balance = App.num(c.balance) + Math.abs(App.num(v.total));
-        else if (App.num(v.due) > 0) c.balance = Math.max(App.num(c.balance) - App.num(v.due), 0);
+        // الإرجاع الحديث يحفظ كم أنقص من الدين؛ القديم كان يُنقص قيمته كلها
+        if (v.kind === "return") c.balance = App.r3(App.num(c.balance) +
+          (v.debtCut !== undefined ? App.num(v.debtCut) : Math.abs(App.num(v.total))));
+        else if (App.num(v.due) > 0) c.balance = App.r3(Math.max(App.num(c.balance) - App.num(v.due), 0));
       }
     }
   }
@@ -824,6 +831,17 @@ var Sales = (function () {
   function editInvoice(id) {
     var v = getInvoice(id);
     if (!v) return;
+    /* نافذة التعديل مبنية للبيع وحده. على فاتورة إرجاع كانت تقلب الإشارة:
+       إرجاعٌ لقطعتين عُدّل إلى قطعة صار «بيعاً» بـ+50، وزاد المخزون
+       قطعتين من العدم. وتعديل بيعٍ عليه إرجاع يُفسد المُرجع بالطريقة نفسها. */
+    if (v.kind === "return") {
+      App.toast("عملية الإرجاع لا تُعدَّل — احذفها وسجّل الإرجاع من جديد.", "warn");
+      return;
+    }
+    if (S().invoices.some(function (x) { return x.kind === "return" && x.refNo === v.no; })) {
+      App.toast("على هذه الفاتورة إرجاع مسجّل — احذف الإرجاع أولاً ثم عدّلها.", "warn");
+      return;
+    }
     ed = {
       id: id,
       lines: v.items.map(function (l) {
@@ -1016,31 +1034,34 @@ var Sales = (function () {
     // إلغاء أثر الدين القديم
     if (v.customerId) {
       var oc = People.customer(v.customerId);
-      if (oc && App.num(v.due) > 0) oc.balance = Math.max(App.num(oc.balance) - App.num(v.due), 0);
+      if (oc && App.num(v.due) > 0) oc.balance = App.r3(Math.max(App.num(oc.balance) - App.num(v.due), 0));
     }
 
-    var subtotal2 = keep.reduce(function (a, l) { return a + App.num(l.qty) * App.num(l.price); }, 0);
-    var total2 = Math.max(subtotal2 - App.num(ed.discount), 0);
-    var profit2 = keep.reduce(function (a, l) {
+    var subtotal2 = App.r3(keep.reduce(function (a, l) { return a + App.num(l.qty) * App.num(l.price); }, 0));
+    /* الخصم لا يتجاوز المجموع — كما في نقطة البيع. كان خصم 500 على فاتورة
+       معدَّلة بـ30 يعطي صافياً 0 وربحاً −470 يفسد تقارير الشهر. */
+    var disc2 = Math.min(Math.max(App.num(ed.discount), 0), subtotal2);
+    var total2 = App.r3(subtotal2 - disc2);
+    var profit2 = App.r3(keep.reduce(function (a, l) {
       return a + App.num(l.qty) * (App.num(l.price) - App.num(l.cost));
-    }, 0) - App.num(ed.discount);
+    }, 0) - disc2);
 
     v.items = keep.map(function (l) {
       return { type: l.type, id: l.id, name: l.name, qty: App.num(l.qty), price: App.num(l.price), cost: App.num(l.cost) };
     });
     v.subtotal = subtotal2;
-    v.discount = App.num(ed.discount);
+    v.discount = disc2;
     v.total = total2;
     v.profit = profit2;
     v.method = ed.method;
     v.customerId = ed.method === "credit" ? ed.customerId : "";
     v.paid = ed.method === "credit" ? Math.min(App.num(ed.paid), total2) : total2;
-    v.due = Math.max(total2 - v.paid, 0);
+    v.due = App.r3(Math.max(total2 - v.paid, 0));
     v.editedAt = App.nowStamp();
 
     if (v.due > 0 && v.customerId) {
       var nc = People.customer(v.customerId);
-      if (nc) nc.balance = App.num(nc.balance) + v.due;
+      if (nc) nc.balance = App.r3(App.num(nc.balance) + v.due);
     }
 
     App.log("تعديل فاتورة", "رقم " + v.no + " صارت " + App.money0(total2));
@@ -1053,16 +1074,60 @@ var Sales = (function () {
 
   /* ---------- الإرجاع ---------- */
 
+  /* ---------- الإرجاع ----------
+
+     ثلاثة أخطاء كانت هنا، كلها في المال:
+
+     ١) الخصم: الإرجاع يردّ «السعر × الكمية» متجاهلاً خصم الفاتورة. بيع
+        2 × 50 بخصم 20 = 80، وإرجاعهما يردّ 100 — يخرج من الصندوق 20 لم
+        تدخله، ويصير صافي المبيعات −20 بعد إرجاع كامل.
+     ٢) التكرار: لا شيء يمنع إرجاع الفاتورة نفسها مرة ثانية. بِع قطعتين
+        وأرجعهما مرتين ⇦ يزيد المخزون قطعتين من العدم ويُردّ المبلغ مرتين.
+     ٣) الآجل: إرجاعٌ من فاتورة آجلة يُنقص دين الزبون، لكن «آجل لم يُقبض»
+        في الجرد يبقى كما هو، لأن الإرجاع كان يُسجَّل بلا أثر على الدين.
+
+     الآن: القيمة تُحسب بنسبة ما دُفع فعلاً، والمُرجع سابقاً يُطرح من المتاح،
+     وإرجاع الآجل يُسجّل كم أنقص من الدين وكم رُدّ نقداً. */
+
+  function returnedQty(v) {
+    var got = {};
+    S().invoices.forEach(function (x) {
+      if (x.kind !== "return" || x.refNo !== v.no) return;
+      x.items.forEach(function (l) {
+        var k = l.type + ":" + l.id;
+        got[k] = App.num(got[k]) + App.num(l.qty);
+      });
+    });
+    return got;
+  }
+
   function startReturn(id) {
     var v = getInvoice(id);
     if (!v) return;
+    if (v.kind === "return") { App.toast("هذه عملية إرجاع — لا يُرجع منها.", "warn"); return; }
+    var back = returnedQty(v);
+    var left = v.items.map(function (l) {
+      return Math.max(App.num(l.qty) - App.num(back[l.type + ":" + l.id]), 0);
+    });
+    if (!left.some(function (q) { return q > 0; })) {
+      App.toast("أُرجع كل ما في هذه الفاتورة سابقاً.", "warn");
+      return;
+    }
+    // نسبة ما دُفع فعلاً من المجموع: 80 من 100 ⇦ كل قطعة تُردّ بـ80٪ من سعرها
+    var ratio = App.num(v.subtotal) > 0 ? App.num(v.total) / App.num(v.subtotal) : 1;
+
     var box = document.createElement("div");
     box.innerHTML = '<p class="muted" style="margin-top:0">حدّد الكمية الإرجاعة من كل صنف. تُعاد للمخزون تلقائياً.</p>' +
-      '<table class="tbl"><thead><tr><th>الصنف</th><th>المُباع</th><th>الإرجاع</th><th>القيمة</th></tr></thead><tbody>' +
+      (ratio < 0.9999 ? '<p class="small" style="margin-top:0;color:var(--amber)">على هذه الفاتورة خصم — يُردّ ' +
+        "للزبون ما دفعه فعلاً بعد الخصم.</p>" : "") +
+      '<table class="tbl"><thead><tr><th>الصنف</th><th>المُباع</th><th>المتاح للإرجاع</th><th>الإرجاع</th><th>يُردّ للقطعة</th></tr></thead><tbody>' +
       v.items.map(function (l, i) {
         return "<tr><td>" + App.esc(l.name) + '</td><td class="num">' + App.num(l.qty) + "</td>" +
-          '<td><input class="inp num ret-q" data-i="' + i + '" style="width:82px" type="number" min="0" max="' + App.num(l.qty) + '" value="0"></td>' +
-          '<td class="num">' + App.money0(l.price) + " للقطعة</td></tr>";
+          '<td class="num">' + left[i] + (left[i] < App.num(l.qty) ? ' <span class="muted small">(أُرجع ' +
+            (App.num(l.qty) - left[i]) + ")</span>" : "") + "</td>" +
+          '<td><input class="inp num ret-q" data-i="' + i + '" style="width:82px" type="number" min="0" max="' +
+            left[i] + '" value="0"' + (left[i] ? "" : " disabled") + "></td>" +
+          '<td class="num">' + App.money0(App.r3(App.num(l.price) * ratio)) + "</td></tr>";
       }).join("") + "</tbody></table>";
 
     App.modal({
@@ -1071,43 +1136,58 @@ var Sales = (function () {
       body: box,
       actions: [{
         label: "تسجيل الإرجاع", kind: "danger", click: function (close, ov) {
-          var lines = [], tot = 0, prof = 0;
+          var lines = [], gross = 0, cost = 0;
+          back = returnedQty(v);                     // من جديد: لو سُجّل إرجاع في نافذة أخرى
           ov.querySelectorAll(".ret-q").forEach(function (inp) {
             var q = App.num(inp.value);
             if (q <= 0) return;
-            var src = v.items[App.num(inp.dataset.i)];
-            q = Math.min(q, App.num(src.qty));
+            var i = App.num(inp.dataset.i), src = v.items[i];
+            var can = Math.max(App.num(src.qty) - App.num(back[src.type + ":" + src.id]), 0);
+            q = Math.min(q, can);
+            if (q <= 0) return;
             lines.push({ type: src.type, id: src.id, name: src.name, qty: q, price: src.price, cost: src.cost });
-            tot += q * App.num(src.price);
-            prof += q * (App.num(src.price) - App.num(src.cost));
+            gross += q * App.num(src.price);
+            cost += q * App.num(src.cost);
           });
           if (!lines.length) { App.toast("لم تحدد أي كمية للإرجاع.", "warn"); return; }
+
+          var tot = App.r3(gross * ratio);            // ما دفعه الزبون فعلاً عن هذه القطع
+          var prof = App.r3(tot - cost);
+
+          /* الآجل: يُنقص الدين أولاً، وما زاد عنه يُردّ نقداً */
+          var debtCut = 0, c = v.customerId ? People.customer(v.customerId) : null;
+          if (c) {
+            debtCut = App.r3(Math.min(tot, Math.max(App.num(c.balance), 0)));
+            c.balance = App.r3(App.num(c.balance) - debtCut);
+          }
+          var cashBack = App.r3(tot - debtCut);
 
           S().counters.invoice++;
           var r = {
             id: App.uid(), no: S().counters.invoice, kind: "return", refNo: v.no,
             date: App.today(), at: App.nowStamp(), items: lines,
-            subtotal: -tot, discount: 0, total: -tot, profit: -prof,
-            method: v.method, customerId: v.customerId, paid: -tot, due: 0
+            subtotal: -App.r3(gross), discount: -App.r3(gross - tot), total: -tot, profit: -prof,
+            method: v.method, customerId: v.customerId,
+            paid: -cashBack, due: -debtCut, cashBack: cashBack, debtCut: debtCut
           };
           lines.forEach(function (l) {
             var it = App.findItem(l.type, l.id);
             if (it) {
               it.qty = App.num(it.qty) + App.num(l.qty);
+              it.soldTotal = Math.max(App.num(it.soldTotal) - App.num(l.qty), 0);
               it.updated = App.nowStamp();
               if (it.consId && typeof Consign !== "undefined") {
                 try { Consign.recordReturn(it.id, App.num(l.qty)); } catch (e) { }
               }
             }
           });
-          if (v.customerId) {
-            var c = People.customer(v.customerId);
-            if (c) c.balance = Math.max(App.num(c.balance) - tot, 0);
-          }
           S().invoices.unshift(r);
-          App.log("إرجاع", "من فاتورة " + v.no + " بقيمة " + App.money0(tot));
+          App.log("إرجاع", "من فاتورة " + v.no + " بقيمة " + App.money0(tot) +
+            (debtCut ? " — أُنقص من الدين " + App.money0(debtCut) : ""));
           App.saveNow(); close(); App.rerender();
-          App.toast("سُجّل الإرجاع وأُعيدت الكميات للمخزون.");
+          App.toast("سُجّل الإرجاع وأُعيدت الكميات للمخزون." +
+            (debtCut ? " أُنقص من دين الزبون " + App.money0(debtCut) + "." : "") +
+            (cashBack ? " يُردّ نقداً " + App.money0(cashBack) + "." : ""));
         }
       }]
     });
@@ -1139,7 +1219,7 @@ var Sales = (function () {
     h += "</tbody></table><hr>";
 
     h += '<div class="tot"><span>المجموع</span><span class="num">' + App.money0(Math.abs(v.subtotal)) + "</span></div>";
-    if (App.num(v.discount)) h += '<div class="tot"><span>الخصم</span><span class="num">' + App.money0(v.discount) + "</span></div>";
+    if (App.num(v.discount)) h += '<div class="tot"><span>الخصم</span><span class="num">' + App.money0(Math.abs(App.num(v.discount))) + "</span></div>";
     h += '<div class="tot g"><span>الصافي</span><span class="num">' + App.money0(Math.abs(v.total)) + " " + App.esc(m.currency) + "</span></div>";
     h += '<div class="tot"><span>طريقة الدفع</span><span>' + payName(v.method) +
       (v.mode === "wholesale" ? " · جملة" : "") + "</span></div>";
@@ -1273,7 +1353,7 @@ var Sales = (function () {
     }
 
     tot("المجموع", App.money0(Math.abs(v.subtotal)));
-    if (App.num(v.discount)) tot("الخصم", App.money0(v.discount));
+    if (App.num(v.discount)) tot("الخصم", App.money0(Math.abs(App.num(v.discount))));
     y += 4;
     sep(false);
     tot("الصافي", App.money0(Math.abs(v.total)) + " " + (m.currency || ""), true);

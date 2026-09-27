@@ -156,7 +156,7 @@ var People = (function () {
       onSave: function (v) {
         var a = Math.min(App.num(v.amount), App.num(c.balance));
         if (a <= 0) { App.toast("أدخل مبلغاً صحيحاً.", "warn"); return false; }
-        c.balance = App.num(c.balance) - a;
+        c.balance = App.r3(App.num(c.balance) - a);
         S().payments.unshift({
           id: App.uid(), customerId: c.id, amount: a,
           date: v.date || App.today(), at: App.nowStamp(), note: v.note || ""

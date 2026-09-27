@@ -19,7 +19,7 @@ namespace Qirtasiya
     static class Program
     {
         const string AppTitle = "منظومة المكتبة والقرطاسية";
-        const string AppVersion = "3.4";
+        const string AppVersion = "3.5";
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
            في مجلد يكتب فيه المستخدم — فمن يضع app\index.html معدّلاً يتخطّى

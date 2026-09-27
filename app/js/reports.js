@@ -18,6 +18,40 @@ var Rep = (function () {
 
   function sum(arr, f) { return arr.reduce(function (s, x) { return s + App.num(f(x)); }, 0); }
 
+  /* ---------- ما دخل الصندوق فعلاً في فترة ----------
+
+     كان «نقداً في الصندوق» = فواتير النقد وحدها. فغاب عنه:
+       • تسديد الديون — زبون سدّد 40 نقداً، والجرد يقول 0، فيُظهر إقفال
+         اليوم فائضاً 40 لا يُعرف مصدره.
+       • المدفوع مقدّماً عند البيع الآجل — دفع 30 من 100 وأخذ الباقي ديناً،
+         والـ30 في الدرج لكنها لا تُحسب.
+     والإرجاع من فاتورة آجلة يُنقص الدين أولاً، وما يُردّ نقداً منه
+     محفوظ في cashBack. */
+  function takings(inv, from, to) {
+    var cash = 0, card = 0, upfront = 0, refundCredit = 0;
+    inv.forEach(function (v) {
+      if (v.method === "cash") cash += App.num(v.total) - App.num(v.due);
+      else if (v.method === "card") card += App.num(v.total) - App.num(v.due);
+      else if (v.method === "credit") {
+        if (v.kind === "return") refundCredit += App.num(v.cashBack);
+        else upfront += App.num(v.paid);
+      }
+    });
+    var debtPaid = 0, nPaid = 0;
+    S().payments.forEach(function (p) {
+      if (from && p.date < from) return;
+      if (to && p.date > to) return;
+      debtPaid += App.num(p.amount); nPaid++;
+    });
+    return {
+      salesCash: App.r3(cash), upfront: App.r3(upfront), debtPaid: App.r3(debtPaid), nPaid: nPaid,
+      refundCredit: App.r3(refundCredit),
+      cash: App.r3(cash + upfront + debtPaid - refundCredit),
+      card: App.r3(card),
+      due: App.r3(inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0))
+    };
+  }
+
   function monthStart() { return App.today().slice(0, 8) + "01"; }
 
   /* ============================================================
@@ -393,17 +427,14 @@ var Rep = (function () {
     var real = inv.filter(function (v) { return v.kind !== "return"; });
     var rets = inv.filter(function (v) { return v.kind === "return"; });
 
-    function sumBy(m) {
-      return inv.filter(function (v) { return v.method === m; })
-        .reduce(function (s2, v) { return s2 + App.num(v.total) - App.num(v.due); }, 0);
-    }
     function cntBy(m) { return real.filter(function (v) { return v.method === m; }).length; }
 
-    var cash = sumBy("cash");
-    var card2 = sumBy("card");
+    var tk = takings(inv, r.from, r.to);
+    var cash = tk.cash;
+    var card2 = tk.card;
     var creditTotal = inv.filter(function (v) { return v.method === "credit"; })
       .reduce(function (s2, v) { return s2 + App.num(v.total); }, 0);
-    var creditDue = inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0);
+    var creditDue = tk.due;
     var total = sum(inv, function (v) { return v.total; });
     var profit = sum(inv, function (v) { return v.profit; });
     var pieces = piecesNet(inv);
@@ -436,7 +467,10 @@ var Rep = (function () {
       '<div class="card-body"><div class="grid g3">' +
       '<div class="paybox cash"><div class="pb-t">نقداً في الصندوق</div>' +
       '<div class="pb-v num">' + App.money0(cash) + "</div>" +
-      '<div class="pb-s">' + cntBy("cash") + " فاتورة</div></div>" +
+      '<div class="pb-s">' + cntBy("cash") + " فاتورة" +
+        (tk.debtPaid ? " · تسديد ديون " + App.money0(tk.debtPaid) : "") +
+        (tk.upfront ? " · مقدّم آجل " + App.money0(tk.upfront) : "") +
+        (tk.refundCredit ? " · رُدّ " + App.money0(tk.refundCredit) : "") + "</div></div>" +
       '<div class="paybox card"><div class="pb-t">' + App.esc(S().meta.cardName || "البطاقة المصرفية") + "</div>" +
       '<div class="pb-v num">' + App.money0(card2) + "</div>" +
       '<div class="pb-s">' + cntBy("card") + " فاتورة</div></div>" +
@@ -580,11 +614,8 @@ var Rep = (function () {
     var r = stkRange();
     var inv = sales(r.from, r.to);
     var real = inv.filter(function (v) { return v.kind !== "return"; });
-    function sumBy(m) {
-      return inv.filter(function (v) { return v.method === m; })
-        .reduce(function (s2, v) { return s2 + App.num(v.total) - App.num(v.due); }, 0);
-    }
-    var cash = sumBy("cash"), card2 = sumBy("card");
+    var tk = takings(inv, r.from, r.to);
+    var cash = tk.cash, card2 = tk.card;
     var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
       '<div class="c">تقرير الجرد — ' + App.esc(r.label) + "</div><hr>" +
       '<div class="tot"><span>عدد الفواتير</span><span class="num">' + real.length + "</span></div>" +
@@ -592,7 +623,8 @@ var Rep = (function () {
       "<hr>" +
       '<div class="tot"><span>نقداً</span><span class="num">' + App.money0(cash) + "</span></div>" +
       '<div class="tot"><span>بطاقة مصرفية</span><span class="num">' + App.money0(card2) + "</span></div>" +
-      '<div class="tot"><span>آجل (لم يُقبض)</span><span class="num">' + App.money0(inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0)) + "</span></div>" +
+      (tk.debtPaid ? '<div class="tot"><span>منها تسديد ديون</span><span class="num">' + App.money0(tk.debtPaid) + "</span></div>" : "") +
+      '<div class="tot"><span>آجل (لم يُقبض)</span><span class="num">' + App.money0(tk.due) + "</span></div>" +
       '<div class="tot g"><span>المقبوض فعلياً</span><span class="num">' + App.money0(cash + card2) + " " + App.esc(S().meta.currency) + "</span></div>" +
       "<hr>" +
       (App.canProfit() ? '<div class="tot"><span>صافي الربح</span><span class="num">' +

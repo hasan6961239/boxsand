@@ -12,6 +12,6 @@ namespace Qirtasiya
 {
     static class BuildInfo
     {
-        public const string Stamp = "2026-09-27";
+        public const string Stamp = "2026-09-28";
     }
 }

@@ -1175,7 +1175,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
 
     /* ب) كتابة خصم ثم ضغط */
     await freshPos();
-    await pg.click('.totals input[type="number"]');
+    await pg.click('#tDisc');
     await pg.keyboard.type('5'); await sleep(150);
     await pg.click('button:has-text("إتمام البيع")'); await sleep(800);
     const dOpen = await payOpen();

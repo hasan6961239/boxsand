@@ -72,12 +72,27 @@ var Count = (function () {
     bump(hit.it.id, 1);
   }
 
+  /* المسجَّل لحظة العدّ — لا لحظة التصحيح.
+
+     الجرد يمتد ساعات والمحل يبيع. كان التصحيح يقارن العدد بالمسجَّل
+     «الآن»: عددتَ 5 على الرف، بِعتَ 2، ثم صحّحت ⇦ «مسجَّل 3، معدود 5»
+     ⇦ يصير المخزون 5 وتعود النسختان المبيعتان من العدم.
+
+     الآن يُحفظ المسجَّل مع كل عدّ، والتصحيح يضيف الفرق فقط على ما
+     هو مسجَّل الآن: 3 + (5 − 5) = 3. */
+  function mark(s, id) {
+    var it = App.findItem("book", id) || App.findItem("stat", id);
+    if (!s.base) s.base = {};
+    if (it) s.base[id] = App.num(it.qty);
+  }
+
   function bump(id, by) {
     var s = session();
     if (!s) return;
     var cur = App.num(s.counted[id]);
     var nv = Math.max(cur + App.num(by), 0);
     s.counted[id] = nv;
+    mark(s, id);
     App.save();
     paint();
     var it = App.findItem("book", id) || App.findItem("stat", id);
@@ -88,8 +103,8 @@ var Count = (function () {
     var s = session();
     if (!s) return;
     var n = String(val).trim();
-    if (n === "") delete s.counted[id];
-    else s.counted[id] = Math.max(App.num(n), 0);
+    if (n === "") { delete s.counted[id]; if (s.base) delete s.base[id]; }
+    else { s.counted[id] = Math.max(App.num(n), 0); mark(s, id); }
     App.save();
     paint();
   }
@@ -99,7 +114,7 @@ var Count = (function () {
     if (!s) return;
     App.confirm("سيُعتبر كل صنف لم تعدّه مطابقاً للمسجّل. استعملها في النهاية لتسريع الجرد.", function () {
       inScope().forEach(function (x) {
-        if (s.counted[x.it.id] === undefined) s.counted[x.it.id] = App.num(x.it.qty);
+        if (s.counted[x.it.id] === undefined) { s.counted[x.it.id] = App.num(x.it.qty); mark(s, x.it.id); }
       });
       App.saveNow(); App.rerender();
     }, { yes: "اعتبرها مطابقة" });
@@ -111,8 +126,9 @@ var Count = (function () {
     var s = session();
     if (!s) return [];
     return inScope().map(function (x) {
-      var rec = App.num(x.it.qty);
       var has = s.counted[x.it.id] !== undefined;
+      // جلسة قديمة بلا base: كما كان — المسجَّل الآن
+      var rec = has && s.base && s.base[x.it.id] !== undefined ? App.num(s.base[x.it.id]) : App.num(x.it.qty);
       var got = has ? App.num(s.counted[x.it.id]) : null;
       return {
         type: x.type, it: x.it, rec: rec, got: got, has: has,
@@ -148,7 +164,7 @@ var Count = (function () {
           return { name: App.itemName(x.it), rec: x.rec, got: x.got, diff: x.diff, cost: App.num(x.it.cost) };
         });
         r.forEach(function (x) {
-          x.it.qty = x.got;
+          x.it.qty = App.num(x.it.qty) + x.diff;     // ما بِيع أو استُلم بعد العدّ يبقى محسوباً
           x.it.updated = App.nowStamp();
         });
         S().counts = S().counts || [];

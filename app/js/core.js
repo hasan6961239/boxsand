@@ -419,6 +419,7 @@ var App = (function () {
         return String.fromCharCode(d.charCodeAt(0) - 0x06C0);
       })
       .replace(/٫/g, ".")                                  // الفاصلة العشرية العربية ٫
+      .replace(/،/g, ",")                                  // الفاصلة العربية ، تُعامل كالفاصلة
       .replace(/[٬  ]/g, "");                    // فاصل الآلاف العربي والمسافات غير المرئية
   }
 
@@ -437,6 +438,71 @@ var App = (function () {
      حتى ينبّه الاستيراد على الصفوف التي لم تُقرأ بدل ابتلاعها. */
   function hasNumber(v) {
     return /\d/.test(digits(v == null ? "" : v));
+  }
+
+  /* ---------- كل حقل رقمي يقبل الأرقام العربية ----------
+
+     <input type="number"> يرفض «٣٠» بصمت: تبقى الخانة فارغة ويُقرأ صفراً،
+     بلا أي تنبيه. كان هذا في 17 حقلاً: المدفوع عند البيع الآجل (فيُسجَّل
+     المبلغ كله ديناً)، كمية الإرجاع، الكمية والخصم في نقطة البيع، العدّ
+     في الجرد، الكمية والتكلفة عند استلام البضاعة، النقد عند إقفال
+     الصندوق… وأُصلح سابقاً في نماذج الإضافة وحدها.
+
+     الإصلاح من الجذر لا حقلاً حقلاً: كل حقل number يُحوَّل عند ظهوره إلى
+     نص بلوحة أرقام، وما يُكتب فيه يُطبَّع إلى أرقام لاتينية قبل أن يقرأه
+     أي معالج. فلا يفوت حقلٌ يُضاف لاحقاً. */
+  function numericField(el) {
+    el.type = "text";
+    el.setAttribute("inputmode", "decimal");
+    el.setAttribute("autocomplete", "off");
+    el.setAttribute("data-num", "1");
+    /* حقل number كان يُرسم من اليسار دائماً. نصٌّ في صفحة عربية يُرسم
+       من اليمين، فينزل المؤشّر قبل «0» وتصير كتابة «5» ⇦ «50». */
+    el.setAttribute("dir", "ltr");
+  }
+  function numericFields(root) {
+    if (!root || !root.querySelectorAll) return;
+    if (root.matches && root.matches('input[type="number"]')) { numericField(root); return; }
+    var l = root.querySelectorAll('input[type="number"]');
+    for (var i = 0; i < l.length; i++) numericField(l[i]);
+  }
+  if (typeof MutationObserver !== "undefined" && typeof document !== "undefined") {
+    new MutationObserver(function (ms) {
+      ms.forEach(function (m) {
+        for (var i = 0; i < m.addedNodes.length; i++) {
+          if (m.addedNodes[i].nodeType === 1) numericFields(m.addedNodes[i]);
+        }
+      });
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    /* الضغط على حقل رقمي يحدّد محتواه، فالكتابة تستبدل «0» ولا تُلحق به */
+    document.addEventListener("focusin", function (e) {
+      var el = e.target;
+      if (!el || !el.hasAttribute || !el.hasAttribute("data-num")) return;
+      var was = el.value;
+      setTimeout(function () {
+        // إن بدأت الكتابة قبل التحديد فلا نحدّد — وإلا مُسح ما كُتب للتو
+        if (document.activeElement === el && el.value === was) { try { el.select(); } catch (x) { } }
+      }, 0);
+    }, true);
+    // مرحلة الالتقاط: يُطبَّع النص قبل oninput/onchange الخاصة بالحقل
+    document.addEventListener("input", function (e) {
+      var el = e.target;
+      if (!el || !el.hasAttribute || !el.hasAttribute("data-num")) return;
+      var norm = digits(el.value).replace(/[^\d.,\-]/g, "");
+      if (norm !== el.value) {
+        var at = el.selectionStart;
+        el.value = norm;
+        try { el.setSelectionRange(at, at); } catch (x) { }
+      }
+    }, true);
+  }
+
+  /* تقريب المال لثلاث خانات — الدينار ألف درهم.
+     بلا هذا تُخزَّن 3 × 0.1 = 0.30000000000000004، وتتراكم الكسور في
+     الأرصدة فيبقى زبون «عليه 0.00» في قائمة المدينين. */
+  function r3(v) {
+    var n = num(v);
+    return Math.round((n + (n >= 0 ? 1e-9 : -1e-9)) * 1000) / 1000;
   }
 
   function money(v) {
@@ -894,8 +960,28 @@ var App = (function () {
     return rows.map(function (r) { return r.map(csvCell).join(","); }).join("\r\n");
   }
 
+  /* الفاصل يُكتشف من سطر العناوين: Excel يحفظ CSV بفاصل «إعدادات
+     المنطقة» في ويندوز، وهو «;» في كثير منها. كان الفاصل «,» مفروضاً،
+     فيدخل الصف كله في خانة الاسم ويُحفظ الكتاب بسعر 0 — بلا أي تنبيه. */
+  function csvDelimiter(text) {
+    var first = "", q = false;
+    for (var i = 0; i < text.length && i < 4000; i++) {
+      var ch = text[i];
+      if (ch === '"') q = !q;
+      else if (!q && (ch === "\n" || ch === "\r")) break;
+      else if (!q) first += ch;
+    }
+    var best = ",", n = (first.match(/,/g) || []).length;
+    [";", "\t"].forEach(function (d) {
+      var c = first.split(d).length - 1;
+      if (c > n) { best = d; n = c; }
+    });
+    return best;
+  }
+
   function parseCsv(text) {
     text = text.replace(/^\ufeff/, "");
+    var sep = csvDelimiter(text);
     var rows = [], row = [], cur = "", q = false;
     for (var i = 0; i < text.length; i++) {
       var ch = text[i];
@@ -904,7 +990,7 @@ var App = (function () {
         else cur += ch;
       } else {
         if (ch === '"') q = true;
-        else if (ch === ",") { row.push(cur); cur = ""; }
+        else if (ch === sep) { row.push(cur); cur = ""; }
         else if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
         else if (ch !== "\r") cur += ch;
       }
@@ -913,14 +999,34 @@ var App = (function () {
     return rows.filter(function (r) { return r.join("").trim() !== ""; });
   }
 
+  /* ترميز الملف يُكتشف لا يُفترض: «CSV» العادي في Excel العربي يُحفظ
+     بترميز ويندوز العربي (1256) لا UTF-8. كان يُقرأ UTF-8 دائماً فتدخل
+     الأسماء العربية رموزاً مكسورة — بلا تنبيه. الآن: UTF-8 صارم أولاً،
+     فإن لم يكن صالحاً قُرئ بترميز ويندوز العربي. */
+  function decodeText(buf) {
+    if (typeof TextDecoder === "undefined") return null;
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); }
+    catch (e) {
+      try { return new TextDecoder("windows-1256").decode(buf); }
+      catch (e2) { return new TextDecoder("utf-8").decode(buf); }
+    }
+  }
+
   function pickFile(accept, cb) {
     var i = document.createElement("input");
     i.type = "file"; i.accept = accept;
     i.onchange = function () {
       if (!i.files.length) return;
+      var f = i.files[0];
       var fr = new FileReader();
-      fr.onload = function () { cb(fr.result, i.files[0].name); };
-      fr.readAsText(i.files[0], "utf-8");
+      fr.onload = function () {
+        var txt = decodeText(fr.result);
+        if (txt !== null) { cb(txt, f.name); return; }
+        var fr2 = new FileReader();                    // متصفح بلا TextDecoder
+        fr2.onload = function () { cb(fr2.result, f.name); };
+        fr2.readAsText(f, "utf-8");
+      };
+      fr.readAsArrayBuffer(f);
     };
     i.click();
   }
@@ -1385,7 +1491,7 @@ var App = (function () {
     boot: boot, rerender: rerender, route: route,
     get S() { return S; },
     save: save, saveNow: saveNow,
-    uid: uid, esc: esc, num: num, hasNumber: hasNumber, digits: digits,
+    uid: uid, esc: esc, num: num, r3: r3, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm,
     api: api, apiJson: apiJson, apiWrite: apiWrite,
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
