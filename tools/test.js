@@ -1264,6 +1264,30 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('وثلاث محاولات فاشلة تنبّه مرة واحدة', bar.toasts <= 1, 'toasts=' + bar.toasts);
   }
 
+  console.log('\n== 14ج9. النافذة الوحيدة لا تُتّهم بأنها «نافذة أخرى» ==');
+  {
+    /* شكوى أسبوع كامل: يترك صاحب المحل البرنامج مصغّراً، يعود فيعدّل،
+       فتظهر «نافذة أخرى أخذت التحكّم» ولا نافذة أخرى. ويندوز يبطّئ نبض
+       النافذة المصغّرة، والنواة كانت ترفض كتابة المالك إن تأخّر نبضه. */
+    await closePage(pg);
+    const H = { 'X-Qirtasiya': '1', 'Content-Type': 'application/json' };
+    const claim = f => fetch(URL + 'api/claim', { method: 'POST', headers: H, body: JSON.stringify({ force: f }) }).then(r => r.json());
+    const body = await fetch(URL + 'api/load', { headers: H }).then(r => r.text());
+    const save = t => fetch(URL + 'api/save', { method: 'POST', headers: Object.assign({ 'X-Owner': t }, H), body }).then(r => r.json());
+    const A = (await claim(true)).token;
+    await sleep(13500);                                  // أطول من مهلة 12 ثانية بلا نبض
+    const late = await save(A);
+    check('نافذة وحيدة تأخّر نبضها تحفظ عادي', late.ok === true, JSON.stringify(late));
+    const busy = await claim(false);
+    check('ونافذة ثانية وهي حيّة لا تأخذ الملكية', busy.ok !== true, JSON.stringify(busy));
+    await sleep(13500);
+    const B = await claim(false);
+    check('ونافذة ثانية حقيقية بعد سكون الأولى تأخذها', B.ok === true);
+    const old = await save(A);
+    check('فتُرفض الأولى بحق', old.notOwner === true, JSON.stringify(old));
+    pg = await open();
+  }
+
   console.log('\n== 15أ. أحجام الواجهة الخمسة ==');
   {
     await closePage(pg); writeStore(seed()); pg = await open();

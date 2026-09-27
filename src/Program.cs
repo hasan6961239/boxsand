@@ -19,7 +19,7 @@ namespace Qirtasiya
     static class Program
     {
         const string AppTitle = "منظومة المكتبة والقرطاسية";
-        const string AppVersion = "3.3";
+        const string AppVersion = "3.4";
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
            في مجلد يكتب فيه المستخدم — فمن يضع app\index.html معدّلاً يتخطّى
@@ -804,13 +804,23 @@ namespace Qirtasiya
             return true;
         }
 
+        /* المالك من يحمل الرمز الحالي — لا من نبض خلال 12 ثانية.
+
+           كانت المهلة تُفحص هنا أيضاً، فتُرفض كتابة النافذة الوحيدة إن
+           تأخّر نبضها. وويندوز يبطّئ النافذة المصغّرة إلى نبضة كل دقيقة
+           ويوقفها عند السكون، فكان صاحب المحل يعود إليها ويعدّل شيئاً
+           فيُرفض الحفظ وتظهر «نافذة أخرى أخذت التحكّم» — ولا نافذة أخرى.
+
+           المهلة مكانها /api/claim وحده: تسمح لنافذة جديدة بأخذ الملكية
+           إن ماتت القديمة. فإن أخذتها، تغيّر الرمز ورُفضت القديمة بحق. */
         static bool IsOwner(string[] lines)
         {
             lock (OwnerLock)
             {
                 if (string.IsNullOrEmpty(OwnerToken)) return false;
-                if (DateTime.UtcNow - OwnerSeen > OwnerTtl) return false;
-                return GetHeader(lines, "X-Owner") == OwnerToken;
+                if (GetHeader(lines, "X-Owner") != OwnerToken) return false;
+                OwnerSeen = DateTime.UtcNow;      // الكتابة نبضٌ أيضاً
+                return true;
             }
         }
 

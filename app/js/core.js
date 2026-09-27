@@ -318,15 +318,22 @@ var App = (function () {
   }
 
   var hbTimer = null;
+  function beat() {
+    if (readOnly || !ownerToken) return;
+    apiJson("/api/heartbeat", { method: "POST", body: "{}" })
+      .then(function (res) { if (res && res.notOwner) lostOwnership(); })
+      .catch(function () { });
+  }
   function startHeartbeat() {
     if (hbTimer) clearInterval(hbTimer);
-    hbTimer = setInterval(function () {
-      if (readOnly || !ownerToken) return;
-      apiJson("/api/heartbeat", { method: "POST", body: "{}" })
-        .then(function (res) { if (res && res.notOwner) lostOwnership(); })
-        .catch(function () { });
-    }, 5000);
+    hbTimer = setInterval(beat, 5000);
   }
+  /* ويندوز يبطّئ مؤقّتات النافذة المصغّرة إلى مرة كل دقيقة ويوقفها عند
+     السكون. عند العودة إليها ننبض فوراً بدل انتظار الدورة القادمة. */
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") beat();
+  });
+  window.addEventListener("focus", beat);
 
   function lostOwnership() {
     saving = false;

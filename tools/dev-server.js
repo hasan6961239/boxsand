@@ -23,7 +23,12 @@ function json(res, o, code = 200) {
   res.end(b);
 }
 function validJson(buf) { try { const v = JSON.parse(buf.toString('utf8')); return v && typeof v === 'object' && !Array.isArray(v); } catch { return false; } }
-function isOwner(req) { return owner && Date.now() - ownerSeen <= OWNER_TTL && req.headers['x-owner'] === owner; }
+/* مثل النواة: المالك من يحمل الرمز الحالي، والمهلة لـ/api/claim وحده */
+function isOwner(req) {
+  if (!owner || req.headers['x-owner'] !== owner) return false;
+  ownerSeen = Date.now();
+  return true;
+}
 
 http.createServer((req, res) => {
   const chunks = [];
