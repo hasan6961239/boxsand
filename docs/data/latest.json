@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updatedAt": "2026-09-29T15:50:47.148Z",
+  "updatedAt": "2026-09-29T16:02:33.069Z",
   "official": {
     "USD": 6.3967,
     "EUR": 7.2693,
@@ -28,8 +28,8 @@
     }
   },
   "metals": {
-    "XAU": 4160.3,
-    "XAG": 61.02,
+    "XAU": 4157.1,
+    "XAG": 60.97,
     "unit": "USD/oz"
   },
   "localGold": {
@@ -42,8 +42,8 @@
     "EUR": 11
   },
   "gold": {
-    "ouncePriceUsd": 4160.3,
-    "gramPriceUsd": 133.7568,
+    "ouncePriceUsd": 4157.1,
+    "gramPriceUsd": 133.6539,
     "karats": [
       {
         "k": 24,
@@ -72,33 +72,33 @@
       }
     ],
     "official": {
-      "14": 500.53,
-      "18": 641.7,
-      "21": 748.65,
-      "22": 783.73,
-      "24": 854.75
+      "14": 500.14,
+      "18": 641.21,
+      "21": 748.08,
+      "22": 783.13,
+      "24": 854.09
     },
     "parallel": {
       "tripoli": {
-        "14": 749.61,
-        "18": 961.04,
-        "21": 1121.22,
-        "22": 1173.75,
-        "24": 1280.11
+        "14": 749.04,
+        "18": 960.3,
+        "21": 1120.35,
+        "22": 1172.85,
+        "24": 1279.12
       },
       "benghazi": {
-        "14": 748.83,
-        "18": 960.04,
-        "21": 1120.05,
-        "22": 1172.53,
-        "24": 1278.77
+        "14": 748.25,
+        "18": 959.3,
+        "21": 1119.18,
+        "22": 1171.63,
+        "24": 1277.79
       },
       "misrata": {
-        "14": 747.66,
-        "18": 958.53,
-        "21": 1118.29,
-        "22": 1170.69,
-        "24": 1276.77
+        "14": 747.08,
+        "18": 957.8,
+        "21": 1117.43,
+        "22": 1169.79,
+        "24": 1275.79
       }
     }
   },
@@ -175,10 +175,6 @@
     },
     "observedOffsets": {
       "tripoli": [
-        {
-          "t": 1790451741616,
-          "d": -0.04
-        },
         {
           "t": 1790452429988,
           "d": -0.04
@@ -494,13 +490,13 @@
         {
           "t": 1790697151187,
           "d": 0
+        },
+        {
+          "t": 1790697854827,
+          "d": 0
         }
       ],
       "benghazi": [
-        {
-          "t": 1790377176991,
-          "d": -0.05
-        },
         {
           "t": 1790377464850,
           "d": -0.05
@@ -816,6 +812,10 @@
         {
           "t": 1790697151187,
           "d": -0.01
+        },
+        {
+          "t": 1790697854827,
+          "d": -0.01
         }
       ],
       "misrata": [
@@ -829,20 +829,20 @@
   },
   "sources": [
     {
-      "id": "tg-dollar-price",
-      "label": "سعر الدولار اليوم (تلغرام)",
-      "url": "https://t.me/s/dollar_price",
-      "status": "down",
-      "detail": "no rates parsed from telegram",
-      "ms": 617
-    },
-    {
       "id": "tg-lydollar",
       "label": "قناة سوق المشير (تلغرام)",
       "url": "https://t.me/s/lydollar",
       "status": "ok",
       "detail": "lydollar:21msg · ذهب18 1097",
-      "ms": 663
+      "ms": 667
+    },
+    {
+      "id": "tg-dollar-price",
+      "label": "سعر الدولار اليوم (تلغرام)",
+      "url": "https://t.me/s/dollar_price",
+      "status": "down",
+      "detail": "no rates parsed from telegram",
+      "ms": 641
     },
     {
       "id": "tg-dollar-ly",
@@ -850,39 +850,7 @@
       "url": "https://t.me/s/dollar_ly",
       "status": "ok",
       "detail": "dollar_ly:19msg",
-      "ms": 657
-    },
-    {
-      "id": "tg-srafa",
-      "label": "أسعار صرف العملات (تلغرام)",
-      "url": "https://t.me/s/srafa",
-      "status": "down",
-      "detail": "no rates parsed from telegram",
-      "ms": 749
-    },
-    {
-      "id": "mashhad-rates",
-      "label": "المشهد الليبي — أسعار العملات",
-      "url": "https://almashhadlibya.com/currency-prices",
-      "status": "down",
-      "detail": "no rates parsed from https://almashhadlibya.com/currency-prices",
-      "ms": 786
-    },
-    {
-      "id": "er-api",
-      "label": "أسعار الصرف الدولية",
-      "url": "https://open.er-api.com",
-      "status": "ok",
-      "detail": "Tue, 29 Sep 2026 00:02:31 +0000",
-      "ms": 781
-    },
-    {
-      "id": "gold-api",
-      "label": "سعر الذهب العالمي",
-      "url": "https://api.gold-api.com",
-      "status": "ok",
-      "detail": "2026-09-29T15:50:40Z",
-      "ms": 838
+      "ms": 704
     },
     {
       "id": "akhbar-feed",
@@ -890,15 +858,31 @@
       "url": "https://www.libyaakhbar.com/feed",
       "status": "down",
       "detail": "no rates in feed /feed(direct)",
-      "ms": 950
+      "ms": 726
     },
     {
-      "id": "mashhad-articles",
-      "label": "المشهد الليبي — مقالات الأسعار",
-      "url": "https://almashhadlibya.com/economic-news/currency-prices",
+      "id": "tg-srafa",
+      "label": "أسعار صرف العملات (تلغرام)",
+      "url": "https://t.me/s/srafa",
+      "status": "down",
+      "detail": "no rates parsed from telegram",
+      "ms": 745
+    },
+    {
+      "id": "er-api",
+      "label": "أسعار الصرف الدولية",
+      "url": "https://open.er-api.com",
       "status": "ok",
-      "detail": "4 مقال · 2/3 مدن · direct",
-      "ms": 1200
+      "detail": "Tue, 29 Sep 2026 00:02:31 +0000",
+      "ms": 789
+    },
+    {
+      "id": "gold-api",
+      "label": "سعر الذهب العالمي",
+      "url": "https://api.gold-api.com",
+      "status": "ok",
+      "detail": "2026-09-29T16:02:10Z",
+      "ms": 979
     },
     {
       "id": "fb-currencyprices",
@@ -906,7 +890,7 @@
       "url": "https://mbasic.facebook.com/libyacurrencyprices",
       "status": "down",
       "detail": "no rates parsed from https://mbasic.facebook.com/libyacurrencyprices",
-      "ms": 1264
+      "ms": 1243
     },
     {
       "id": "eanlibya",
@@ -914,31 +898,7 @@
       "url": "https://www.eanlibya.com/exchangerate/",
       "status": "ok",
       "detail": "2521 chars · direct",
-      "ms": 1295
-    },
-    {
-      "id": "cbl",
-      "label": "مصرف ليبيا المركزي",
-      "url": "https://cbl.gov.ly/currency-exchange-rates/",
-      "status": "ok",
-      "detail": "https://cbl.gov.ly/currency-exchange-rates/",
-      "ms": 1456
-    },
-    {
-      "id": "eanlibya-feed",
-      "label": "عين ليبيا — RSS",
-      "url": "https://www.eanlibya.com/feed",
-      "status": "down",
-      "detail": "no rates in feed /feed(direct)",
-      "ms": 1464
-    },
-    {
-      "id": "akhbar-articles",
-      "label": "أخبار ليبيا — مقالات الأسعار",
-      "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
-      "status": "ok",
-      "detail": "4 مقال · 0/3 مدن · direct",
-      "ms": 1892
+      "ms": 1275
     },
     {
       "id": "akhbar-dollar",
@@ -946,7 +906,31 @@
       "url": "https://www.libyaakhbar.com/latestnews/dollar-prices",
       "status": "ok",
       "detail": "4 مقال · 2/3 مدن · direct",
-      "ms": 2172
+      "ms": 1340
+    },
+    {
+      "id": "cbl",
+      "label": "مصرف ليبيا المركزي",
+      "url": "https://cbl.gov.ly/currency-exchange-rates/",
+      "status": "ok",
+      "detail": "https://cbl.gov.ly/currency-exchange-rates/",
+      "ms": 1464
+    },
+    {
+      "id": "eanlibya-feed",
+      "label": "عين ليبيا — RSS",
+      "url": "https://www.eanlibya.com/feed",
+      "status": "down",
+      "detail": "no rates in feed /feed(direct)",
+      "ms": 1522
+    },
+    {
+      "id": "mashhad-rates",
+      "label": "المشهد الليبي — أسعار العملات",
+      "url": "https://almashhadlibya.com/currency-prices",
+      "status": "down",
+      "detail": "no rates parsed from https://almashhadlibya.com/currency-prices",
+      "ms": 1707
     },
     {
       "id": "ltnet",
@@ -954,39 +938,47 @@
       "url": "https://ltnet.gov.ly/ar/%D8%A3%D8%B3%D8%B9%D8%A7%D8%B1-%D8%A7%D9%84%D8%B9%D9%85%D9%84%D8%A7%D8%AA/",
       "status": "ok",
       "detail": "1363 chars · direct",
-      "ms": 2881
+      "ms": 3493
+    },
+    {
+      "id": "mashhad-articles",
+      "label": "المشهد الليبي — مقالات الأسعار",
+      "url": "https://almashhadlibya.com/economic-news/currency-prices",
+      "status": "ok",
+      "detail": "4 مقال · 2/3 مدن · direct",
+      "ms": 8226
+    },
+    {
+      "id": "akhbar-articles",
+      "label": "أخبار ليبيا — مقالات الأسعار",
+      "url": "https://www.libyaakhbar.com/latestnews/currency-prices",
+      "status": "ok",
+      "detail": "4 مقال · 0/3 مدن · direct",
+      "ms": 8382
     },
     {
       "id": "dollar2day-parallel",
       "label": "Dollar2Day — السوق الموازي",
       "url": "https://www.dollar2day.com/parallel-market/",
       "status": "down",
-      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 522 · codetabs.com HTTP 503 · corsproxy.io HTTP 401",
-      "ms": 21053
+      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 408 · codetabs.com HTTP 503 · corsproxy.io HTTP 401",
+      "ms": 12804
     },
     {
       "id": "dollar2day-gap",
       "label": "Dollar2Day — فجوة السعرين",
       "url": "https://www.dollar2day.com/official-vs-parallel-rate-libya/",
       "status": "down",
-      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 522 · codetabs.com HTTP 503 · corsproxy.io HTTP 401",
-      "ms": 21057
-    },
-    {
-      "id": "bekam",
-      "label": "بكم — أسعار العملات",
-      "url": "https://bekam.ly/",
-      "status": "down",
-      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 522 · codetabs.com HTTP 503 · corsproxy.io HTTP 401",
-      "ms": 22295
+      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 408 · codetabs.com HTTP 503 · corsproxy.io HTTP 401",
+      "ms": 12831
     },
     {
       "id": "dollar2day",
       "label": "Dollar2Day — الرئيسية",
       "url": "https://www.dollar2day.com/",
       "status": "down",
-      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 522 · codetabs.com HTTP 522 · corsproxy.io HTTP 401",
-      "ms": 40321
+      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 408 · codetabs.com HTTP 503 · corsproxy.io HTTP 401",
+      "ms": 15000
     },
     {
       "id": "dollar2day-convert",
@@ -994,15 +986,23 @@
       "url": "https://www.dollar2day.com/libyan-dinar-converter/",
       "status": "down",
       "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 522 · codetabs.com HTTP 522 · corsproxy.io HTTP 401",
-      "ms": 40400
+      "ms": 42328
+    },
+    {
+      "id": "bekam",
+      "label": "بكم — أسعار العملات",
+      "url": "https://bekam.ly/",
+      "status": "down",
+      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 522 · codetabs.com HTTP 522 · corsproxy.io HTTP 401",
+      "ms": 42435
     },
     {
       "id": "d2d-economy",
       "label": "Dollar2Day — أخبار الاقتصاد",
       "url": "https://www.dollar2day.com/category/economy/",
       "status": "down",
-      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win The operation was aborte · codetabs.com HTTP 522 · corsproxy.io HTTP 401",
-      "ms": 46291
+      "detail": "direct HTTP 403 · jina.ai HTTP 403 · allorigins.win HTTP 522 · codetabs.com HTTP 522 · corsproxy.io HTTP 401",
+      "ms": 43054
     },
     {
       "id": "d2d-feed",
@@ -1010,15 +1010,15 @@
       "url": "https://www.dollar2day.com/feed",
       "status": "down",
       "detail": "/feed direct HTTP 403 · jina.ai HTTP · /feed/ direct HTTP 403 · jina.ai HTTP · / direct HTTP 403 · jina.ai HTTP",
-      "ms": 71786
+      "ms": 64205
     },
     {
       "id": "mashhad-feed",
       "label": "المشهد الليبي — RSS",
       "url": "https://almashhadlibya.com/feed",
       "status": "down",
-      "detail": "/feed direct HTTP 403 · jina.ai HTTP · /feed/ direct HTTP 403 · jina.ai HTTP · /rss direct HTTP 403 · jina.ai HTTP · / direct HTTP 403 · jina.ai HTTP",
-      "ms": 103986
+      "detail": "/feed not-a-feed · /feed/ direct HTTP 403 · jina.ai HTTP · /rss direct HTTP 403 · jina.ai HTTP · / not-a-feed",
+      "ms": 101705
     }
   ]
 }
