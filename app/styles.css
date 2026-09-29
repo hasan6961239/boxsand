@@ -949,3 +949,334 @@ table.tbl tbody tr:hover { background: var(--surface-2); }
   border-color: rgba(255,255,255,.3); color: #fff;
 }
 .disc-bar[hidden]{ display: none; }
+
+/* ════════════════════════════════════════════════════════════
+   المظهر 2.0
+   ────────────────────────────────────────────────────────────
+   طبقة شكل فوق كل ما سبق — لا تغيّر زراً ولا ترتيباً ولا وظيفة.
+   حذفُ هذه الطبقة يعيد المظهر القديم كما كان حرفاً بحرف.
+
+   المبادئ (من أدلة تصميم لوحات التحكم ونقاط البيع الحديثة):
+   • الهرمية بالوزن والمسافة، واللون للحالة والمعنى فقط.
+   • حوافّ هادئة: خطوط رفيعة وظلال طبقية ناعمة بدل الإطارات الثقيلة.
+   • استجابة فورية: كل حركة تحت ربع ثانية، بمنحنى طبيعي، ولها معنى.
+   • ما يهمّ الكاشير — المبلغ والزر التالي — أوضح شيء في الشاشة.
+
+   الألوان كلها من متغيّرات المظهر (--accent…)، فاللون الذي يختاره
+   صاحب المحل من الإعدادات يسري في المظهر الجديد كما كان. وأحجام
+   الواجهة الخمسة لا تُمسّ: هذه الطبقة لا تضبط حشوةً ولا حجم خط
+   لعنصرٍ تضبطه تلك الأحجام.
+   ════════════════════════════════════════════════════════════ */
+
+:root {
+  --ink:        #0F1B2A;
+  --ink-soft:   #2A3A4C;
+  --ground:     #F2F4F7;
+  --surface-2:  #F7F9FB;
+  --line:       #E2E8EF;
+  --line-soft:  #EDF1F5;
+  --muted:      #647587;
+
+  --r-sm: 8px;
+  --r:    13px;
+  --r-lg: 20px;
+
+  --shadow-1: 0 1px 2px rgba(15,27,42,.04), 0 1px 3px rgba(15,27,42,.06);
+  --shadow-2: 0 10px 24px -8px rgba(15,27,42,.14), 0 3px 8px -3px rgba(15,27,42,.08);
+  --shadow-3: 0 30px 60px -14px rgba(15,27,42,.34), 0 10px 24px -10px rgba(15,27,42,.18);
+
+  --ease: cubic-bezier(.16,1,.3,1);
+  --glow: color-mix(in srgb, var(--accent) 22%, transparent);
+
+  --font-body: "Segoe UI", "Noto Sans Arabic", "Tahoma", "Dubai", sans-serif;
+  --font-head: "Segoe UI", "Noto Sans Arabic", "Tahoma", sans-serif;
+  --font-num:  "Segoe UI", "Noto Sans Arabic", "Tahoma", sans-serif;
+}
+
+::selection { background: var(--accent-wash); color: var(--ink); }
+
+/* أشرطة تمرير رفيعة هادئة */
+* { scrollbar-width: thin; scrollbar-color: rgba(15,27,42,.22) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(15,27,42,.18); border-radius: 99px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgba(15,27,42,.32); }
+#rail ::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,.14); }
+
+.num { font-variant-numeric: tabular-nums lining-nums; letter-spacing: 0; font-weight: 600; }
+
+/* ---------- الخلفية ---------- */
+#main {
+  background:
+    radial-gradient(1200px 520px at 100% -10%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
+    var(--ground);
+}
+
+/* ---------- الشريط الجانبي ---------- */
+#rail { position: relative; overflow: hidden; border-inline-start: 0; }
+#rail::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(420px 260px at 50% -60px, rgba(255,255,255,.10), transparent 70%),
+    linear-gradient(180deg, rgba(255,255,255,.035), rgba(0,0,0,.18));
+}
+#rail > * { position: relative; }
+.brand { border-bottom-color: rgba(255,255,255,.07); }
+.brand-mark {
+  color: color-mix(in srgb, var(--accent) 55%, #fff);
+  filter: drop-shadow(0 4px 10px color-mix(in srgb, var(--accent) 60%, transparent));
+}
+.brand h1 { font-weight: 800; letter-spacing: -.2px; }
+#nav .group-label { color: rgba(255,255,255,.38); font-weight: 700; letter-spacing: .6px; }
+
+.nav-item {
+  border-radius: 10px; color: rgba(255,255,255,.72); line-height: 1.35;
+  transition: background .18s var(--ease), color .18s, transform .18s var(--ease), box-shadow .18s;
+}
+.nav-item .ic { transition: transform .2s var(--ease), opacity .18s; }
+.nav-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+.nav-item:hover .ic { transform: translateX(-2px); opacity: 1; }
+.nav-item.on {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent-dim));
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--accent) 80%, #000), inset 0 1px 0 rgba(255,255,255,.18);
+}
+.nav-item.on::before { background: #fff; width: 3px; box-shadow: 0 0 10px rgba(255,255,255,.8); }
+.nav-item .count { font-weight: 700; box-shadow: 0 0 0 2px rgba(0,0,0,.18); }
+.rail-foot { border-top-color: rgba(255,255,255,.07); color: rgba(255,255,255,.45); }
+.dot-live { box-shadow: 0 0 0 3px rgba(63,168,140,.22); }
+
+/* ---------- الشريط العلوي ---------- */
+#topbar {
+  background: rgba(255,255,255,.82);
+  backdrop-filter: saturate(1.6) blur(14px);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 rgba(255,255,255,.7) inset;
+  position: relative; z-index: 5;
+}
+#topbar .page-title { font-weight: 800; letter-spacing: -.4px; }
+#topbar .clock {
+  padding: 6px 12px; border-radius: 99px;
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+}
+
+/* ---------- البطاقات ---------- */
+.card { border-color: var(--line); border-radius: var(--r); box-shadow: var(--shadow-1); }
+.card > .card-head { border-bottom-color: var(--line-soft); }
+.card > .card-head h3 { font-weight: 700; letter-spacing: -.1px; }
+
+/* بطاقات الأرقام: شريط لون بدل الإطار الجانبي، وتوهّج خفيف في الزاوية */
+.stat {
+  position: relative; overflow: hidden;
+  border-inline-start: 1px solid var(--line) !important;
+  background: var(--surface);
+  transition: transform .22s var(--ease), box-shadow .22s var(--ease), border-color .22s;
+}
+.stat::before {
+  content: ""; position: absolute; inset-block: 16px; inset-inline-start: 0;
+  width: 3px; border-radius: 0 4px 4px 0; background: var(--tone, var(--accent));
+}
+.stat.accent { --tone: var(--accent); }
+.stat.warn   { --tone: var(--amber); }
+.stat.bad    { --tone: var(--stamp); }
+.stat.blue   { --tone: var(--blue); }
+.stat:hover { transform: translateY(-3px); box-shadow: var(--shadow-2); border-color: color-mix(in srgb, var(--tone, var(--accent)) 30%, var(--line)); }
+.stat .lbl { font-weight: 600; letter-spacing: .1px; }
+.stat .val { font-weight: 800; letter-spacing: -.5px; color: var(--ink); }
+
+/* ---------- الأزرار ---------- */
+.btn {
+  border-radius: 10px; border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(15,27,42,.05);
+  transition: background .16s, border-color .16s, box-shadow .16s var(--ease), transform .16s var(--ease), color .16s;
+}
+.btn:hover { background: #fff; border-color: #C9D3DE; box-shadow: 0 4px 12px -6px rgba(15,27,42,.22); transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.97); box-shadow: none; }
+.btn.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 86%, #fff), var(--accent));
+  border-color: var(--accent-dim);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 6px 16px -8px color-mix(in srgb, var(--accent) 90%, #000);
+}
+.btn.primary:hover {
+  background: linear-gradient(180deg, var(--accent), var(--accent-dim));
+  border-color: var(--accent-dim);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 10px 22px -8px color-mix(in srgb, var(--accent) 95%, #000);
+}
+.btn.danger {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--stamp) 86%, #fff), var(--stamp));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 6px 16px -8px rgba(168,54,42,.9);
+}
+.btn.danger:hover { filter: none; background: var(--stamp); }
+.btn.ghost { box-shadow: none; }
+.btn.ghost:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--accent-dim); box-shadow: none; transform: none; }
+
+/* ---------- الحقول ---------- */
+.inp {
+  border-radius: 10px; border-color: var(--line); background: #fff;
+  box-shadow: 0 1px 2px rgba(15,27,42,.03) inset;
+  transition: border-color .16s, box-shadow .2s var(--ease), background .16s;
+}
+.inp:hover { border-color: #CAD4DF; }
+.inp:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--glow); }
+.inp::placeholder { color: #98A6B5; }
+.field > label { font-weight: 700; color: var(--ink-soft); }
+
+/* ---------- المفاتيح المقسّمة ---------- */
+.seg {
+  padding: 3px; gap: 3px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.seg button {
+  border-radius: 9px; background: transparent;
+  transition: background .18s var(--ease), color .18s, box-shadow .18s, transform .18s var(--ease);
+}
+.seg button:not(.on):hover { background: #fff; color: var(--ink); box-shadow: var(--shadow-1); }
+.seg button.on { box-shadow: 0 4px 12px -6px color-mix(in srgb, var(--accent) 90%, #000), inset 0 1px 0 rgba(255,255,255,.2); }
+.seg button:active { transform: scale(.97); }
+
+/* ---------- الشارات ---------- */
+.badge { border-radius: 99px; font-weight: 700; }
+.loc { border-radius: 8px; box-shadow: 0 1px 2px rgba(15,27,42,.06); }
+.branch-tag { box-shadow: 0 1px 2px rgba(15,27,42,.05); }
+
+/* ---------- الجداول ---------- */
+.table-wrap { border-radius: var(--r); }
+table.tbl thead th {
+  background: color-mix(in srgb, var(--surface-2) 70%, #fff);
+  backdrop-filter: blur(6px);
+  color: var(--muted); font-weight: 700; letter-spacing: .2px;
+  border-bottom: 1px solid var(--line);
+}
+table.tbl tbody td { border-bottom-color: var(--line-soft); }
+table.tbl tbody tr { transition: background .14s; }
+table.tbl tbody tr:hover { background: color-mix(in srgb, var(--accent) 4.5%, #fff); }
+table.tbl tbody tr.low  { background: #FFFBF1; }
+table.tbl tbody tr.out  { background: #FFF5F3; }
+table.tbl .name { font-weight: 700; }
+
+/* ---------- الحالة الفارغة ---------- */
+.empty .big {
+  width: 76px; height: 76px; margin: 0 auto 14px; opacity: 1;
+  display: grid; place-items: center; border-radius: 22px;
+  background: linear-gradient(145deg, var(--accent-wash), #fff);
+  color: var(--accent); box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line-soft);
+}
+.empty .big .ic { opacity: .75; }
+.empty h4 { font-weight: 800; }
+
+/* ---------- نقطة البيع ---------- */
+#pos .left { background: transparent; }
+#pos .right { box-shadow: 8px 0 30px -18px rgba(15,27,42,.25); }
+.scanbar { background: rgba(255,255,255,.7); backdrop-filter: blur(10px); }
+.scanbar .big-input {
+  border-radius: 14px; border-width: 2px;
+  background: #fff;
+  box-shadow: 0 8px 22px -14px color-mix(in srgb, var(--accent) 80%, #000);
+  transition: box-shadow .22s var(--ease), border-color .16s;
+}
+.scanbar .big-input:focus { box-shadow: 0 0 0 5px var(--glow), 0 10px 26px -14px color-mix(in srgb, var(--accent) 80%, #000); }
+.suggest { border-radius: 14px; box-shadow: var(--shadow-3); animation: qi-drop .18s var(--ease) both; }
+@keyframes qi-drop { from { opacity: 0; transform: translateY(-6px) scale(.99); } to { opacity: 1; transform: none; } }
+.suggest .s-item { transition: background .12s; }
+
+.cart-line {
+  border-radius: 14px; box-shadow: var(--shadow-1);
+  transition: border-color .16s, box-shadow .2s var(--ease), transform .2s var(--ease);
+  animation: qi-slidein .28s var(--ease) both;
+}
+@keyframes qi-slidein { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+.cart-line:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); box-shadow: var(--shadow-2); }
+/* التصنيف الطويل داخل سطر السلة كان يخرج عن حافة البطاقة */
+.cart-line .info, .cart-line .ln-meta { min-width: 0; }
+.cart-line .badge, .suggest .badge {
+  display: inline-block; max-width: 100%; vertical-align: middle;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qty-box { border-radius: 10px; box-shadow: 0 1px 2px rgba(15,27,42,.05); }
+.qty-box button { transition: background .14s, color .14s, transform .14s var(--ease); }
+.qty-box button:active { transform: scale(.9); }
+.cart-line .line-total { font-weight: 800; }
+
+.totals .t-row.grand {
+  border-top: 0; margin-top: 12px; padding: 14px 16px; border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent-wash), color-mix(in srgb, var(--accent-wash) 40%, #fff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-dim);
+}
+.totals .t-row.grand .num { font-weight: 800; letter-spacing: -.5px; }
+.pay-foot { background: linear-gradient(180deg, var(--surface-2), #fff); }
+
+.qp { border-radius: 14px; transition: transform .2s var(--ease), box-shadow .2s var(--ease), border-color .16s, background .16s; }
+.qp:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+
+/* شاشة الدفع */
+.pay-amount .num { font-weight: 800; letter-spacing: -.5px; }
+.pay-btn {
+  border-radius: 16px; border-width: 1.5px; box-shadow: var(--shadow-1);
+  transition: transform .2s var(--ease), box-shadow .2s var(--ease), border-color .16s, background .16s;
+}
+.pay-btn:hover { transform: translateY(-3px); box-shadow: var(--shadow-2); }
+.pay-btn:active { transform: translateY(0) scale(.985); }
+.pay-choices > .pay-btn { animation: qi-rise .32s var(--ease) both; }
+.pay-choices > .pay-btn:nth-child(2) { animation-delay: .05s; }
+.pay-choices > .pay-btn:nth-child(3) { animation-delay: .1s; }
+
+/* صناديق الجرد */
+.paybox { border-radius: 14px; box-shadow: var(--shadow-1); transition: transform .2s var(--ease), box-shadow .2s var(--ease); }
+.paybox:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.paybox .pb-v { font-weight: 800; letter-spacing: -.5px; }
+
+/* ---------- الخزائن والفروع والبطاقات ---------- */
+.bookcase, .branch-card, .item-card { border-radius: 16px; }
+.bookcase { transition: transform .22s var(--ease), box-shadow .22s var(--ease); }
+.bookcase:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.bookcase .cap { background: linear-gradient(135deg, var(--ink), var(--ink-soft)); }
+.bookcase .cap .letter { border-radius: 9px; box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--accent) 90%, #000); }
+.branch-card { transition: transform .22s var(--ease), box-shadow .22s var(--ease), border-color .16s; }
+.item-card { box-shadow: var(--shadow-1); transition: transform .22s var(--ease), box-shadow .22s var(--ease), border-color .16s; }
+.item-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.chip { border-radius: 99px; }
+.catbar .cb-track i { background: linear-gradient(90deg, var(--accent-dim), var(--accent)); }
+.prog-fill { background: linear-gradient(90deg, var(--accent-dim), var(--accent)); }
+.theme-dot { box-shadow: var(--shadow-1); transition: transform .2s var(--ease), box-shadow .2s; }
+.theme-dot:hover { transform: scale(1.12); box-shadow: var(--shadow-2); }
+
+/* ---------- النوافذ ---------- */
+.overlay {
+  background: rgba(15,27,42,.36);
+  backdrop-filter: blur(6px) saturate(1.1);
+}
+.modal {
+  border-radius: var(--r-lg); box-shadow: var(--shadow-3);
+  border: 1px solid rgba(255,255,255,.7);
+  animation: qi-modal .3s var(--ease) both;
+}
+@keyframes qi-modal { from { opacity: 0; transform: translateY(12px) scale(.965); } to { opacity: 1; transform: none; } }
+.modal .m-head { padding-block: 17px; }
+.modal .m-head h3 { font-weight: 800; letter-spacing: -.2px; }
+.modal .m-foot { background: linear-gradient(180deg, #fff, var(--surface-2)); border-radius: 0 0 var(--r-lg) var(--r-lg); }
+
+/* ---------- التنبيهات ---------- */
+.toast {
+  background: rgba(15,27,42,.94); backdrop-filter: blur(10px);
+  border-radius: 14px; box-shadow: var(--shadow-3);
+  padding-inline: 18px;
+  animation: qi-toast .38s var(--ease) both;
+}
+@keyframes qi-toast { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* ---------- الحركة ---------- */
+#view > * { animation: qi-rise .34s var(--ease) both; }
+.card { animation: qi-rise .38s var(--ease) both; }
+.grid > .card:nth-child(2) { animation-delay: .04s; }
+.grid > .card:nth-child(3) { animation-delay: .08s; }
+.grid > .card:nth-child(4) { animation-delay: .12s; }
+.card:hover { box-shadow: var(--shadow-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .cart-line, .suggest, .modal, .toast, .pay-choices > .pay-btn { animation: none !important; }
+  .stat:hover, .btn:hover, .qp:hover, .pay-btn:hover, .paybox:hover, .bookcase:hover, .item-card:hover { transform: none !important; }
+}
+.disc-bar .btn:hover { background: rgba(255,255,255,.26); color: #fff; border-color: rgba(255,255,255,.45); }
