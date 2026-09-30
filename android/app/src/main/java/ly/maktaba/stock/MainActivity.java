@@ -1,7 +1,12 @@
 package ly.maktaba.stock;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -15,6 +20,7 @@ import android.webkit.WebViewClient;
 import androidx.activity.ComponentActivity;
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.webkit.WebViewAssetLoader;
 
 import com.journeyapps.barcodescanner.ScanContract;
@@ -36,6 +42,11 @@ public class MainActivity extends ComponentActivity {
     private static final String START = "https://" + HOST + "/assets/site/index.html";
 
     private WebView web;
+    private String pendingScreen = null;          // شاشة يفتحها الضغط على إشعار
+    static volatile boolean visible = false;      // الفحص في الخلفية لا يُشعر والتطبيق أمامك
+
+    private final ActivityResultLauncher<String> askNotify =
+        registerForActivityResult(new ActivityResultContracts.RequestPermission(), ok -> { });
 
     private final ActivityResultLauncher<ScanOptions> scanner =
         registerForActivityResult(new ScanContract(), result -> {
@@ -57,6 +68,12 @@ public class MainActivity extends ComponentActivity {
         ws.setAllowFileAccess(false);
         ws.setAllowContentAccess(false);
         ws.setTextZoom(100);                    // حجم الخط من الواجهة لا من إعداد النظام
+        ws.setSupportZoom(false);               // تطبيق لا صفحة: لا تكبير بالأصابع
+        ws.setBuiltInZoomControls(false);
+        ws.setDisplayZoomControls(false);
+        web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
+        web.setHorizontalScrollBarEnabled(false);
+        web.setLongClickable(false);
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
             .setDomain(HOST)
@@ -67,6 +84,11 @@ public class MainActivity extends ComponentActivity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
                 return loader.shouldInterceptRequest(r.getUrl());
+            }
+
+            @Override
+            public void onPageFinished(WebView v, String url) {
+                openPendingScreen();
             }
 
             /* الاتصال بالفرع وأي رابط خارجي يُفتح في تطبيقه لا داخل الواجهة */
@@ -96,8 +118,37 @@ public class MainActivity extends ComponentActivity {
             }
         });
 
+        pendingScreen = getIntent().getStringExtra("screen");
         if (saved != null) web.restoreState(saved);
         else web.loadUrl(START);
+
+        CheckWorker.channels(this);
+        CheckWorker.schedule(this);
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            askNotify.launch(Manifest.permission.POST_NOTIFICATIONS);
+        }
+    }
+
+    /* الضغط على إشعار والتطبيق مفتوح في الخلفية */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        pendingScreen = intent.getStringExtra("screen");
+        openPendingScreen();
+    }
+
+    private void openPendingScreen() {
+        if (pendingScreen == null) return;
+        String k = pendingScreen.replaceAll("[^a-z]", "");
+        pendingScreen = null;
+        js("window.UI && UI.S && UI.S.snap && UI.go('" + k + "')");
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        visible = false;
     }
 
     @Override
@@ -110,6 +161,7 @@ public class MainActivity extends ComponentActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        visible = true;
         js("window.UI && UI.S && UI.S.snap && UI.refresh && UI.refresh(true)");
     }
 
@@ -133,5 +185,25 @@ public class MainActivity extends ComponentActivity {
 
         @JavascriptInterface
         public String version() { return BuildConfig.VERSION_NAME; }
+
+        /* الواجهة تسلّم الربط وخيارات الإشعار ليفحص التطبيق في الخلفية */
+        @JavascriptInterface
+        public void setConfig(String json) {
+            try {
+                JSONObject o = new JSONObject(json);
+                JSONObject n = o.optJSONObject("notif");
+                SharedPreferences.Editor e = getSharedPreferences(CheckWorker.PREFS, Context.MODE_PRIVATE).edit()
+                    .putString("url", o.optString("url", ""))
+                    .putString("key", o.optString("key", ""));
+                if (n != null) {
+                    e.putBoolean("n_stock", n.optBoolean("stock", true))
+                     .putBoolean("n_restock", n.optBoolean("restock", true))
+                     .putBoolean("n_daily", n.optBoolean("daily", true))
+                     .putBoolean("n_sync", n.optBoolean("sync", true));
+                }
+                e.apply();
+                CheckWorker.schedule(getApplicationContext());
+            } catch (Exception ignored) { }
+        }
     }
 }

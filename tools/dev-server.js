@@ -144,7 +144,18 @@ http.createServer((req, res) => {
     if (p === '/api/activate') return json(res, { ok: true, until: 'دائم' });
     if (p === '/api/preset') return json(res, { ok: false });
     if (p === '/api/notify') { console.log('[notify]', body.toString().slice(0, 300)); return json(res, { ok: true }); }
-    if (p === '/api/sync') { console.log('[sync]'); return json(res, { ok: true, branches: [] }); }
+    /* خادم ربط مقلَّد للاختبار: ما في .devdata/remote.json يُعاد كلقطات
+       فروع/تلفونات، وآخر لقطة رفعها هذا الجهاز تُحفظ في uploaded.json */
+    if (p === '/api/sync') {
+      console.log('[sync]');
+      try {
+        const b = JSON.parse(body.toString('utf8') || '{}');
+        if (b.upload) fs.writeFileSync(path.join(DATA, 'uploaded.json'), JSON.stringify(b.upload));
+      } catch (e) { }
+      let branches = [];
+      try { branches = JSON.parse(fs.readFileSync(path.join(DATA, 'remote.json'), 'utf8')); } catch (e) { }
+      return json(res, { ok: true, branches });
+    }
     if (p === '/api/open-folder' || p === '/api/quit' || p === '/api/uninstall') return json(res, { ok: true });
 
     /* تقليد /api/info في النواة: الإصدار وختم البناء */

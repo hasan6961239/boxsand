@@ -647,6 +647,73 @@ var Sales = (function () {
   }
 
   /* ============================================================
+     فاتورة من التلفون
+     ------------------------------------------------------------
+     التلفون يرسل: الأصناف (باركود/رمز، كمية، سعر البيع وقتها)، الخصم،
+     طريقة الدفع، والزبون إن كان آجلاً. هنا تُسجَّل فاتورة حقيقية بنفس
+     قواعد البيع من الكمبيوتر: خصم المخزون، آخر بيع، على المباع، دين
+     الزبون، وتنبيهات النفاد. سعر الشراء والربح يُحسبان هنا لا هناك.
+     ============================================================ */
+  function applyPhoneOrder(o, device) {
+    var lines = [], missing = [];
+    (o.items || []).forEach(function (l) {
+      var hit = null, bc = String(l.b || "").trim(), code = String(l.k || "").trim().toUpperCase();
+      App.allItems().forEach(function (x) {
+        if (hit) return;
+        if ((bc && String(x.it.barcode || "").trim() === bc) ||
+            (code && String(x.it.code || "").trim().toUpperCase() === code)) hit = x;
+      });
+      var q = App.num(l.q);
+      if (!hit || q <= 0) { missing.push(l.n || bc || code); return; }
+      lines.push({ type: hit.type, id: hit.it.id, name: App.itemName(hit.it), qty: q,
+        price: App.num(l.p), cost: App.num(hit.it.cost) });
+    });
+    if (!lines.length) {
+      App.log("بيع من التلفون", "طلب " + o.id + " لم يُسجَّل: أصناف غير موجودة");
+      return null;
+    }
+    var sub = App.r3(lines.reduce(function (a, l) { return a + l.price * l.qty; }, 0));
+    var disc = Math.min(Math.max(App.num(o.disc), 0), sub);
+    var t = App.r3(sub - disc);
+    var prof = App.r3(lines.reduce(function (a, l) { return a + (l.price - l.cost) * l.qty; }, 0) - disc);
+    var m = ["cash", "card", "credit"].indexOf(o.method) >= 0 ? o.method : "cash";
+    var cust = (m === "credit" && o.cust) ? People.customer(o.cust) : null;
+    if (m === "credit" && !cust) m = "cash";          // زبون حُذف من هنا ⇦ يُسجَّل نقداً
+    var date = /^\d{4}-\d{2}-\d{2}$/.test(String(o.date || "")) && String(o.date) <= App.today() ? String(o.date) : App.today();
+    var beforeQty = (typeof Notify !== "undefined") ? Notify.snapshotQty() : {};
+
+    S().counters.invoice++;
+    var inv = {
+      id: App.uid(), no: S().counters.invoice, kind: "sale",
+      date: date, at: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(String(o.at || "")) ? String(o.at).slice(0, 16) : App.nowStamp(),
+      items: lines, subtotal: sub, discount: disc, total: t, profit: prof,
+      method: m, mode: "retail", customerId: cust ? cust.id : "",
+      paid: m === "credit" ? Math.min(Math.max(App.num(o.paid), 0), t) : t,
+      source: "phone", device: String(device || "التلفون").slice(0, 60), phoneId: String(o.id),
+      note: missing.length ? "لم تُسجَّل (غير موجودة هنا): " + missing.join("، ") : ""
+    };
+    inv.due = App.r3(Math.max(t - inv.paid, 0));
+
+    inv.items.forEach(function (l) {
+      var it = App.findItem(l.type, l.id);
+      if (!it) return;
+      it.qty = App.num(it.qty) - l.qty;
+      it.updated = App.nowStamp();
+      if (!it.lastSold || String(it.lastSold) < inv.date) it.lastSold = inv.date;
+      it.soldTotal = App.num(it.soldTotal) + l.qty;
+      if (it.consId && typeof Consign !== "undefined") {
+        try { Consign.recordSale(it.id, l.qty); } catch (e) { }
+      }
+    });
+    if (inv.due > 0 && cust) cust.balance = App.r3(App.num(cust.balance) + inv.due);
+
+    S().invoices.unshift(inv);
+    App.log("بيع من التلفون", "فاتورة " + inv.no + " بقيمة " + App.money0(t) + " — " + inv.device);
+    if (typeof Notify !== "undefined") { try { Notify.afterSale(inv, beforeQty); } catch (e) { } }
+    return inv;
+  }
+
+  /* ============================================================
      الفواتير
      ============================================================ */
 
@@ -686,7 +753,7 @@ var Sales = (function () {
     if (!host) return;
     var rows = filteredInvoices();
     host.innerHTML = App.table([
-      { h: "رقم", cls: "num", c: function (v) { return "<b>" + v.no + "</b>"; } },
+      { h: "رقم", cls: "num", c: function (v) { return "<b>" + v.no + "</b>" + (v.source === "phone" ? ' <span class="badge info" title="' + App.esc(v.device || "") + '">📱 تلفون</span>' : ""); } },
       { h: "التاريخ", c: function (v) { return '<div>' + App.esc(v.date) + '</div><div class="sub">' + App.esc(String(v.at).slice(11)) + "</div>"; } },
       { h: "النوع", c: function (v) { return v.kind === "return" ? '<span class="badge bad">إرجاع</span>' : '<span class="badge ok">بيع</span>'; } },
       { h: "الأصناف", c: function (v) { return '<div class="sub">' + App.esc(v.items.map(function (l) { return l.name + "×" + l.qty; }).join("، ").slice(0, 70)) + "</div>"; } },
@@ -745,7 +812,9 @@ var Sales = (function () {
       title: (v.kind === "return" ? "إرجاع رقم " : "فاتورة رقم ") + v.no,
       size: "wide",
       body: '<div class="row small muted" style="margin-bottom:12px">' +
-        App.esc(v.at) + " · " + (c ? "الزبون: " + App.esc(c.name) : "بيع نقدي") + "</div>" +
+        App.esc(v.at) + " · " + (c ? "الزبون: " + App.esc(c.name) : "بيع نقدي") +
+        (v.source === "phone" ? ' · <span class="badge info">📱 من ' + App.esc(v.device || "التلفون") + "</span>" : "") + "</div>" +
+        (v.note ? '<div class="small" style="margin:-4px 0 12px;color:var(--stamp)">' + App.esc(v.note) + "</div>" : "") +
         App.table([
           { h: "الصنف", c: function (l) { return App.esc(l.name); } },
           { h: "الكمية", cls: "num", c: function (l) { return App.num(l.qty); } },
@@ -1461,7 +1530,7 @@ var Sales = (function () {
 
   return {
     pos: pos, afterRender: afterRender, suggest: suggest, scanKey: scanKey,
-    add: add, setQty: setQty, bump: bump, delLine: delLine, clear: clear,
+    add: add, setQty: setQty, bump: bump, delLine: delLine, clear: clear, applyPhoneOrder: applyPhoneOrder,
     editQuick: editQuick, qFilter: qFilter, qToggle: qToggle, qClear: qClear,
     pick: pick, backPay: backPay, pickCust: pickCust, confirmCredit: confirmCredit,
     setDiscount: setDiscount, setMethod: setMethod, setMode: setMode, setCustomer: setCustomer,

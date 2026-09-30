@@ -23,24 +23,44 @@ function tomlHeaders(file) {
 const HEADERS = tomlHeaders(path.join(SITE, 'netlify.toml'));
 const ago = m => new Date(Date.now()-m*60000).toISOString().slice(0,16).replace('T',' ');
 
+const pad = x => (x<10?'0':'')+x;
+const dayKey = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const TODAY = dayKey(new Date()), YDAY = dayKey(new Date(Date.now()-864e5));
 const PAYLOAD = { ok:true, branches:[
   { at: ago(6), branch:{id:'misrata',name:'مكتبة دار الحكمة',city:'مصراتة',phone:'091 234 5678'},
     items:[
       {n:'أساسيات الهندسة لتقنيات الورش',a:'د. سالم القدّافي',b:'9789991234567',c:'هندسة',k:'K0001',q:12,st:9,p:25,m:5,t:'book',l:'D',s:'1',d:'دار المعرفة',nt:'التخصص: هندسة ميكانيكية\nكتاب تمهيدي لطلبة السنة الأولى.'},
       {n:'تشريح جسم الإنسان',a:'د. منى الفيتوري',b:'',c:'طب بشري',k:'K0002',q:0,p:60,m:3,t:'book',l:'A',s:'2',d:'',nt:''},
-      {n:'قلم جاف أزرق',b:'55512345',q:4,p:1.5,m:10,t:'stat',loc:'رف A',u:'قطعة'},
-      {n:'دفتر 100 ورقة',b:'55599999',q:150,p:3,m:20,t:'stat',loc:'رف C',u:'قطعة'},
+      {n:'قلم جاف أزرق',b:'55512345',q:4,p:1.5,m:10,t:'stat',loc:'رف A',u:'قطعة',sl:210},
+      {n:'دفتر 100 ورقة',b:'55599999',c:'أمراض النساء والتوليد (Obstetrics and Gynecology / MRCOG Part 1 Preparation) مرجع طويل جداً',q:150,p:3,m:20,t:'stat',loc:'رف C',u:'قطعة'},
       {n:'أساسيات الهندسة لتقنيات الورش',a:'د. عمر الشريف',b:'9789990000111',c:'هندسة',k:'K0009',q:3,p:30,m:1,t:'book',l:'A',s:'1',d:'دار أخرى'}
     ],
     whs:[{id:'w1',name:'مخزن سوق الثلاثاء',place:'الطابق السفلي',phone:'092-111-2222',
-      items:[{n:'أساسيات الهندسة لتقنيات الورش',q:40,p:25,b:'9789991234567',t:'book'}]}] },
+      items:[{n:'أساسيات الهندسة لتقنيات الورش',q:40,p:25,b:'9789991234567',t:'book'}]}],
+    /* منظومة 2.6: لوحة اليوم والزبائن وتأكيد فواتير التلفون */
+    dash:{ today:TODAY, cur:'د.ل', days:{ [TODAY]:{v:175,n:3,q:5}, [YDAY]:{v:60,n:1,q:2} },
+      recent:[{no:3,d:TODAY,at:'10:05',t:75,m:'cash',k:'sale',n:'أساسيات الهندسة لتقنيات الورش',q:3},
+              {no:2,d:TODAY,at:'09:40',t:100,m:'credit',k:'sale',c:'محمد الفيتوري',n:'تشريح جسم الإنسان',q:2,ph:1}] },
+    cust:[{id:'c1',n:'محمد الفيتوري',ph:'0912345678',b:85},{id:'c2',n:'مكتبة الأمل',ph:'',b:0},{id:'c3',n:'أحمد',ph:'0923334444',b:12.5}],
+    acks:{}, phoneSell:true },
   { at: ago(60*24*4), branch:{id:'tripoli',name:'فرع طرابلس',city:'طرابلس',phone:''},
     items:[{n:'أساسيات الهندسة لتقنيات الورش',a:'د. سالم القدّافي',b:'9789991234567',c:'هندسة',q:5,p:25,m:5,t:'book',l:'B',s:'3'}],
     whs:[] }
 ]};
 
+const PUTS = [];
 const srv = http.createServer((q,s)=>{
   const u = new URL(q.url,'http://x');
+  /* التلفون يرفع ملفه (طلبات البيع) كما يفعل أي فرع */
+  if (u.pathname === '/w/put' && q.method === 'POST') {
+    if (q.headers['x-shop-key'] !== 'sirr') { s.writeHead(401,{'access-control-allow-origin':'*'}); return s.end('{"ok":false}'); }
+    let body=''; q.on('data',c=>body+=c); return q.on('end',()=>{
+      const snap = JSON.parse(body); PUTS.push(snap);
+      PAYLOAD.branches = PAYLOAD.branches.filter(b=>b.branch.id!==snap.branch.id).concat([snap]);
+      s.writeHead(200,{'content-type':'application/json','access-control-allow-origin':'*'}); s.end('{"ok":true}');
+    });
+  }
+  if (q.method === 'OPTIONS') { s.writeHead(204,{'access-control-allow-origin':'*','access-control-allow-methods':'GET,POST,OPTIONS','access-control-allow-headers':'Content-Type,X-Shop-Key'}); return s.end(); }
   if (u.pathname === '/w/all') {
     if (q.headers['x-shop-key'] !== 'sirr') { s.writeHead(401,{'access-control-allow-origin':'*'}); return s.end('{"ok":false,"error":"unauthorized"}'); }
     s.writeHead(200,{'content-type':'application/json','access-control-allow-origin':'*'});
@@ -104,6 +124,14 @@ const srv = http.createServer((q,s)=>{
   const shop = await pg.textContent('#shopName');
   ok('واسم المحل من اللقطة', /دار الحكمة/.test(shop||''), shop);
   if (SHOT) await pg.screenshot({path:SHOT+'site-2-home.png', fullPage:true});
+
+  // 3ب) الخطأ الذي صوّره صاحب المحل: تصنيف طويل كان يوسّع الصفحة
+  const fit = await pg.evaluate(() => {
+    const t = document.getElementById('tabs').getBoundingClientRect();
+    return { sw: document.documentElement.scrollWidth, w: innerWidth, tabsBottom: Math.round(t.bottom), h: innerHeight };
+  });
+  ok('الصفحة لا تتّسع عن عرض التلفون مع تصنيف طويل', fit.sw <= fit.w, JSON.stringify(fit));
+  ok('والشريط السفلي ظاهر داخل الشاشة', fit.tabsBottom <= fit.h && fit.tabsBottom > fit.h - 120, JSON.stringify(fit));
 
   // 4) الأرقام
   const tiles = await pg.$$eval('.tile b', e=>e.map(x=>x.textContent.trim()));
@@ -240,7 +268,7 @@ const srv = http.createServer((q,s)=>{
   ok('والاختيار يُحفظ ويطابق المعروض', kept.saved===kept.dom, JSON.stringify(kept));
 
   // 19) تصفّح المكتبات والرفوف
-  await pg.click('#tabs button[data-arg="browse"]'); await pg.waitForTimeout(600);
+  await pg.evaluate(()=>UI.go('browse')); await pg.waitForTimeout(600);
   const libs = await pg.$$eval('.lib-card .lib-badge', e=>e.map(x=>x.textContent.trim()));
   ok('شاشة الرفوف تعرض المكتبات', libs.length>=2 && libs.indexOf('A')>=0 && libs.indexOf('D')>=0,
      JSON.stringify(libs));
@@ -259,7 +287,7 @@ const srv = http.createServer((q,s)=>{
   ok('والرجوع يعمل', (await pg.$$eval('.lib-card', e=>e.length))>=2);
 
   // 20) شاشة الملخّص
-  await pg.click('#tabs button[data-arg="stats"]'); await pg.waitForTimeout(600);
+  await pg.evaluate(()=>UI.go('stats')); await pg.waitForTimeout(600);
   const heroTxt = await pg.textContent('.hero');
   ok('الملخّص يعرض قيمة المخزون', /قيمة المخزون/.test(heroTxt), heroTxt.slice(0,50));
   const catRows = await pg.$$eval('.cat-row .cat-n', e=>e.map(x=>x.textContent.trim()));
@@ -285,8 +313,8 @@ const srv = http.createServer((q,s)=>{
   await pg.click('.chip:has-text("في غرفة الخزين")'); await pg.waitForTimeout(500);
   ok('ورقاقة «في غرفة الخزين» تصفّي به', (await pg.$$eval('.row', e=>e.length))===1);
   await pg.evaluate(()=>{ UI.S.filter=''; }); 
-  await pg.click('#tabs button[data-arg="browse"]'); await pg.waitForTimeout(700);
-  ok('الكبسولة تنزلق تحت تبويب «الرفوف»', await pg.$eval('#tabs .tab-glider', e=>e.classList.contains('p1')));
+  await pg.evaluate(()=>UI.go('browse')); await pg.waitForTimeout(700);
+  ok('الرفوف تحت «المزيد» والكبسولة تنزلق إليه (الرابع)', await pg.$eval('#tabs .tab-glider', e=>e.classList.contains('p3')));
   await pg.click('.room-card'); await pg.waitForTimeout(600);
   ok('وصفحة الغرفة في شاشة الرفوف', /غرفة الخزين/.test(await pg.textContent('.sec-head')) &&
      (await pg.$$eval('.row', e=>e.length))===1);
@@ -321,15 +349,97 @@ const srv = http.createServer((q,s)=>{
     await ap.waitForTimeout(400);
     ok('فتُغلق', !(await ap.isVisible('#sheet')));
     await ap.evaluate(()=>UI.go('stats')); await ap.waitForTimeout(400);
-    ok('ومن شاشة أخرى يرجع للرئيسية', await ap.evaluate(()=>UI.back()===true && UI.S.screen==='home'));
+    ok('من صفحة داخل «المزيد» يرجع إلى «المزيد»', await ap.evaluate(()=>UI.back()===true && UI.S.screen==='more'));
+    ok('ثم إلى «اليوم» (أول تبويب)', await ap.evaluate(()=>UI.back()===true && UI.S.screen==='dash'));
     ok('ثم يمسح البحث', await ap.evaluate(()=>UI.back())===true && await ap.inputValue('#q')==='');
-    ok('ومن الرئيسية الفارغة يسمح بإغلاق التطبيق', await ap.evaluate(()=>UI.back())===false);
+    ok('ومن «اليوم» بلا بحث يسمح بإغلاق التطبيق', await ap.evaluate(()=>UI.back())===false);
     await ap.evaluate(()=>UI.onScan('000000')); await ap.waitForTimeout(400);
     ok('باركود غير موجود يُنبَّه عليه', /لا يوجد صنف بالباركود/.test(await ap.textContent('#toasts')));
     ok('ولا style سطري في وضع التطبيق', (await ap.$$eval('[style]:not(body)', e=>e.length))===0);
     if (SHOT) await ap.screenshot({path:SHOT+'app-home.png'});
     await actx.close();
   }
+  // 25) شاشات التطبيق الجديدة والبيع من التلفون
+  {
+    const cx = await b.newContext({viewport:{width:390,height:844}});
+    const ap = await cx.newPage();
+    ap.on('pageerror',e=>errs.push('APP2 PAGEERROR: '+e.message));
+    ap.on('console',m=>{ const t=m.text(); if (/Content Security Policy|Refused to/.test(t)) errs.push('APP2 CSP: '+t.slice(0,120)); });
+    await ap.addInitScript(() => { window.__cfg = []; window.AndroidApp = { scan(){}, version(){ return '1.1'; }, setConfig(j){ window.__cfg.push(JSON.parse(j)); } }; });
+    await ap.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr'); await ap.waitForTimeout(1600);
+    const tabs = await ap.$$eval('#tabs button', e=>e.map(x=>x.getAttribute('data-tab')));
+    ok('التطبيق: خمسة تبويبات (اليوم، المخزون، بيع، الخزين، المزيد)', tabs.join()==='dash,home,sell,room,more', tabs.join());
+    ok('وبيانات الربط تصل لأندرويد للإشعارات', await ap.evaluate(()=>window.__cfg.length>0 && window.__cfg[window.__cfg.length-1].key==='sirr'));
+
+    await ap.evaluate(()=>UI.go('dash')); await ap.waitForTimeout(900);
+    ok('لوحة اليوم: مبيعات اليوم 175', /175\.00/.test(await ap.textContent('.dash-hero')));
+    ok('وآخر الفواتير مع فاتورة التلفون معلَّمة', (await ap.$$eval('.row.inv', e=>e.length))===2 && /من التلفون/.test(await ap.textContent('.rows')));
+    ok('ونقاط أيام الشهر', (await ap.$$eval('.mdots i', e=>e.length))>=28);
+    if (SHOT) await ap.screenshot({path:SHOT+'app-dash.png'});
+
+    await ap.evaluate(()=>UI.go('more')); await ap.waitForTimeout(700);
+    ok('«المزيد»: ستّ بطاقات', (await ap.$$eval('.more-tile', e=>e.length))===6);
+    if (SHOT) await ap.screenshot({path:SHOT+'app-more.png'});
+    await ap.evaluate(()=>UI.go('debts')); await ap.waitForTimeout(600);
+    ok('الديون: المجموع 97.50 على زبونين', /97\.50/.test(await ap.textContent('.debt-hero')) && (await ap.$$eval('.row.debt', e=>e.length))===2);
+    const wa = await ap.$$eval('a.mini-btn.wa', e=>e.map(x=>x.href));
+    ok('وتذكير واتساب برقم ليبي دولي', wa.some(h=>/wa\.me\/218912345678\?text=/.test(h)), wa[0]);
+    await ap.evaluate(()=>UI.go('alerts')); await ap.waitForTimeout(600);
+    const seg = await ap.$$eval('.seg2 button', e=>e.map(x=>x.textContent.replace(/\s+/g,' ').trim()));
+    ok('التنبيهات: نفد 1، قارب 1، املأ الرفوف 0، راكد 1', seg.join('|')==='نفد 1|قارب 1|املأ الرفوف 0|راكد 1', seg.join('|'));
+    await ap.click('.seg2 button[data-arg="slow"]'); await ap.waitForTimeout(400);
+    ok('والراكد يذكر الأيام', /راكد 210 يوم/.test(await ap.textContent('#view')));
+    await ap.evaluate(()=>UI.go('room')); await ap.waitForTimeout(600);
+    ok('تبويب «الخزين» يعرض ما في الغرفة', /9/.test(await ap.textContent('.room-hero')) && (await ap.$$eval('.row', e=>e.length))===1);
+
+    // البيع: الكاميرا في شاشة البيع تضيف للسلة
+    await ap.evaluate(()=>UI.go('sell')); await ap.waitForTimeout(500);
+    await ap.evaluate(()=>UI.onScan('9789991234567')); await ap.waitForTimeout(300);
+    await ap.evaluate(()=>UI.onScan('9789991234567')); await ap.waitForTimeout(300);
+    ok('مسح نفس الكتاب مرتين = كمية 2 في السلة', await ap.textContent('.cline .qty b')==='2');
+    await ap.fill('#sellQ','قلم'); await ap.waitForTimeout(400);
+    await ap.click('.sug'); await ap.waitForTimeout(400);
+    ok('والبحث بالاسم يضيف القلم', (await ap.$$eval('.cline', e=>e.length))===2);
+    ok('والصافي 51.50', /51\.50/.test(await ap.textContent('.grand')));
+    await ap.click('.seg2.pay-m button[data-arg="credit"]'); await ap.waitForTimeout(300);
+    await ap.click('button[data-act="checkout"]'); await ap.waitForTimeout(300);
+    ok('الآجل يطلب الزبون أولاً', (await ap.$$eval('.cline', e=>e.length))===2);
+    await ap.selectOption('#sellCust','c3'); await ap.fill('#sellPaid','20');
+    if (SHOT) await ap.screenshot({path:SHOT+'app-sell.png'});
+    const before = PUTS.length;
+    await ap.click('button[data-act="checkout"]'); await ap.waitForTimeout(1200);
+    ok('إتمام البيع يُفرغ السلة ويُظهر ✓', (await ap.$$eval('.cline', e=>e.length))===0);
+    const put = PUTS[PUTS.length-1];
+    ok('والطلب يُرفع لخادم الربط في ملف التلفون', PUTS.length>before && put.kind==='phone' && /^phone-/.test(put.branch.id) && put.orders.length===1, JSON.stringify(put&&put.orders));
+    const o = put.orders[0];
+    ok('بالأصناف والكميات والسعر والآجل والمدفوع', o.items.length===2 && o.items.some(l=>l.b==='9789991234567'&&l.q===2&&l.p===25) && o.method==='credit' && o.cust==='c3' && o.paid===20, JSON.stringify(o));
+    ok('ولا يرفع التلفون أي مخزون', Array.isArray(put.items) && put.items.length===0);
+
+    await ap.evaluate(()=>UI.refresh(true)); await ap.waitForTimeout(900);
+    await ap.evaluate(()=>UI.go('home')); await ap.waitForTimeout(500);
+    ok('الكمية المبيعة محجوزة في المعروض حتى يسجّلها الكمبيوتر', /محجوز 2/.test(await ap.textContent('#view')));
+    ok('وملف التلفون ليس مكاناً في المخزون', await ap.evaluate(()=>UI.places().every(p=>!/^phone-/.test(p.key.slice(2)))));
+
+    // الكمبيوتر يسجّلها فاتورة 77
+    PAYLOAD.branches[0].acks = { [o.id]: 77 };
+    await ap.evaluate(()=>UI.refresh(true)); await ap.waitForTimeout(1200);
+    await ap.evaluate(()=>UI.go('orders')); await ap.waitForTimeout(600);
+    ok('تأكيد الكمبيوتر يظهر: فاتورة رقم 77', /فاتورة رقم 77/.test(await ap.textContent('#view')));
+    ok('والجرس يرنّ ويعدّ الجديد', await ap.evaluate(()=>{ const b=document.querySelector('#btnBell .bdg'); return !!b && +b.textContent>=1; }));
+    const last = PUTS[PUTS.length-1];
+    ok('وبعد التأكيد يُفرَّغ ملف التلفون من الطلب', last.orders.length===0, JSON.stringify(last.orders));
+    await ap.click('#btnBell'); await ap.waitForTimeout(600);
+    ok('لوحة الإشعارات تُفتح وفيها «سُجّلت فاتورة رقم 77»', /سُجّلت فاتورة رقم 77/.test(await ap.textContent('#sheet')));
+    if (SHOT) await ap.screenshot({path:SHOT+'app-bell.png'});
+    await ap.click('button[data-act="bellRead"]'); await ap.waitForTimeout(400);
+    ok('و«تحديد الكل كمقروء» يُخفي العدّاد', !(await ap.$('#btnBell .bdg')));
+    const st2 = await ap.$$eval('[style]:not(body)', e=>e.map(x=>x.tagName+'#'+x.id+'.'+x.className+' '+x.getAttribute('style')));
+    ok('لا style سطري في شاشات التطبيق', st2.length===0, JSON.stringify(st2));
+    const fit2 = await ap.evaluate(()=>({sw:document.documentElement.scrollWidth,w:innerWidth}));
+    ok('ولا شيء يتّسع عن الشاشة', fit2.sw<=fit2.w, JSON.stringify(fit2));
+    await cx.close();
+  }
+
   const plainCam = await pg.$('#qcam');
   ok('في المتصفح العادي لا زر كاميرا', !plainCam);
 

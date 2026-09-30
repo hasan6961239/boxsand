@@ -794,3 +794,187 @@ main{padding-bottom:86px}
 .search-cam:active{transform:translateY(-50%) scale(.9)}
 body.in-app .search-inp{padding-inline-end:92px}
 body.in-app .search-x{inset-inline-end:52px}
+
+/* ============================================================
+   لا شيء يتّسع عن الشاشة
+   تصنيف طويل مثل «(Obstetrics and Gynecology / MRCOG…)» كان شارة
+   بسطر واحد تخرج عن حافة البطاقة، فتصير الصفحة أعرض من التلفون:
+   تُسحب جانباً ويظهر بياض، ويتّسع إطار العرض فينزل الشريط السفلي
+   تحت الشاشة ولا يظهر. الآن الشارة تُقصّ بنقاط، والصفحة لا تتّسع.
+   ============================================================ */
+html,body{overflow-x:hidden;max-width:100%}
+.tag{max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;display:inline-block}
+.row-tags,.det-tags{min-width:0;max-width:100%}
+.row-main,.row-name,.row-sub{min-width:0;overflow-wrap:anywhere}
+.row-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* داخل التطبيق: إحساس تطبيق لا صفحة متصفح */
+body.in-app{overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+body.in-app input,body.in-app textarea,body.in-app .ltr{-webkit-user-select:text;user-select:text}
+body.in-app #view{overscroll-behavior-x:none;touch-action:pan-y}
+
+/* ============================================================
+   شاشات التطبيق (phone.js): اليوم، الخزين، المزيد، الديون،
+   التنبيهات، البيع، والجرس — بنفس هوية المنظومة وحركتها
+   ============================================================ */
+.hero .cur{font-style:normal;font-size:14px;opacity:.85;margin-inline-start:6px}
+.hero-v b.cu{display:inline-block}
+.dash-hero{position:relative;overflow:hidden}
+.dash-hero::after{content:"";position:absolute;inset:-40% -30% auto auto;width:220px;height:220px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,255,255,.18),transparent 65%);animation:blob 9s ease-in-out infinite}
+.dash-bars{display:block;width:100%;height:46px;margin-top:14px}
+.dash-bars rect{fill:rgba(255,255,255,.4);transform-box:fill-box;transform-origin:bottom;animation:barGrow .6s var(--spring) both}
+.dash-bars rect.now{fill:#fff}
+.dash-bars .b1{animation-delay:.04s}.dash-bars .b2{animation-delay:.08s}.dash-bars .b3{animation-delay:.12s}
+.dash-bars .b4{animation-delay:.16s}.dash-bars .b5{animation-delay:.2s}.dash-bars .b6{animation-delay:.24s}
+@keyframes barGrow{from{transform:scaleY(0)}to{transform:none}}
+.room-hero{background:linear-gradient(140deg,#3D7F9C 0%,var(--blue) 100%)}
+.debt-hero{background:linear-gradient(140deg,#C25B4F 0%,#8E2A25 100%)}
+
+.mdots{display:grid;grid-template-columns:repeat(11,1fr);gap:7px;margin-top:10px}
+.mdots i{display:block;aspect-ratio:1;border-radius:50%;animation:dotIn .4s var(--spring) both}
+.mdots i.on{background:var(--green);box-shadow:0 0 8px -2px var(--green)}
+.mdots i.off{background:var(--line)}
+.mdots i.fut{background:var(--line-2)}
+.mdots i.now{outline:2px solid var(--green-l);outline-offset:2px}
+@keyframes dotIn{from{opacity:0;transform:scale(0)}to{opacity:1;transform:none}}
+.mdots i.d1{animation-delay:.015s}.mdots i.d2{animation-delay:.03s}.mdots i.d3{animation-delay:.045s}.mdots i.d4{animation-delay:.06s}
+.mdots i.d5{animation-delay:.075s}.mdots i.d6{animation-delay:.09s}.mdots i.d7{animation-delay:.105s}.mdots i.d8{animation-delay:.12s}
+.mdots i.d9{animation-delay:.135s}.mdots i.d10{animation-delay:.15s}.mdots i.d11{animation-delay:.165s}.mdots i.d12{animation-delay:.18s}
+.mdots i.d13{animation-delay:.195s}.mdots i.d14{animation-delay:.21s}.mdots i.d15{animation-delay:.225s}.mdots i.d16{animation-delay:.24s}
+.mdots i.d17{animation-delay:.255s}.mdots i.d18{animation-delay:.27s}.mdots i.d19{animation-delay:.285s}.mdots i.d20{animation-delay:.3s}
+.mdots i.d21{animation-delay:.315s}.mdots i.d22{animation-delay:.33s}.mdots i.d23{animation-delay:.345s}.mdots i.d24{animation-delay:.36s}
+.mdots i.d25{animation-delay:.375s}.mdots i.d26{animation-delay:.39s}.mdots i.d27{animation-delay:.405s}.mdots i.d28{animation-delay:.42s}
+.mdots i.d29{animation-delay:.435s}.mdots i.d30{animation-delay:.45s}
+
+.note-card.pend{background:var(--amber-wash)}
+.muted-t{color:var(--muted);font-weight:500;font-size:12px;font-family:var(--num)}
+.row.inv,.row.debt{cursor:default}
+
+/* شريحة اختيار بعدّاد */
+.seg2{display:flex;gap:4px;background:var(--line-2);padding:4px;border-radius:14px;margin:0 0 12px}
+.seg2 button{flex:1;border:0;background:none;font:inherit;font-size:13px;font-weight:700;color:var(--muted);
+  padding:9px 6px;border-radius:10px;cursor:pointer;transition:background .2s,color .2s,transform .28s var(--spring)}
+.seg2 button i{font-style:normal;font-family:var(--num);font-size:11.5px;opacity:.8;margin-inline-start:3px}
+.seg2 button.on{background:var(--card);color:var(--ink);box-shadow:var(--sh-1);animation:chipPop .35s var(--spring)}
+.seg2 button.hot:not(.on) i{color:var(--red);opacity:1}
+.seg2.four button{font-size:12px;padding:9px 3px}
+
+/* المزيد */
+.more-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.more-tile{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:start;font:inherit;color:inherit;
+  background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 14px;cursor:pointer;min-height:124px;
+  box-shadow:var(--sh-1);animation:tile3d .55s var(--spring) both;transition:transform .28s var(--spring)}
+.more-tile:active{transform:scale(.95)}
+.more-tile .mt-ic{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:var(--green-wash);color:var(--green);margin-bottom:6px}
+.more-tile.warn .mt-ic{background:var(--amber-wash);color:var(--amber)}
+.more-tile.bad .mt-ic{background:var(--red-wash);color:var(--red)}
+.more-tile b{font-size:15px}
+.more-tile span:last-child{font-size:12px;color:var(--muted)}
+.more-tile.d1{animation-delay:.04s}.more-tile.d2{animation-delay:.08s}.more-tile.d3{animation-delay:.12s}
+.more-tile.d4{animation-delay:.16s}.more-tile.d5{animation-delay:.2s}
+
+/* الديون */
+.row-acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.mini-btn{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:6px 10px;border-radius:99px;
+  background:var(--line-2);color:var(--ink-2);text-decoration:none}
+.mini-btn.wa{background:#DCF5E6;color:#137A3E}
+:root[data-theme="dark"] .mini-btn.wa{background:#12301F;color:#7FD6A1}
+
+/* الجرس */
+.icon-btn.bell{position:relative}
+.icon-btn.bell .bdg{position:absolute;top:3px;inset-inline-end:3px;min-width:18px;height:18px;padding:0 5px;border-radius:99px;
+  background:#E5484D;color:#fff;font-style:normal;font-size:10.5px;font-weight:800;line-height:18px;text-align:center;
+  box-shadow:0 0 0 2px var(--green);animation:bdgIn .4s var(--spring)}
+.icon-btn.bell.ring svg{animation:ring 1s ease both;transform-origin:50% 10%}
+@keyframes ring{0%,100%{transform:none}10%,30%,50%{transform:rotate(16deg)}20%,40%{transform:rotate(-16deg)}60%{transform:rotate(6deg)}70%{transform:rotate(-4deg)}}
+@keyframes bdgIn{from{transform:scale(0)}to{transform:none}}
+.bell-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.bell-head h2{flex:1;margin:0;font-size:18px;display:flex;align-items:center;gap:8px}
+.btn.sm{padding:7px 12px;font-size:12.5px;min-height:0}
+.bell-list{display:flex;flex-direction:column;gap:8px}
+.bell-item{display:flex;align-items:flex-start;gap:10px;width:100%;text-align:start;font:inherit;color:inherit;cursor:pointer;
+  background:var(--paper);border:1px solid transparent;border-radius:14px;padding:11px 12px;animation:rise .35s var(--ease) both}
+.bell-item.new{background:var(--card);border-color:var(--line);box-shadow:var(--sh-1)}
+.bell-item .bi-dot{width:10px;height:10px;border-radius:50%;margin-top:6px;flex-shrink:0;background:var(--faint)}
+.bell-item.bad .bi-dot{background:var(--red)} .bell-item.warn .bi-dot{background:var(--amber)}
+.bell-item.info .bi-dot{background:var(--blue)} .bell-item.ok .bi-dot{background:var(--green)}
+.bell-item.new .bi-dot{animation:pulseDot 1.6s ease-in-out infinite}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 0%,transparent)}50%{box-shadow:0 0 0 5px rgba(229,72,77,.18)}}
+.bi-main{flex:1;min-width:0}
+.bi-main b{display:block;font-size:14px}
+.bi-main span{display:block;font-size:12.5px;color:var(--muted)}
+.bell-item.d1{animation-delay:.03s}.bell-item.d2{animation-delay:.06s}.bell-item.d3{animation-delay:.09s}.bell-item.d4{animation-delay:.12s}
+.bell-item.d5{animation-delay:.15s}.bell-item.d6{animation-delay:.18s}.bell-item.d7{animation-delay:.21s}.bell-item.d8{animation-delay:.24s}.bell-item.d9{animation-delay:.27s}
+
+/* زر البيع في منتصف الشريط: كبسولة بارزة */
+#tabs button.hero-tab svg{background:var(--green);color:#fff;border-radius:16px;padding:9px;width:44px;height:44px;margin-top:-22px;
+  box-shadow:0 10px 20px -8px var(--green);transition:transform .3s var(--spring)}
+#tabs button.hero-tab.on svg{transform:scale(1.08) translateY(-2px)}
+#tabs button.hero-tab{color:var(--green)}
+#tabs .tab-glider.of5 ~ button.hero-tab{z-index:2}
+
+/* البيع */
+.sell-search{margin-bottom:8px}
+.sell-search .search-inp{padding-inline-end:56px;padding-inline-start:14px}
+.sugs{display:flex;flex-direction:column;gap:6px;margin:6px 0 12px}
+.sug{display:flex;align-items:center;gap:10px;width:100%;text-align:start;font:inherit;color:inherit;cursor:pointer;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;animation:rise .25s var(--ease) both}
+.sug:active{transform:scale(.97)}
+.sg-main{flex:1;min-width:0}
+.sg-main b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-main span{display:block;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-side{text-align:end;flex-shrink:0}
+.sg-side b{display:block;font-family:var(--num)}
+.sg-side span{font-size:11.5px;color:var(--ok)} .sg-side span.out{color:var(--red)}
+.sell-empty svg{color:var(--green);opacity:.5}
+.cart{display:flex;flex-direction:column;gap:8px;margin:6px 0 12px}
+.cline{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 12px;
+  box-shadow:var(--sh-1);animation:rise .3s var(--ease) both}
+.cline.pop{animation:clPop .45s var(--spring)}
+@keyframes clPop{0%{transform:scale(.9);background:var(--green-wash)}100%{transform:none}}
+.cline.leaving{animation:clOut .2s ease forwards}
+@keyframes clOut{to{opacity:0;transform:translateX(-40px) scale(.95)}}
+.cx{width:32px;height:32px;border-radius:50%;border:0;background:var(--line-2);color:var(--muted);display:grid;place-items:center;flex-shrink:0;
+  cursor:pointer;transition:transform .3s var(--spring),background .2s,color .2s}
+.cx:active{background:var(--red-wash);color:var(--red);transform:rotate(90deg) scale(.9)}
+.cl-main{flex:1;min-width:0}
+.cl-main > b{display:block;font-size:14px;line-height:1.4}
+.cl-main > span{font-size:12.5px;color:var(--muted);font-family:var(--num)}
+.qty{display:flex;align-items:center;gap:2px;background:var(--line-2);border-radius:12px;padding:3px;flex-shrink:0}
+.qty button{width:34px;height:34px;border:0;border-radius:9px;background:var(--card);color:var(--ink);display:grid;place-items:center;cursor:pointer;
+  transition:transform .25s var(--spring)}
+.qty button:active{transform:scale(.85)}
+.qty b{min-width:28px;text-align:center;font-family:var(--num);font-size:16px}
+.card.pay .fld.inline{display:flex;align-items:center;gap:10px;margin:10px 0}
+.card.pay .fld.inline > span{flex:0 0 70px;margin:0}
+.grand{display:flex;justify-content:space-between;align-items:baseline;background:var(--green-wash);color:var(--green);
+  border-radius:12px;padding:12px 14px;margin:8px 0 12px}
+.grand b{font-size:22px;font-family:var(--num)}
+.pay-m{margin-bottom:12px}
+.btn.big{min-height:54px;font-size:16px;font-weight:800;gap:8px}
+.done-pop{position:fixed;inset:0;z-index:200;pointer-events:none;display:grid;place-items:center;animation:fade .15s ease both}
+.done-pop.out{opacity:0;transition:opacity .3s ease}
+.done-pop .dp-card{background:rgba(18,33,43,.94);color:#fff;border-radius:28px;padding:26px 34px 20px;text-align:center;min-width:230px;
+  box-shadow:0 30px 60px -20px rgba(0,0,0,.6);animation:popIn .42s var(--spring) both}
+.done-pop .dp-check{width:74px;height:74px;display:block;margin:0 auto 12px}
+.done-pop .dp-c{fill:none;stroke:var(--green-l);stroke-width:3.2;stroke-dasharray:150;stroke-dashoffset:150;animation:draw .5s var(--ease) .05s forwards}
+.done-pop .dp-t{fill:none;stroke:#fff;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:40;stroke-dashoffset:40;animation:draw .35s var(--ease) .38s forwards}
+.done-pop .dp-title{font-size:17px;font-weight:800}
+.done-pop .dp-sub{font-size:24px;font-weight:800;color:var(--green-l);font-family:var(--num);margin-top:2px}
+.done-pop .dp-note{font-size:12px;opacity:.7;margin-top:6px}
+@keyframes popIn{from{opacity:0;transform:scale(.85)}60%{transform:scale(1.03)}to{opacity:1;transform:none}}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* خانات الاختيار في الإعدادات */
+.chk{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-2);cursor:pointer}
+.chk:last-child{border-bottom:0}
+.chk input{width:20px;height:20px;accent-color:var(--green);margin-top:2px;flex-shrink:0}
+.chk b{display:block;font-size:14px}
+.chk i{display:block;font-style:normal;font-size:12px;color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){
+  .dash-hero::after,.dash-bars rect,.mdots i,.more-tile,.bell-item,.icon-btn.bell.ring svg,.icon-btn.bell .bdg,
+  .cline,.cline.pop,.sug,.done-pop .dp-card,.seg2 button.on{animation:none !important}
+  .done-pop .dp-c,.done-pop .dp-t{animation:none !important;stroke-dashoffset:0}
+}

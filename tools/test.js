@@ -1483,6 +1483,55 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await closePage(pg);
   }
 
+  console.log('\n== 17. البيع من التلفون ==');
+  {
+    const st = seed();
+    st.sync = { url: 'https://sync.example', key: 'k', auto: false, everyMin: 10 };
+    st.customers[0].balance = 5;
+    writeStore(st);
+    const phone = [{ kind: 'phone', at: '2026-09-30 10:00', branch: { id: 'phone-ab12', name: 'تلفون صاحب المحل' },
+      orders: [
+        { id: 'o1', date: '2026-09-30', at: '2026-09-30 10:01', method: 'cash', disc: 0,
+          items: [{ b: '111', k: 'K0001', n: 'كتاب الرياضيات', q: 2, p: 15 }] },
+        { id: 'o2', date: '2026-09-30', at: '2026-09-30 10:05', method: 'credit', cust: 'c1', paid: 1, disc: 0.5,
+          items: [{ b: '222', n: 'قلم جاف', q: 3, p: 1 }, { b: '999', n: 'صنف محذوف', q: 1, p: 4 }] }
+      ] }];
+    fs.writeFileSync(path.join(DATA, 'remote.json'), JSON.stringify(phone));
+    try { fs.unlinkSync(path.join(DATA, 'uploaded.json')); } catch (e) { }
+    const pg = await open();
+    await pg.evaluate(() => Stock.sync(true)); await sleep(2600);
+    const r = await pg.evaluate(() => {
+      const inv = App.S.invoices.filter(v => v.source === 'phone');
+      return { n: inv.length, nos: inv.map(v => v.no), b1: App.findItem('book', 'b1').qty, s1: App.findItem('stat', 's1').qty,
+        bal: App.S.customers[0].balance, t2: (inv.find(v => v.phoneId === 'o2') || {}).total,
+        note: (inv.find(v => v.phoneId === 'o2') || {}).note, remotes: App.S.remotes.length,
+        prof1: (inv.find(v => v.phoneId === 'o1') || {}).profit };
+    });
+    check('فاتورتان من التلفون سُجّلتا', r.n === 2, JSON.stringify(r));
+    check('المخزون نقص: الكتاب 20 ⇦ 18، القلم 100 ⇦ 97', r.b1 === 18 && r.s1 === 97, JSON.stringify(r));
+    check('الآجل: الصافي 2.5 والمدفوع 1 ⇦ دين الزبون 5 + 1.5 = 6.5', r.t2 === 2.5 && r.bal === 6.5, JSON.stringify(r));
+    check('الصنف غير الموجود يُذكر في ملاحظة الفاتورة', /صنف محذوف/.test(r.note || ''), r.note);
+    check('الربح يُحسب هنا من سعر الشراء (2 × (15−10) = 10)', r.prof1 === 10, String(r.prof1));
+    check('التلفون لا يظهر فرعاً', r.remotes === 0, String(r.remotes));
+    await pg.evaluate(() => Stock.sync(true)); await sleep(1800);
+    const again = await pg.evaluate(() => App.S.invoices.filter(v => v.source === 'phone').length);
+    check('ولا تتكرّر عند التحديث التالي', again === 2, String(again));
+    const up = JSON.parse(fs.readFileSync(path.join(DATA, 'uploaded.json'), 'utf8'));
+    check('اللقطة المرفوعة تؤكّد للتلفون أرقام الفواتير', up.acks && up.acks.o1 && up.acks.o2, JSON.stringify(up.acks));
+    check('وفيها لوحة اليوم والزبائن', up.dash && up.dash.recent.length >= 2 && up.cust && up.cust[0].b === 6.5, JSON.stringify(up.cust));
+    const leaked = JSON.stringify(up).match(/"(profit|cost)"/);
+    check('ولا ربح ولا سعر شراء في اللقطة', !leaked, leaked && leaked[0]);
+    // الإيقاف: طلب جديد لا يُسجَّل
+    phone[0].orders.push({ id: 'o3', method: 'cash', items: [{ b: '111', q: 1, p: 15 }] });
+    fs.writeFileSync(path.join(DATA, 'remote.json'), JSON.stringify(phone));
+    await pg.evaluate(() => Stock.setPhoneSales(false)); await pg.evaluate(() => Stock.sync(true)); await sleep(1800);
+    check('إيقاف «قبول البيع من التلفون» يُبقي الطلب منتظراً', await pg.evaluate(() => !App.S.phoneDone.o3 && App.findItem('book', 'b1').qty === 18));
+    await pg.evaluate(() => Stock.setPhoneSales(true)); await pg.evaluate(() => Stock.sync(true)); await sleep(2200);
+    check('والسماح يسجّله', await pg.evaluate(() => !!App.S.phoneDone.o3 && App.findItem('book', 'b1').qty === 17));
+    fs.unlinkSync(path.join(DATA, 'remote.json'));
+    await closePage(pg);
+  }
+
   await b.close();
   console.log('\n' + '='.repeat(50));
   console.log('  نجح: ' + pass + '    فشل: ' + fail);

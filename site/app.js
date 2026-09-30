@@ -14,6 +14,9 @@ var UI = (function () {
 
   var KEY = "maktaba_stock_v2";
   var S = null;
+  /* شاشات التطبيق الإضافية (phone.js): اليوم، البيع، الديون، التنبيهات،
+     الخزين، المزيد، والجرس. بدونها يبقى الموقع كما كان. */
+  var X = null;
   var busy = false;
   var PAGE = 40;
 
@@ -206,6 +209,7 @@ var UI = (function () {
       busy = false;
       if (b) b.classList.remove("spin");
       S.snap = { at: new Date().toISOString(), branches: branches };
+      if (X && X.afterRefresh) X.afterRefresh();
       save();
       render();
       if (!quiet) {
@@ -227,12 +231,18 @@ var UI = (function () {
 
   /* ---------- البيانات ---------- */
 
+  /* لقطة تلفون يبيع (طلبات بيع) — ليست فرعاً ولا مكاناً للبضاعة */
+  function isPhone(br) {
+    return !!br && (br.kind === "phone" || /^phone-/i.test(String((br.branch && br.branch.id) || "")));
+  }
+
   /* كل مكان فيه بضاعة: فرع عنده منظومة، أو مخزن يدوي تابع له */
   function places() {
     var out = [];
     if (!S.snap || !S.snap.branches) return out;
-    var many = S.snap.branches.length > 1;
-    S.snap.branches.forEach(function (br) {
+    var real = S.snap.branches.filter(function (br) { return !isPhone(br); });
+    var many = real.length > 1;
+    real.forEach(function (br) {
       var nm = (br.branch && (br.branch.name || br.branch.id)) || "فرع";
       var bid = (br.branch && br.branch.id) || nm;
       /* غرفة الخزين: st جزء من q موجود في الغرفة لا على الرفوف. الفرع
@@ -248,7 +258,7 @@ var UI = (function () {
           var st = Math.min(Math.max(num(i.st), 0), Math.max(num(i.q), 0));
           var it = {
             n: i.n || "", a: i.a || "", b: i.b || "", c: i.c || "", k: i.k || "",
-            q: num(i.q) - st, p: num(i.p), m: num(i.m), t: i.t || "",
+            q: num(i.q) - st, p: num(i.p), m: num(i.m), t: i.t || "", sl: num(i.sl), ls: i.ls || "",
             d: i.d || "", nt: i.nt || "", u: i.u || "",
             /* المكتبة والرف حقلان مستقلان كما في اللقطة. تحليلهما من
                نصّ العرض كان يخلط موقع القرطاسية ومكان المخزن بأسماء
@@ -332,9 +342,11 @@ var UI = (function () {
         if (!g.d && it.d) g.d = it.d;
         if (!g.nt && it.nt) g.nt = it.nt;
         if (!g.p && it.p) g.p = it.p;
+        if (it.sl > (g.sl || 0)) g.sl = it.sl;
+        if (it.ls && (!g.ls || it.ls > g.ls)) g.ls = it.ls;
       });
     });
-    return Object.keys(by).map(function (k) {
+    var list = Object.keys(by).map(function (k) {
       var g = by[k];
       g.low = g.minTop > 0 && g.total > 0 && g.total <= g.minTop;
       g.room = 0; g.shelfQ = 0;
@@ -344,6 +356,8 @@ var UI = (function () {
       });
       return g;
     });
+    if (X && X.adjust) X.adjust(list);        // نسخ محجوزة لبيع من هذا التلفون لم يسجّله الكمبيوتر بعد
+    return list;
   }
 
   function countItems() { return items().length; }
@@ -502,12 +516,19 @@ var UI = (function () {
 
     var nav = el("tabs");
     if (!nav) return;
-    Array.prototype.forEach.call(nav.children, function (b) {
+    var tabs = X ? X.tabs() : TABS;
+    var sig = tabs.map(function (t) { return t.k; }).join(",");
+    if (nav.getAttribute("data-sig") !== sig) {
+      nav.setAttribute("data-sig", sig);
+      nav.innerHTML = tabs.map(function (t) {
+        return '<button data-act="go" data-arg="' + t.k + '" data-tab="' + t.k + '"' +
+          (t.hero ? ' class="hero-tab"' : "") + ">" + ico(t.i, 21) + "<span>" + t.t + "</span></button>";
+      }).join("");
+    }
+    var cur = X ? X.tabOf(S.screen) : S.screen;
+    Array.prototype.forEach.call(nav.querySelectorAll("button"), function (b) {
       var k = b.getAttribute("data-tab");
-      var def = TABS.filter(function (t) { return t.k === k; })[0];
-      if (!def) return;
-      if (!b.innerHTML) b.innerHTML = ico(def.i, 21) + "<span>" + def.t + "</span>";
-      b.className = (S.screen === k) ? "on" : "";
+      b.classList.toggle("on", cur === k);
     });
   }
 
@@ -527,9 +548,11 @@ var UI = (function () {
 
     var searchOn = (S.screen === "home");
     el("searchWrap").hidden = !searchOn;
+    if (X && X.chrome) X.chrome();
 
     if (S.screen === "settings") { paintSettings(); return; }
     if (!S.snap) { paintLoading(); return; }
+    if (X && X.screens[S.screen]) { el("chips").innerHTML = ""; X.screens[S.screen](); return; }
     if (S.screen === "browse") { paintBrowse(); return; }
     if (S.screen === "stats") { paintStats(); return; }
 
@@ -911,6 +934,7 @@ var UI = (function () {
     if (g.c) tags += '<span class="tag g">' + esc(g.c) + "</span>";
     if (spots2.length > 1) tags += '<span class="tag">' + ico("box", 11) + " في " + spots2.length + " أماكن</span>";
     else if (spots2[0] && spots2[0].loc) tags += '<span class="tag">' + ico("shelf", 11) + " " + esc(spots2[0].loc) + "</span>";
+    if (g.pend > 0) tags += '<span class="tag a">محجوز ' + g.pend + " لبيع من التلفون</span>";
     if (g.room > 0) {
       tags += '<span class="tag rm">' + ico("box", 11) + " في المخزن " + g.room + "</span>";
       if (g.shelfQ <= 0) tags += '<span class="tag a">نفد من الرفوف</span>';
@@ -1095,6 +1119,8 @@ var UI = (function () {
         "بلا إنترنت. لا تُرسل لأي جهة.</p></div>";
     }
 
+    if (X && X.settingsHtml) h += X.settingsHtml();
+
     h += '<div class="card"><h2>إزالة الربط</h2>' +
       '<p class="sub">يمسح العنوان وكلمة السر والنسخة المحفوظة من هذا الجهاز. ' +
       "لا يمس بيانات البرنامج على الكمبيوتر إطلاقاً.</p>" +
@@ -1149,7 +1175,7 @@ var UI = (function () {
   /* الأرقام تعدّ صعوداً ثم تنتهي بالنص الأصلي حرفاً بحرف */
   function countUp(root) {
     if (!root || reduced()) return;
-    var els = root.querySelectorAll(".tile b, .det-big b, .det-split b");
+    var els = root.querySelectorAll(".tile b, .det-big b, .det-split b, .hero .cu");
     Array.prototype.forEach.call(els, function (e) {
       var final = e.textContent;
       var m = /^\s*(-?)([\d,]+(?:\.(\d+))?)\s*$/.exec(final);
@@ -1222,9 +1248,11 @@ var UI = (function () {
     if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
     S.cfg.url = url;
     S.cfg.key = k ? k.value.trim() : "";
+    if (X && X.saveSettings) X.saveSettings();
     save();
+    if (X && X.onConfig) X.onConfig();
     if (!S.cfg.url) { render(); return; }
-    go("home");
+    go(X ? X.tabs()[0].k : "home");
     refresh();
   }
 
@@ -1232,6 +1260,7 @@ var UI = (function () {
     if (!window.confirm("سيُمسح العنوان وكلمة السر والنسخة المحفوظة من هذا الجهاز. متأكد؟")) return;
     S = blank();
     try { localStorage.removeItem(KEY); } catch (e) { }
+    if (X && X.onConfig) X.onConfig();
     render();
     toast("مُسح كل شيء من هذا الجهاز.");
   }
@@ -1254,7 +1283,9 @@ var UI = (function () {
 
     fetchAll().then(function (branches) {
       S.snap = { at: new Date().toISOString(), branches: branches };
+      if (X && X.afterRefresh) X.afterRefresh(true);
       save();
+      if (X && X.onConfig) X.onConfig();
       btn.classList.remove("busy");
       btn.querySelector(".btn-label").textContent = "اتصل واعرض المخزون";
       render();
@@ -1274,9 +1305,9 @@ var UI = (function () {
     var e = el("gateErr");
     e.textContent = msg;
     e.hidden = false;
-    e.style.animation = "none";
-    void e.offsetWidth;
-    e.style.animation = "";
+    /* إعادة الاهتزاز بإزالة العنصر وإرجاعه — بلا style سطري يبقى معلّقاً */
+    var p = e.parentNode, nx = e.nextSibling;
+    p.removeChild(e); void p.offsetWidth; p.insertBefore(e, nx);
   }
 
   /* ---------- الإقلاع ---------- */
@@ -1313,6 +1344,7 @@ var UI = (function () {
   function onScan(code) {
     code = String(code || "").trim();
     if (!code) return;
+    if (X && X.onScan && X.onScan(code)) return;       // شاشة البيع تضيفه للسلة
     S.screen = "home"; S.filter = "";
     var i = el("q"); if (i) i.value = code;
     entering = true;
@@ -1328,8 +1360,10 @@ var UI = (function () {
   function back() {
     var s = el("sheet");
     if (s && !s.hidden) { closeSheet(); return true; }
+    if (X && X.back && X.back()) return true;
     if (S.screen === "browse" && (S.lib || S.shelf)) { S.shelf ? (S.shelf = "") : (S.lib = ""); go("browse"); return true; }
-    if (S.screen !== "home") { go("home"); return true; }
+    var first = X ? X.tabs()[0].k : "home";
+    if (S.screen !== first) { go(first); return true; }
     if (S.q || S.filter) { reset(); return true; }
     return false;
   }
@@ -1422,6 +1456,17 @@ var UI = (function () {
 
   function boot() {
     S = load();
+    X = window.PhoneExt || null;
+    if (X) {
+      X.init({
+        get S() { return S; }, el: el, ico: ico, icons: ICONS, esc: esc, num: num, money: money, norm: norm,
+        toast: toast, items: items, places: places, isPhone: isPhone, search: search, sortItems: sortItems,
+        render: render, go: go, open: open, closeSheet: closeSheet, save: save, refresh: refresh,
+        rowHtml: rowHtml, emptyBox: emptyBox, ageOf: ageOf, countUp: countUp, reduced: reduced,
+        configured: configured
+      });
+      Object.keys(X.acts || {}).forEach(function (k) { ACTS[k] = X.acts[k]; });
+    }
 
     /* الترتيب مقصود: الرابط يغلب المحفوظ (فبه تُصلح بياناتٍ خاطئة)،
        والمحفوظ يغلب المدمج (فلا يُلغى ما ضبطه صاحب الجهاز بيده). */

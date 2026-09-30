@@ -16,6 +16,10 @@ var Stock = (function () {
      ============================================================ */
 
   function snapshot() {
+    var staleMap = {};
+    try {
+      if (typeof Stale !== "undefined") Stale.rows().forEach(function (r) { staleMap[r.type + ":" + r.it.id] = r.idle; });
+    } catch (e) { }
     return {
       branch: {
         id: S().branch.id, name: S().branch.name || S().meta.shopName,
@@ -31,6 +35,9 @@ var Stock = (function () {
           /* منها في غرفة الخزين (يُحذف إن كان صفراً فتبقى اللقطة صغيرة).
              الموقع يطرحه من q فيعرض الرفوف والغرفة كلاً في مكانه. */
           st: App.storeQty(it) || undefined,
+          /* أيام الركود للأصناف الراكدة فقط، وآخر بيع — للتنبيهات في التلفون */
+          sl: staleMap[x.type + ":" + it.id] || undefined,
+          ls: it.lastSold || undefined,
           l: it.lib || "", s: it.shelf || "", loc: it.loc || "",
           /* الناشر والملاحظة يظهران في صفحة الكتاب على الموقع.
              سعر الشراء والربح لا يُرفعان أبداً. */
@@ -53,8 +60,87 @@ var Stock = (function () {
           })
         };
       }),
-      msgs: S().outbox.slice(0, 400)
+      msgs: S().outbox.slice(0, 400),
+      /* لتطبيق التلفون: لوحة اليوم (مبيعات بلا أرباح ولا تكلفة)، والزبائن
+         وديونهم، وتأكيد فواتير التلفون التي سُجّلت هنا. */
+      dash: dashSummary(),
+      cust: S().customers.map(function (c) {
+        return { id: c.id, n: c.name || "", ph: c.phone || "", b: App.r3(App.num(c.balance)) };
+      }),
+      acks: phoneAcks(),
+      phoneSell: S().meta.phoneSales !== false
     };
+  }
+
+  /* مجاميع المبيعات: اليوم، آخر 35 يوماً، وآخر الفواتير — بلا ربح ولا تكلفة */
+  function dashSummary() {
+    var today = App.today(), by = {}, recent = [];
+    var d0 = new Date(today + "T00:00:00");
+    var from = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - 34);
+    var p2 = function (x) { return (x < 10 ? "0" : "") + x; };
+    var fromKey = from.getFullYear() + "-" + p2(from.getMonth() + 1) + "-" + p2(from.getDate());
+    S().invoices.forEach(function (v) {
+      if (String(v.date) < fromKey) return;
+      var g = by[v.date] || (by[v.date] = { v: 0, n: 0, q: 0 });
+      g.v = App.r3(g.v + App.num(v.total));
+      if (v.kind !== "return") {
+        g.n++;
+        (v.items || []).forEach(function (l) { g.q += App.num(l.qty); });
+      }
+    });
+    S().invoices.slice(0, 15).forEach(function (v) {
+      var c = v.customerId && typeof People !== "undefined" ? People.customer(v.customerId) : null;
+      recent.push({
+        no: v.no, d: v.date, at: String(v.at || "").slice(11, 16), t: App.r3(App.num(v.total)),
+        m: v.method || "", k: v.kind || "sale", c: c ? c.name : "", ph: v.source === "phone" ? 1 : undefined,
+        n: (v.items || []).map(function (l) { return l.name; }).slice(0, 4).join("، "),
+        q: (v.items || []).reduce(function (a, l) { return a + App.num(l.qty); }, 0)
+      });
+    });
+    return { today: today, days: by, recent: recent, cur: S().meta.currency || "" };
+  }
+
+  /* ---------- البيع من التلفون ----------
+     التلفون لا يكتب في بيانات المحل. يكتب طلبات البيع في ملفه هو على
+     خادم الربط، وهذا الجهاز يقرؤها عند كل تحديث فيسجّلها فواتير حقيقية
+     (بخصم المخزون ودين الزبون) مرة واحدة فقط، ثم يعيد رقم الفاتورة في
+     لقطته ليعرف التلفون أنها سُجّلت. */
+  function phoneDone() {
+    if (!S().phoneDone || typeof S().phoneDone !== "object") S().phoneDone = {};
+    return S().phoneDone;
+  }
+  function phoneAcks() {
+    var done = phoneDone(), keys = Object.keys(done);
+    var out = {};
+    keys.slice(-300).forEach(function (k) { out[k] = done[k]; });
+    return out;
+  }
+  function takePhoneOrders(list) {
+    if (S().meta.phoneSales === false || typeof Sales === "undefined" || !Sales.applyPhoneOrder) return 0;
+    var done = phoneDone(), n = 0, made = [];
+    list.forEach(function (snap) {
+      if (!snap || snap.kind !== "phone" || !Array.isArray(snap.orders)) return;
+      snap.orders.forEach(function (o) {
+        if (!o || !o.id || done[o.id]) return;
+        var inv = Sales.applyPhoneOrder(o, (snap.branch && snap.branch.name) || "التلفون");
+        done[o.id] = inv ? inv.no : 0;          // 0 = لم يُسجَّل (أصناف غير موجودة)
+        if (inv) { n++; made.push(inv.no); }
+      });
+    });
+    // لا يكبر السجل بلا حدّ
+    var keys = Object.keys(done);
+    if (keys.length > 600) keys.slice(0, keys.length - 600).forEach(function (k) { delete done[k]; });
+    if (n) {
+      App.save();
+      App.toast(n === 1 ? "وصلت فاتورة من التلفون: رقم " + made[0] : "وصلت " + n + " فواتير من التلفون", "ok");
+      if (App.celebrate) App.celebrate("بيع من التلفون", n === 1 ? "فاتورة رقم " + made[0] : n + " فواتير");
+    }
+    return n;
+  }
+  function setPhoneSales(on) {
+    S().meta.phoneSales = !!on;
+    App.save();
+    App.toast(on ? "البيع من التلفون مسموح." : "البيع من التلفون موقوف — الطلبات تنتظر حتى تسمح به.");
   }
 
   function hash(str) {
@@ -106,6 +192,12 @@ var Stock = (function () {
       var seenBefore = {};
       requests().forEach(function (r) { seenBefore[r.id] = 1; });
       mergeRemotes(res.branches || []);
+      var gotPhone = takePhoneOrders(res.branches || []);
+      if (gotPhone) {
+        App.rerender();
+        // التأكيد يصل للتلفون الآن، لا في التحديث القادم بعد دقائق
+        setTimeout(function () { sync(false); }, 1500);
+      }
       if (typeof Notify !== "undefined") {
         try {
           requests().forEach(function (r) {
@@ -140,6 +232,7 @@ var Stock = (function () {
     list.forEach(function (snap) {
       if (!snap || !snap.branch || !snap.branch.id) return;
       if (snap.branch.id === mine) return;
+      if (snap.kind === "phone") return;          // تلفون يبيع، لا فرع له مخزون
       keep.push({
         id: snap.branch.id, name: snap.branch.name || snap.branch.id,
         city: snap.branch.city || "", phone: snap.branch.phone || "",
@@ -447,6 +540,8 @@ var Stock = (function () {
       h += '<div class="row" style="margin-top:16px">' +
         '<button class="btn sm ghost" onclick="Stock.setupLink()">إعدادات الربط</button>' +
         '<button class="btn sm ghost" onclick="Stock.phoneView()">المشاهدة من التلفون</button>' +
+        '<label class="btn sm ghost" style="gap:6px"><input type="checkbox" ' + (S().meta.phoneSales !== false ? "checked" : "") +
+        ' onchange="Stock.setPhoneSales(this.checked)"> قبول البيع من التلفون</label>' +
         '<button class="btn sm ghost" onclick="Stock.workerSetup()">خطوات الربط</button>' +
         '<button class="btn sm ghost" onclick="Stock.manualExport()">تصدير لقطة (واتساب)</button>' +
         '<button class="btn sm ghost" onclick="Stock.manualImport()">استيراد لقطة</button></div>';
@@ -1305,7 +1400,7 @@ var Stock = (function () {
     respond: respond, confirmReceipt: confirmReceipt, pendingCount: pendingCount,
     requests: requests, branchName: branchName, resolveLocal: resolveLocal,
     addWarehouse: addWarehouse, addToWarehouse: addToWarehouse, editWhQty: editWhQty,
-    roomAllBack: roomAllBack, printRoom: printRoom,
+    roomAllBack: roomAllBack, printRoom: printRoom, setPhoneSales: setPhoneSales, takePhoneOrders: takePhoneOrders,
     delWhLine: delWhLine, delWarehouse: delWarehouse,
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,
