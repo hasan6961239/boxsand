@@ -1,0 +1,65 @@
+plugins { id "com.android.application" }
+
+/* التوقيع: من keystore.properties بجانب هذا المجلد (لا يُرفع إلى GitHub).
+   بدونه يُبنى التطبيق بتوقيع التجربة فقط. */
+def ksFile = rootProject.file("keystore.properties")
+def ks = new Properties()
+if (ksFile.exists()) ks.load(new FileInputStream(ksFile))
+
+android {
+    namespace "ly.maktaba.stock"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "ly.maktaba.stock"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            if (ksFile.exists()) {
+                storeFile rootProject.file(ks["storeFile"])
+                storePassword ks["storePassword"]
+                keyAlias ks["keyAlias"]
+                keyPassword ks["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ksFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+
+    buildFeatures { buildConfig true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    /* الموقع نفسه (مجلد site) يُنسخ داخل التطبيق عند كل بناء:
+       مصدر واحد للواجهة، لا نسختان تفترقان مع الوقت. */
+    sourceSets { main { assets.srcDirs += "$buildDir/generated/siteAssets" } }
+}
+
+def copySite = tasks.register("copySite", Copy) {
+    from(rootProject.file("../site")) {
+        exclude "netlify.toml", "README.md", "_headers"
+    }
+    into "$buildDir/generated/siteAssets/site"
+}
+tasks.named("preBuild") { dependsOn copySite }
+
+dependencies {
+    // نسخة واحدة من مكتبة Kotlin لكل المكتبات (وإلا تتكرّر أصنافها ويفشل البناء)
+    implementation platform("org.jetbrains.kotlin:kotlin-bom:1.8.22")
+    implementation "androidx.activity:activity:1.8.2"
+    implementation "androidx.webkit:webkit:1.11.0"
+    implementation "com.journeyapps:zxing-android-embedded:4.3.0"
+}

@@ -76,7 +76,8 @@ var UI = (function () {
     gear: "M12 15a3 3 0 100-6 3 3 0 000 6zm8.4-3l1.6-1-2-3.5-1.8.6a7 7 0 00-1.8-1L15.9 5h-4l-.5 2.1a7 7 0 00-1.8 1L7.8 7.5l-2 3.5 1.6 1a7 7 0 000 2l-1.6 1 2 3.5 1.8-.6a7 7 0 001.8 1l.5 2.1h4l.5-2.1a7 7 0 001.8-1l1.8.6 2-3.5-1.6-1a7 7 0 000-2z",
     refresh: "M20 12a8 8 0 11-2.3-5.7M20 4v5h-5",
     phone: "M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a1 1 0 01-1 1A16 16 0 014 5a1 1 0 011-1z",
-    copy: "M9 9h10v10H9V9zM5 15H3V3h12v2"
+    copy: "M9 9h10v10H9V9zM5 15H3V3h12v2",
+    camera: "M4 8h3l2-3h6l2 3h3v11H4V8zm8 9a4 4 0 100-8 4 4 0 000 8z"
   };
 
   function ico(name, size) {
@@ -487,6 +488,16 @@ var UI = (function () {
     var r = el("btnRefresh"); if (r && !r.innerHTML) r.innerHTML = ico("refresh", 20);
     var g = el("btnSettings"); if (g && !g.innerHTML) g.innerHTML = ico("gear", 20);
     var x = el("qx"); if (x && !x.innerHTML) x.innerHTML = ico("x", 15);
+    /* داخل تطبيق أندرويد فقط: زر الكاميرا بجانب البحث */
+    if (window.AndroidApp && x && !el("qcam")) {
+      var cam = document.createElement("button");
+      cam.id = "qcam"; cam.className = "search-cam";
+      cam.setAttribute("data-act", "scan");
+      cam.setAttribute("aria-label", "مسح الباركود بالكاميرا");
+      cam.innerHTML = ico("camera", 20);
+      x.parentNode.appendChild(cam);
+      document.body.classList.add("in-app");
+    }
     paintThemeBtn();
 
     var nav = el("tabs");
@@ -1292,8 +1303,36 @@ var UI = (function () {
        لا ينجو من تحليل HTML (المحلّل يُسقط المحارف الصفرية). */
     shelf: function (a, b2) { S.lib = a; S.shelf = b2; go("browse"); },
     room: function () { S.lib = "\u0001room"; S.shelf = ""; go("browse"); },
-    copy: function (a) { copyText(a); }
+    copy: function (a) { copyText(a); },
+    scan: function () { if (window.AndroidApp) window.AndroidApp.scan(); }
   };
+
+  /* ---------- تطبيق أندرويد ----------
+     الكاميرا تمسح الباركود ثم تنادي UI.onScan بالرمز. صنف واحد يطابقه
+     ⇦ تُفتح صفحته مباشرة؛ غير ذلك تظهر نتائج البحث. */
+  function onScan(code) {
+    code = String(code || "").trim();
+    if (!code) return;
+    S.screen = "home"; S.filter = "";
+    var i = el("q"); if (i) i.value = code;
+    entering = true;
+    render();
+    setQ(code);
+    var hits = search(items(), code).filter(function (g) { return String(g.b || "").trim() === code || g.code === code; });
+    if (hits.length === 1) open(hits[0].key);
+    else if (!search(items(), code).length) toast("لا يوجد صنف بالباركود " + code, "warn");
+  }
+
+  /* زر الرجوع في أندرويد: يغلق الصفحة المفتوحة، أو يرجع للرئيسية،
+     أو يمسح البحث. يرجع false حين لا يبقى ما يُرجع إليه فيُغلق التطبيق. */
+  function back() {
+    var s = el("sheet");
+    if (s && !s.hidden) { closeSheet(); return true; }
+    if (S.screen === "browse" && (S.lib || S.shelf)) { S.shelf ? (S.shelf = "") : (S.lib = ""); go("browse"); return true; }
+    if (S.screen !== "home") { go("home"); return true; }
+    if (S.q || S.filter) { reset(); return true; }
+    return false;
+  }
 
   function setSort(k) {
     if (!SORTS[k]) return;
@@ -1442,7 +1481,7 @@ var UI = (function () {
     boot: boot, refresh: refresh, render: render,
     go: go, open: open, closeSheet: closeSheet,
     setQ: setQ, clearQ: clearQ, setFilter: setFilter, reset: reset, more: more,
-    saveCfg: saveCfg, wipe: wipe, gateSubmit: gateSubmit,
+    saveCfg: saveCfg, wipe: wipe, gateSubmit: gateSubmit, onScan: onScan, back: back,
     items: items, places: places, search: search, norm: norm, num: num, ageOf: ageOf,
     get S() { return S; }
   };

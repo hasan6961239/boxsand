@@ -304,6 +304,35 @@ const srv = http.createServer((q,s)=>{
      !/k=|sirr/.test(await pg.evaluate(()=>location.href)),
      await pg.evaluate(()=>location.href));
 
+  // 24) داخل تطبيق أندرويد: جسر مزيّف بدل التلفون
+  {
+    const actx = await b.newContext({viewport:{width:390,height:844}});
+    const ap = await actx.newPage();
+    ap.on('pageerror',e=>errs.push('APP PAGEERROR: '+e.message));
+    await ap.addInitScript(() => { window.AndroidApp = { scan(){ window.__scans = (window.__scans||0) + 1; }, version(){ return '1.0'; } }; });
+    await ap.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr'); await ap.waitForTimeout(1500);
+    ok('التطبيق: زر الكاميرا يظهر بجانب البحث', await ap.isVisible('#qcam'));
+    await ap.click('#qcam'); await ap.waitForTimeout(200);
+    ok('والضغط عليه يطلب المسح من التلفون', await ap.evaluate(()=>window.__scans===1));
+    await ap.evaluate(()=>UI.onScan('9789991234567')); await ap.waitForTimeout(700);
+    ok('نتيجة المسح تفتح صفحة الكتاب مباشرة', await ap.isVisible('#sheet') && /أساسيات/.test(await ap.textContent('#sheet')));
+    ok('والباركود في خانة البحث', await ap.inputValue('#q')==='9789991234567');
+    ok('الرجوع يغلق صفحة الكتاب أولاً', await ap.evaluate(()=>UI.back())===true);
+    await ap.waitForTimeout(400);
+    ok('فتُغلق', !(await ap.isVisible('#sheet')));
+    await ap.evaluate(()=>UI.go('stats')); await ap.waitForTimeout(400);
+    ok('ومن شاشة أخرى يرجع للرئيسية', await ap.evaluate(()=>UI.back()===true && UI.S.screen==='home'));
+    ok('ثم يمسح البحث', await ap.evaluate(()=>UI.back())===true && await ap.inputValue('#q')==='');
+    ok('ومن الرئيسية الفارغة يسمح بإغلاق التطبيق', await ap.evaluate(()=>UI.back())===false);
+    await ap.evaluate(()=>UI.onScan('000000')); await ap.waitForTimeout(400);
+    ok('باركود غير موجود يُنبَّه عليه', /لا يوجد صنف بالباركود/.test(await ap.textContent('#toasts')));
+    ok('ولا style سطري في وضع التطبيق', (await ap.$$eval('[style]:not(body)', e=>e.length))===0);
+    if (SHOT) await ap.screenshot({path:SHOT+'app-home.png'});
+    await actx.close();
+  }
+  const plainCam = await pg.$('#qcam');
+  ok('في المتصفح العادي لا زر كاميرا', !plainCam);
+
   ok('لا أخطاء JavaScript ولا انتهاك لسياسة الأمان', errs.length===0, errs.slice(0,3).join(' | '));
 
   await b.close(); srv2.close();
