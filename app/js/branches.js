@@ -28,6 +28,9 @@ var Stock = (function () {
           k: it.code || "", t: x.type, n: App.itemName(it), a: it.author || "",
           b: it.barcode || "", c: it.cat || "",
           q: App.num(it.qty), p: App.num(it.price), m: App.num(it.min),
+          /* منها في غرفة الخزين (يُحذف إن كان صفراً فتبقى اللقطة صغيرة).
+             الموقع يطرحه من q فيعرض الرفوف والغرفة كلاً في مكانه. */
+          st: App.storeQty(it) || undefined,
           l: it.lib || "", s: it.shelf || "", loc: it.loc || "",
           /* الناشر والملاحظة يظهران في صفحة الكتاب على الموقع.
              سعر الشراء والربح لا يُرفعان أبداً. */

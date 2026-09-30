@@ -230,17 +230,24 @@ var UI = (function () {
   function places() {
     var out = [];
     if (!S.snap || !S.snap.branches) return out;
+    var many = S.snap.branches.length > 1;
     S.snap.branches.forEach(function (br) {
       var nm = (br.branch && (br.branch.name || br.branch.id)) || "فرع";
+      var bid = (br.branch && br.branch.id) || nm;
+      /* غرفة الخزين: st جزء من q موجود في الغرفة لا على الرفوف. الفرع
+         يأخذ الباقي (الرفوف)، والغرفة مكان مستقل بجانبه — فيبقى المجموع
+         كما هو، وتُحسب الرفوف والغرفة كلٌّ في مكانه. */
+      var room = [];
       out.push({
-        key: "b:" + ((br.branch && br.branch.id) || nm),
+        key: "b:" + bid,
         name: nm, kind: "branch", at: br.at,
         city: (br.branch && br.branch.city) || "",
         phone: (br.branch && br.branch.phone) || "",
         items: (br.items || []).map(function (i) {
-          return {
+          var st = Math.min(Math.max(num(i.st), 0), Math.max(num(i.q), 0));
+          var it = {
             n: i.n || "", a: i.a || "", b: i.b || "", c: i.c || "", k: i.k || "",
-            q: num(i.q), p: num(i.p), m: num(i.m), t: i.t || "",
+            q: num(i.q) - st, p: num(i.p), m: num(i.m), t: i.t || "",
             d: i.d || "", nt: i.nt || "", u: i.u || "",
             /* المكتبة والرف حقلان مستقلان كما في اللقطة. تحليلهما من
                نصّ العرض كان يخلط موقع القرطاسية ومكان المخزن بأسماء
@@ -251,8 +258,21 @@ var UI = (function () {
               ? [(i.l || ""), (i.s ? "رف " + i.s : "")].filter(Boolean).join(" · ")
               : (i.loc || "")
           };
+          if (st > 0) {
+            room.push({
+              n: it.n, a: it.a, b: it.b, c: it.c, k: it.k, q: st, p: it.p, m: 0, t: it.t,
+              d: it.d, nt: it.nt, u: it.u, lib: "", shelf: "", loc: "", home: it.loc
+            });
+          }
+          return it;
         })
       });
+      if (room.length) {
+        out.push({
+          key: "r:" + bid, name: "غرفة الخزين" + (many ? " · " + nm : ""), kind: "room",
+          at: br.at, city: "", phone: (br.branch && br.branch.phone) || "", parent: nm, items: room
+        });
+      }
       (br.whs || []).forEach(function (w) {
         out.push({
           key: "w:" + w.id, name: w.name || "مخزن", kind: "wh", at: br.at,
@@ -300,7 +320,7 @@ var UI = (function () {
         var g = by[k];
         g.total += it.q;
         g.at.push({ place: pl, q: it.q, loc: it.loc, m: it.m,
-                    lib: it.lib, shelf: it.shelf });
+                    lib: it.lib, shelf: it.shelf, home: it.home || "" });
         /* أعلى حدّ تنبيه ضُبط للصنف في أي مكان. الحكم بعدها يكون على
            المجموع: كتاب مجموعه ٥٧ نسخة ليس «قارب على النفاد» لأن
            فرعاً واحداً عنده ٥ منه. */
@@ -316,6 +336,11 @@ var UI = (function () {
     return Object.keys(by).map(function (k) {
       var g = by[k];
       g.low = g.minTop > 0 && g.total > 0 && g.total <= g.minTop;
+      g.room = 0; g.shelfQ = 0;
+      g.at.forEach(function (w) {
+        if (w.place.kind === "room") g.room += w.q;
+        else if (w.place.kind === "branch") g.shelfQ += w.q;   // على رفوف الفروع وحدها
+      });
       return g;
     });
   }
@@ -367,6 +392,8 @@ var UI = (function () {
     if (S.filter === "book") return list.filter(function (g) { return g.t === "book"; });
     if (S.filter === "stat") return list.filter(function (g) { return g.t === "stat"; });
     if (S.filter === "nobc") return list.filter(function (g) { return !g.b; });
+    if (S.filter === "room") return list.filter(function (g) { return g.room > 0; });
+    if (S.filter === "shelfout") return list.filter(function (g) { return g.room > 0 && g.shelfQ <= 0; });
     /* «بلا تصنيف» دلوٌ نعرضه في الملخّص، وليس تصنيفاً مكتوباً على صنف.
        بلا هذا السطر كانت التصفية عليه تعطي قائمة فارغة. */
     if (S.filter === "c:") return list.filter(function (g) { return !g.c; });
@@ -425,7 +452,7 @@ var UI = (function () {
     var by = {};
     items().forEach(function (g) {
       g.at.forEach(function (w) {
-        if (w.lib) return;
+        if (w.lib || w.place.kind === "room") return;
         var nm = w.loc || "بلا موقع";
         if (!by[nm]) by[nm] = { name: nm, items: 0, qty: 0 };
         by[nm].items++; by[nm].qty += w.q;
@@ -439,7 +466,7 @@ var UI = (function () {
   function onShelf(lib, shelf) {
     return items().filter(function (g) {
       return g.at.some(function (w) {
-        if (lib === "\u0001spot") return !w.lib && (w.loc || "بلا موقع") === shelf;
+        if (lib === "\u0001spot") return !w.lib && w.place.kind !== "room" && (w.loc || "بلا موقع") === shelf;
         if (w.lib !== lib) return false;
         if (!shelf) return true;
         return (w.shelf || "—") === shelf;
@@ -473,7 +500,9 @@ var UI = (function () {
     });
   }
 
-  function render() {
+  function render() { paintAll(); motion(); }
+
+  function paintAll() {
     var gate = el("gate"), app = el("app");
     applyTheme();
     if (!configured()) {
@@ -544,6 +573,8 @@ var UI = (function () {
     ];
     var nNoBc = all.filter(function (g) { return !g.b; }).length;
     defs.push({ k: "nobc", t: "بلا باركود", n: nNoBc });
+    defs.push({ k: "room", t: "في غرفة الخزين", n: all.filter(function (g) { return g.room > 0; }).length });
+    defs.push({ k: "shelfout", t: "نفد من الرفوف", n: all.filter(function (g) { return g.room > 0 && g.shelfQ <= 0; }).length });
 
     var catKeys = Object.keys(cats).sort(function (a, b) { return cats[b] - cats[a]; });
     catKeys.slice(0, 14).forEach(function (c) {
@@ -590,6 +621,7 @@ var UI = (function () {
         '<button class="tile tap' + (out ? " bad" : "") + '" data-act="filter" data-arg="out">' +
         "<b>" + out + "</b><span>نفد</span></button>" +
         "</div>";
+      h += roomNote(all);
     }
 
     if (!list.length) {
@@ -630,6 +662,21 @@ var UI = (function () {
       v.innerHTML = emptyBox("shelf", "لا توجد مواقع مسجّلة",
         "لم تُسجَّل المكتبة والرف للأصناف بعد. اضبطها في البرنامج على " +
         "الكمبيوتر فتظهر هنا مرتّبة.");
+      el("foot").innerHTML = "";
+      return;
+    }
+
+    /* غرفة الخزين */
+    if (S.lib === "\u0001room") {
+      var rl = sortItems(items().filter(function (g) { return g.room > 0; }));
+      var rq = rl.reduce(function (n, g) { return n + g.room; }, 0);
+      v.innerHTML =
+        crumb([{ t: "الرفوف", a: "browse" }, { t: "غرفة الخزين" }]) +
+        '<div class="sec-head"><h2>' + ico("box", 16) + " غرفة الخزين</h2>" +
+        '<span class="n">' + rl.length + " صنف · " + rq + " نسخة</span></div>" +
+        '<p class="lead">ما في غرفة الخزين وليس على الرفوف. الرقم الكبير هو المجموع، والشارة الزرقاء ما في الغرفة.</p>' +
+        (rl.length ? '<div class="rows">' + rl.map(rowHtml).join("") + "</div>"
+                   : emptyBox("box", "الغرفة فارغة", "كل البضاعة على الرفوف."));
       el("foot").innerHTML = "";
       return;
     }
@@ -681,6 +728,15 @@ var UI = (function () {
       '<span class="n">' + libs.length + " مكتبة · " + totQ + " قطعة</span></div>" +
       '<p class="lead">اختر مكتبة ثم رفّاً لترى ما فيه وحده — بدل أن يظهر ' +
       "المخزون كله دفعة واحدة.</p>";
+
+    var rItems = items().filter(function (g) { return g.room > 0; });
+    if (rItems.length) {
+      var rQ = rItems.reduce(function (n, g) { return n + g.room; }, 0);
+      h2 += '<button class="room-card" data-act="room">' +
+        '<span class="rc-ic">' + ico("box", 22) + "</span>" +
+        '<span class="lib-meta"><b>غرفة الخزين</b><span>' + rItems.length + " صنف · " + rQ + " نسخة ليست على الرفوف</span></span>" +
+        '<span class="lib-go">' + ico("back", 18) + "</span></button>";
+    }
 
     h2 += '<div class="libs">' + libs.map(function (lb) {
       /* رفوف المكتبة تُعرض شارات تُضغط مباشرة: أسرع من فتح المكتبة
@@ -765,6 +821,8 @@ var UI = (function () {
       tileBtn("box", out, "نفد", out ? "bad" : "", "out") +
       "</div>";
 
+    h += roomNote(all);
+
     if (noBc) {
       h += '<button class="note-card" data-act="filter" data-arg="nobc">' +
         ico("tag", 20) + "<div><b>" + noBc + " صنف بلا باركود</b>" +
@@ -786,6 +844,19 @@ var UI = (function () {
 
     v.innerHTML = h;
     el("foot").innerHTML = "";
+  }
+
+  /* بطاقة غرفة الخزين: كم فيها، وكم صنف نفد من الرفوف وله نسخ هناك */
+  function roomNote(all) {
+    var n = 0, q = 0, dry = 0;
+    all.forEach(function (g) {
+      if (g.room > 0) { n++; q += g.room; if (g.shelfQ <= 0) dry++; }
+    });
+    if (!n) return "";
+    return '<button class="note-card room" data-act="room">' + ico("box", 20) +
+      "<div><b>غرفة الخزين: " + q + " نسخة من " + n + " صنف</b>" +
+      "<span>" + (dry ? dry + " صنف نفد من الرفوف وله نسخ في الغرفة — " : "") + "اضغط لتراها.</span></div>" +
+      ico("back", 18) + "</button>";
   }
 
   function tile(icon, n, label, cls) {
@@ -811,6 +882,8 @@ var UI = (function () {
     if (S.filter === "book") return "الكتب";
     if (S.filter === "stat") return "القرطاسية";
     if (S.filter === "nobc") return "بلا باركود";
+    if (S.filter === "room") return "في غرفة الخزين";
+    if (S.filter === "shelfout") return "نفد من الرفوف وله في المخزن";
     if (S.filter === "c:") return "بلا تصنيف";
     if (S.filter.indexOf("c:") === 0) return S.filter.slice(2);
     return "كل الأصناف";
@@ -823,9 +896,14 @@ var UI = (function () {
     if (!sub && g.at.length) sub = g.at[0].loc || "";
 
     var tags = "";
+    var spots2 = g.at.filter(function (w) { return w.place.kind !== "room"; });
     if (g.c) tags += '<span class="tag g">' + esc(g.c) + "</span>";
-    if (g.at.length > 1) tags += '<span class="tag">' + ico("box", 11) + " في " + g.at.length + " أماكن</span>";
-    else if (g.at[0] && g.at[0].loc) tags += '<span class="tag">' + ico("shelf", 11) + " " + esc(g.at[0].loc) + "</span>";
+    if (spots2.length > 1) tags += '<span class="tag">' + ico("box", 11) + " في " + spots2.length + " أماكن</span>";
+    else if (spots2[0] && spots2[0].loc) tags += '<span class="tag">' + ico("shelf", 11) + " " + esc(spots2[0].loc) + "</span>";
+    if (g.room > 0) {
+      tags += '<span class="tag rm">' + ico("box", 11) + " في المخزن " + g.room + "</span>";
+      if (g.shelfQ <= 0) tags += '<span class="tag a">نفد من الرفوف</span>';
+    }
     if (!g.b) tags += '<span class="tag a">' + ico("tag", 11) + ' بلا باركود</span>';
 
     /* تأخير الظهور يتدرّج بالصنف لا بقيمة سطرية: سياسة الأمان تمنع
@@ -873,6 +951,13 @@ var UI = (function () {
       "<b>" + g.total + "</b><span>" + (g.u || "قطعة") + " في المجموع</span></div>" +
       "<div>" + ico("money", 16) + "<b>" + money(g.p) + "</b><span>سعر البيع</span></div>" +
       "</div>";
+    if (g.room > 0) {
+      h += '<div class="det-split">' +
+        '<div class="sp-sh' + (g.shelfQ <= 0 ? " dry" : "") + '">' + ico("shelf", 16) + "<b>" + g.shelfQ + "</b><span>على الرفوف</span></div>" +
+        '<div class="sp-arrow" aria-hidden="true">⇄</div>' +
+        '<div class="sp-st">' + ico("box", 16) + "<b>" + g.room + "</b><span>في غرفة الخزين</span></div>" +
+        "</div>";
+    }
 
     h += '<dl class="det-rows">';
     h += detRow("الباركود", g.b
@@ -893,8 +978,8 @@ var UI = (function () {
       var a = ageOf(w.place.at);
       h += '<div class="wrow' + (a.cls === "bad" ? " stale" : "") + '">' +
         "<b>" + w.q + "</b>" +
-        '<span class="wn">' + (w.place.kind === "wh" ? "▤ " : "") + esc(w.place.name) +
-        (w.loc ? " — " + esc(w.loc) : "") + "</span>" +
+        '<span class="wn">' + (w.place.kind === "wh" ? "▤ " : w.place.kind === "room" ? "▥ " : "") + esc(w.place.name) +
+        (w.loc ? " — " + esc(w.loc) : (w.home ? " — مكانه على الرفوف: " + esc(w.home) : "")) + "</span>" +
         (a.cls === "bad" ? '<span class="wa">' + esc(a.txt) + "</span>"
                          : '<span class="wl">' + esc(a.txt) + "</span>") +
         "</div>";
@@ -910,8 +995,18 @@ var UI = (function () {
       "</div></div>";
 
     var s = el("sheet");
+    clearTimeout(sheetTimer);
+    s.classList.remove("closing");
     s.innerHTML = h;
     s.hidden = false;
+    /* تنمو النافذة من مكان الإصبع (Flow): تسعة اتجاهات بأصناف CSS،
+       لأن سياسة الأمان تمنع style السطري. */
+    var inner = s.querySelector(".inner");
+    if (inner && lastTap && Date.now() - lastTap.t < 1500) {
+      var cx = lastTap.x / Math.max(window.innerWidth, 1), cy = lastTap.y / Math.max(window.innerHeight, 1);
+      inner.classList.add("morph", "o" + (cy < .34 ? "t" : cy > .66 ? "b" : "m") + (cx < .34 ? "l" : cx > .66 ? "r" : "c"));
+    }
+    countUp(s);
     s.onclick = function (e) { if (e.target === s) closeSheet(); };
     document.body.style.overflow = "hidden";
   }
@@ -920,10 +1015,17 @@ var UI = (function () {
     return '<div class="det-row"><dt>' + k + "</dt><dd>" + v + "</dd></div>";
   }
 
+  var sheetTimer = null;
   function closeSheet() {
     var s = el("sheet");
-    s.hidden = true; s.innerHTML = "";
     document.body.style.overflow = "";
+    if (s.hidden) return;
+    if (reduced()) { s.hidden = true; s.innerHTML = ""; return; }
+    s.classList.add("closing");                 // تنزل ثم تختفي
+    clearTimeout(sheetTimer);
+    sheetTimer = setTimeout(function () {
+      s.hidden = true; s.innerHTML = ""; s.classList.remove("closing");
+    }, 190);
   }
 
   /* ---------- الإعدادات ---------- */
@@ -992,9 +1094,81 @@ var UI = (function () {
     el("foot").innerHTML = "";
   }
 
+  /* ============================================================
+     الحركات — كما في المنظومة على الكمبيوتر
+     كلها شكل فقط، ولا تعمل لمن ضبط جهازه على تقليل الحركة.
+     ============================================================ */
+  var entering = true, lastTap = null;
+
+  function reduced() {
+    try { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+    catch (e) { return false; }
+  }
+
+  function motion() {
+    var v = el("view");
+    if (v) {
+      // دخول الشاشة بميل ثلاثي الأبعاد — عند الانتقال لشاشة فقط
+      v.classList.remove("enter");
+      if (entering) { void v.offsetWidth; v.classList.add("enter"); countUp(v); }
+    }
+    entering = false;
+    moveTabGlider();
+  }
+
+  /* كبسولة تنزلق تحت التبويب المفتوح في الشريط السفلي */
+  function moveTabGlider() {
+    var nav = el("tabs");
+    if (!nav) return;
+    var g = nav.querySelector(".tab-glider");
+    if (!g) {
+      g = document.createElement("span");
+      g.className = "tab-glider";
+      g.setAttribute("aria-hidden", "true");
+      nav.insertBefore(g, nav.firstChild);
+    }
+    var i = 0, k = 0;
+    Array.prototype.forEach.call(nav.querySelectorAll("button"), function (b, n) {
+      if (b.classList.contains("on")) i = n;
+      k = n + 1;
+    });
+    g.className = "tab-glider p" + i + " of" + k;
+  }
+
+  /* الأرقام تعدّ صعوداً ثم تنتهي بالنص الأصلي حرفاً بحرف */
+  function countUp(root) {
+    if (!root || reduced()) return;
+    var els = root.querySelectorAll(".tile b, .det-big b, .det-split b");
+    Array.prototype.forEach.call(els, function (e) {
+      var final = e.textContent;
+      var m = /^\s*(-?)([\d,]+(?:\.(\d+))?)\s*$/.exec(final);
+      if (!m) return;
+      var target = parseFloat(m[2].replace(/,/g, "")) * (m[1] ? -1 : 1);
+      if (!target) return;
+      var dec = m[3] ? m[3].length : 0, t0 = null, DUR = 480;
+      function frame(ts) {
+        if (!e.isConnected) return;
+        if (t0 === null) t0 = ts;
+        var p = Math.min((ts - t0) / DUR, 1), q = 1 - Math.pow(1 - p, 3);
+        if (p < 1) { e.textContent = (target * q).toFixed(dec); requestAnimationFrame(frame); }
+        else e.textContent = final;
+      }
+      e.textContent = (0).toFixed(dec);
+      requestAnimationFrame(frame);
+    });
+  }
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("pointerdown", function (e) {
+      lastTap = { x: e.clientX, y: e.clientY, t: Date.now() };
+    }, true);
+    window.addEventListener("resize", function () { moveTabGlider(); });
+  }
+
   /* ---------- الأحداث ---------- */
 
   function go(screen) {
+    entering = true;
     S.screen = screen;
     if (screen === "home") { S.shown = PAGE; }
     render();
@@ -1117,6 +1291,7 @@ var UI = (function () {
     /* المكتبة والرف في سمتين منفصلتين: الحرف الفاصل داخل سمة واحدة
        لا ينجو من تحليل HTML (المحلّل يُسقط المحارف الصفرية). */
     shelf: function (a, b2) { S.lib = a; S.shelf = b2; go("browse"); },
+    room: function () { S.lib = "\u0001room"; S.shelf = ""; go("browse"); },
     copy: function (a) { copyText(a); }
   };
 

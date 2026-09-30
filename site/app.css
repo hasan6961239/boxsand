@@ -672,3 +672,113 @@ main{padding-bottom:86px}
 .sec-head h2 .ic{vertical-align:-3px;margin-inline-end:5px;color:var(--muted)}
 .offscreen{position:fixed;top:-2000px;inset-inline-start:-2000px}
 .muted{color:var(--muted)}
+
+/* ============================================================
+   غرفة الخزين + الحركات (كما في المنظومة على الكمبيوتر)
+   كل الحركة هنا بأصناف CSS: سياسة الأمان تمنع style السطري.
+   ============================================================ */
+:root{ --blue:#23566E; --blue-wash:#E3EDF2; --spring:cubic-bezier(.34,1.36,.5,1) }
+:root[data-theme="dark"]{ --blue:#7FB6D1; --blue-wash:#16303B }
+@media (prefers-color-scheme:dark){ :root[data-theme="auto"]{ --blue:#7FB6D1; --blue-wash:#16303B } }
+
+/* ---------- غرفة الخزين ---------- */
+.tag.rm{background:var(--blue-wash);color:var(--blue)}
+.note-card.room{background:var(--blue-wash);border-color:color-mix(in srgb,var(--blue) 25%,transparent)}
+.note-card.room > svg:first-child,.note-card.room b{color:var(--blue)}
+.room-card{
+  display:flex;align-items:center;gap:12px;width:100%;margin:0 0 12px;
+  background:var(--card);border:1px solid var(--line);border-inline-start:4px solid var(--blue);
+  border-radius:var(--r);padding:13px 14px;font:inherit;color:inherit;cursor:pointer;text-align:start;
+  box-shadow:var(--sh-1);animation:rise .4s var(--ease) both;
+}
+.room-card .rc-ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;
+  background:var(--blue-wash);color:var(--blue);flex-shrink:0}
+.room-card .lib-meta b{color:var(--blue)}
+.det-split{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin:-6px 0 16px}
+.det-split > div:not(.sp-arrow){border-radius:var(--r-sm);padding:12px 14px;text-align:center;
+  animation:splitIn .5s var(--spring) both}
+.det-split .sp-sh{background:var(--green-wash);color:var(--green)}
+.det-split .sp-sh.dry{background:var(--amber-wash);color:var(--amber)}
+.det-split .sp-st{background:var(--blue-wash);color:var(--blue);animation-delay:.08s}
+.det-split b{display:block;font-size:24px;font-family:var(--num);line-height:1.2}
+.det-split span{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+.det-split .sp-arrow{color:var(--faint);font-size:20px;animation:swing 1.6s ease-in-out .5s 2}
+@keyframes splitIn{from{opacity:0;transform:translateY(10px) scale(.9)}to{opacity:1;transform:none}}
+@keyframes swing{0%,100%{transform:none}50%{transform:scaleX(-1)}}
+
+/* ---------- دخول الشاشات بميل ثلاثي الأبعاد ---------- */
+#view.enter > *{animation:enter3d .5s var(--ease) both}
+#view.enter > *:nth-child(2){animation-delay:.04s}
+#view.enter > *:nth-child(3){animation-delay:.08s}
+#view.enter > *:nth-child(4){animation-delay:.12s}
+@keyframes enter3d{
+  from{opacity:0;transform:perspective(1100px) rotateX(9deg) translateY(20px) scale(.985)}
+  to{opacity:1;transform:none}
+}
+.tile{animation:tile3d .55s var(--spring) both}
+@keyframes tile3d{from{opacity:0;transform:perspective(700px) rotateY(-16deg) translateY(12px) scale(.94)}to{opacity:1;transform:none}}
+
+/* ---------- كبسولة الشريط السفلي تنزلق ---------- */
+#tabs{position:fixed}
+#tabs .tab-glider{
+  position:absolute;top:5px;bottom:calc(5px + env(safe-area-inset-bottom));
+  right:0;width:25%;pointer-events:none;z-index:0;
+  transition:transform .5s var(--spring);
+}
+#tabs .tab-glider::after{
+  content:"";position:absolute;inset:0 12%;border-radius:16px;background:var(--green-wash);
+}
+#tabs .tab-glider.p1{transform:translateX(-100%)}
+#tabs .tab-glider.p2{transform:translateX(-200%)}
+#tabs .tab-glider.p3{transform:translateX(-300%)}
+#tabs .tab-glider.p4{transform:translateX(-400%)}
+#tabs .tab-glider.of3{width:33.333%}  #tabs .tab-glider.of5{width:20%}
+#tabs button{z-index:1}
+#tabs button.on::before{display:none}
+#tabs button.on svg{animation:hop .5s var(--spring)}
+@keyframes hop{0%{transform:scale(.7) translateY(4px)}60%{transform:scale(1.15)}100%{transform:none}}
+
+/* ---------- الضغط: ينكمش قليلاً ثم يرتدّ ---------- */
+.row,.tile.tap,.chip,.btn,.lib-head,.room-card,.note-card,.sh-chip,.shelf-tile{
+  transition:transform .28s var(--spring), box-shadow .2s, background .15s, border-color .15s
+}
+.row:active,.tile.tap:active,.chip:active,.btn:active,.room-card:active,.note-card:active,.sh-chip:active{transform:scale(.96)}
+.chip.on{animation:chipPop .4s var(--spring)}
+@keyframes chipPop{0%{transform:scale(.85)}100%{transform:none}}
+
+/* ---------- صفحة الصنف تنمو من مكان الإصبع (Flow) وتنزل عند الإغلاق ---------- */
+#sheet .inner.morph{animation:morph .46s var(--spring) both}
+#sheet .inner.otl{transform-origin:15% 10%}  #sheet .inner.otc{transform-origin:50% 10%}  #sheet .inner.otr{transform-origin:85% 10%}
+#sheet .inner.oml{transform-origin:15% 50%}  #sheet .inner.omc{transform-origin:50% 50%}  #sheet .inner.omr{transform-origin:85% 50%}
+#sheet .inner.obl{transform-origin:15% 95%}  #sheet .inner.obc{transform-origin:50% 95%}  #sheet .inner.obr{transform-origin:85% 95%}
+@keyframes morph{
+  0%{opacity:0;transform:scale(.12);border-radius:60px;filter:blur(8px)}
+  45%{opacity:1;filter:none}
+  100%{opacity:1;transform:none}
+}
+#sheet.closing{animation:fadeOut .19s ease forwards}
+#sheet.closing .inner{animation:sheetOut .19s ease forwards}
+@keyframes fadeOut{to{opacity:0}}
+@keyframes sheetOut{to{transform:translateY(40px) scale(.97);opacity:0}}
+
+/* ---------- كرة مضيئة سائلة في شاشة الربط (Flow) ---------- */
+.gate-art{position:relative}
+.gate-art::before{
+  content:"";position:absolute;left:50%;top:50%;width:120px;height:120px;margin:-60px 0 0 -60px;z-index:-1;
+  background:radial-gradient(circle at 35% 30%, #fff 0 6%, var(--green-l) 22%, var(--green) 58%, var(--green-d) 100%);
+  box-shadow:0 0 40px 8px color-mix(in srgb,var(--green-l) 45%,transparent);
+  opacity:.28;animation:blob 7s ease-in-out infinite;
+}
+.gate-mark{position:relative}
+@keyframes blob{
+  0%,100%{border-radius:50%;transform:rotate(0) scale(1)}
+  25%{border-radius:58% 42% 55% 45%/45% 58% 42% 55%;transform:rotate(40deg) scale(1.05)}
+  50%{border-radius:45% 55% 42% 58%/56% 44% 57% 43%;transform:rotate(90deg) scale(.96)}
+  75%{border-radius:53% 47% 60% 40%/42% 55% 45% 58%;transform:rotate(140deg) scale(1.03)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  #view.enter > *,.tile,.det-split > div,.det-split .sp-arrow,#sheet .inner.morph,.gate-art::before,
+  #tabs button.on svg,.chip.on{animation:none !important}
+  #tabs .tab-glider{transition:none}
+}

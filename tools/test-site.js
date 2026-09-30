@@ -26,7 +26,7 @@ const ago = m => new Date(Date.now()-m*60000).toISOString().slice(0,16).replace(
 const PAYLOAD = { ok:true, branches:[
   { at: ago(6), branch:{id:'misrata',name:'مكتبة دار الحكمة',city:'مصراتة',phone:'091 234 5678'},
     items:[
-      {n:'أساسيات الهندسة لتقنيات الورش',a:'د. سالم القدّافي',b:'9789991234567',c:'هندسة',k:'K0001',q:12,p:25,m:5,t:'book',l:'D',s:'1',d:'دار المعرفة',nt:'التخصص: هندسة ميكانيكية\nكتاب تمهيدي لطلبة السنة الأولى.'},
+      {n:'أساسيات الهندسة لتقنيات الورش',a:'د. سالم القدّافي',b:'9789991234567',c:'هندسة',k:'K0001',q:12,st:9,p:25,m:5,t:'book',l:'D',s:'1',d:'دار المعرفة',nt:'التخصص: هندسة ميكانيكية\nكتاب تمهيدي لطلبة السنة الأولى.'},
       {n:'تشريح جسم الإنسان',a:'د. منى الفيتوري',b:'',c:'طب بشري',k:'K0002',q:0,p:60,m:3,t:'book',l:'A',s:'2',d:'',nt:''},
       {n:'قلم جاف أزرق',b:'55512345',q:4,p:1.5,m:10,t:'stat',loc:'رف A',u:'قطعة'},
       {n:'دفتر 100 ورقة',b:'55599999',q:150,p:3,m:20,t:'stat',loc:'رف C',u:'قطعة'},
@@ -157,7 +157,10 @@ const srv = http.createServer((q,s)=>{
   ok('وفيها الباركود', /9789991234567/.test(det));
   ok('وفيها الملاحظة', /هندسة ميكانيكية/.test(det));
   ok('وفيها المجموع 57 (12+40+5)', /57/.test(det), det.slice(0,60));
-  ok('وتعرض الأماكن الثلاثة', (await pg.$$eval('.wrow', e=>e.length))===3);
+  ok('وتعرض الأماكن الأربعة (الرفوف، غرفة الخزين، المخزن، طرابلس)', (await pg.$$eval('.wrow', e=>e.length))===4);
+  const split = await pg.$$eval('.det-split b', e=>e.map(x=>x.textContent.trim()));
+  ok('وتفرّق بين الرفوف (3 مصراتة + 5 طرابلس) وغرفة الخزين (9)', split.join()==='8,9', JSON.stringify(split));
+  ok('وصف الغرفة يذكر مكان الكتاب على الرفوف', /مكانه على الرفوف: D · رف 1/.test(det), det.slice(0,40));
   const stale = await pg.$$eval('.wrow.stale', e=>e.map(x=>x.textContent.replace(/\s+/g,' ').trim()));
   ok('وطرابلس معلَّم قديماً (4 أيام)', stale.length===1 && /طرابلس/.test(stale[0]) && /4 يوم/.test(stale[0]), JSON.stringify(stale));
   ok('وفيه زر اتصال', (await pg.$$eval('a[href^="tel:"]', e=>e.length))>=1);
@@ -271,6 +274,26 @@ const srv = http.createServer((q,s)=>{
   const byQty = await pg.$$eval('.pill', e=>e.map(x=>parseInt(x.textContent,10)));
   ok('الترتيب بالأكثر عدداً يعمل',
      byQty.length>1 && byQty[0]>=byQty[1], JSON.stringify(byQty));
+
+  // 23) غرفة الخزين في الرئيسية والرفوف
+  await pg.evaluate(()=>{ UI.S.filter=''; UI.S.q=''; UI.go('home'); }); await pg.waitForTimeout(700);
+  const tiles2 = await pg.$$eval('.tile b', e=>e.map(x=>x.textContent.trim()));
+  ok('المجموع لم يتغيّر بوجود غرفة الخزين (214)', tiles2[1]==='214', tiles2.join(','));
+  ok('بطاقة «غرفة الخزين» في الرئيسية', /غرفة الخزين: 9 نسخة من 1 صنف/.test(await pg.textContent('.note-card.room')));
+  ok('وشارة «في المخزن 9» على سطر الكتاب',
+     (await pg.$$eval('.tag.rm', e=>e.map(x=>x.textContent.trim()))).some(t=>/في المخزن 9/.test(t)));
+  await pg.click('.chip:has-text("في غرفة الخزين")'); await pg.waitForTimeout(500);
+  ok('ورقاقة «في غرفة الخزين» تصفّي به', (await pg.$$eval('.row', e=>e.length))===1);
+  await pg.evaluate(()=>{ UI.S.filter=''; }); 
+  await pg.click('#tabs button[data-arg="browse"]'); await pg.waitForTimeout(700);
+  ok('الكبسولة تنزلق تحت تبويب «الرفوف»', await pg.$eval('#tabs .tab-glider', e=>e.classList.contains('p1')));
+  await pg.click('.room-card'); await pg.waitForTimeout(600);
+  ok('وصفحة الغرفة في شاشة الرفوف', /غرفة الخزين/.test(await pg.textContent('.sec-head')) &&
+     (await pg.$$eval('.row', e=>e.length))===1);
+  await pg.click('.crumb button'); await pg.waitForTimeout(500);
+  const dLib = await pg.$$eval('.lib-card', e=>e.map(x=>x.textContent.replace(/\s+/g,' ')));
+  ok('ومكتبة D تحسب الرفوف وحدها (3 لا 12)', dLib.some(t=>/مكتبة D/.test(t) && /3 قطعة/.test(t)), JSON.stringify(dLib));
+  ok('ولا style سطري بعد الحركات', (await pg.$$eval('[style]:not(body)', e=>e.length))===0);
 
   // 22) رابط التهيئة يملأ البيانات ويمسح نفسه
   await pg.evaluate(()=>localStorage.removeItem('maktaba_stock_v2'));
