@@ -470,7 +470,7 @@ var App = (function () {
     new MutationObserver(function (ms) {
       ms.forEach(function (m) {
         for (var i = 0; i < m.addedNodes.length; i++) {
-          if (m.addedNodes[i].nodeType === 1) numericFields(m.addedNodes[i]);
+          if (m.addedNodes[i].nodeType === 1) { numericFields(m.addedNodes[i]); binButtons(m.addedNodes[i]); }
         }
       });
     }).observe(document.documentElement, { childList: true, subtree: true });
@@ -680,6 +680,7 @@ var App = (function () {
     ov.onclick = function (e) { if (e.target === ov) close(); };
 
     host.appendChild(ov);
+    morphFrom(ov.querySelector(".modal"));
     modalStack.push(ov);
     var first = ov.querySelector(".m-body input,.m-body select,.m-body textarea") || ov.querySelector("button.primary");
     if (first) setTimeout(function () { first.focus(); }, 60);
@@ -1184,6 +1185,133 @@ var App = (function () {
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, reducedMotion() ? 900 : 1400);
   }
 
+  /* ============================================================
+     المظهر 2.2 — حركات من الفيديوهات التي أرسلها صاحب المحل
+     كلها شكلٌ فقط: لا تغيّر ما يفعله أي زر، ولا تؤخّره لحظة، ولا تلمس
+     البيانات. ولا تعمل لمن ضبط جهازه على تقليل الحركة.
+     ============================================================ */
+
+  /* (1) كبسولة تنزلق في الشريط إلى الصفحة المفتوحة (Navigation Tabs V5).
+     كانت الصفحة المفتوحة تُلوَّن فجأة؛ الآن تنتقل الكبسولة إليها. */
+  function moveGlider() {
+    var nav = document.getElementById("nav");
+    if (!nav) return;
+    var g = nav.querySelector(".nav-glider");
+    if (!g) {
+      g = document.createElement("div");
+      g.className = "nav-glider";
+      g.setAttribute("aria-hidden", "true");
+      nav.insertBefore(g, nav.firstChild);
+    }
+    var on = nav.querySelector(".nav-item.on");
+    if (!on || !on.offsetHeight) { g.classList.remove("show"); return; }
+    g.style.height = on.offsetHeight + "px";
+    g.style.width = on.offsetWidth + "px";
+    g.style.transform = "translate(" + on.offsetLeft + "px," + on.offsetTop + "px)";
+    if (!g.classList.contains("show")) {
+      g.classList.add("show");
+      void g.offsetWidth;                       // أول ظهور بلا انزلاق
+    }
+    g.classList.add("ready");
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", function () { moveGlider(); });
+  }
+
+  var lastPt = null, segFrom = null;
+  if (typeof document !== "undefined") {
+    document.addEventListener("pointerdown", function (e) {
+      lastPt = { x: e.clientX, y: e.clientY, t: Date.now() };
+      /* (2) المفاتيح المقسّمة: تُحفظ مكان الخيار الحالي قبل الضغط لتنزلق
+         الكبسولة منه إلى الخيار الجديد بعد أن تُرسم الصفحة. */
+      segFrom = null;
+      var b = e.target.closest && e.target.closest(".seg button");
+      if (!b || b.classList.contains("on") || reducedMotion()) return;
+      var seg = b.parentNode, on = seg.querySelector("button.on");
+      if (!on) return;
+      var sr = seg.getBoundingClientRect(), r = on.getBoundingClientRect();
+      segFrom = { i: Array.prototype.indexOf.call(document.querySelectorAll(".seg"), seg),
+        x: r.left - sr.left, y: r.top - sr.top, w: r.width, h: r.height };
+    }, true);
+    document.addEventListener("click", function (e) {
+      var bb = e.target.closest && e.target.closest(".bin-btn");
+      if (bb) eatLabel(bb);
+      if (!segFrom) return;
+      var f = segFrom;
+      segFrom = null;
+      setTimeout(function () { glideSeg(f); }, 0);
+    }, true);
+  }
+  function glideSeg(f) {
+    var seg = document.querySelectorAll(".seg")[f.i];
+    var on = seg && seg.querySelector("button.on");
+    if (!on) return;
+    var sr = seg.getBoundingClientRect(), r = on.getBoundingClientRect();
+    var x = r.left - sr.left, y = r.top - sr.top;
+    if (Math.abs(x - f.x) < 2 && Math.abs(y - f.y) < 2) return;
+    var old = seg.querySelector(".seg-ghost");
+    if (old) old.parentNode.removeChild(old);
+    var gh = document.createElement("span");
+    gh.className = "seg-ghost";
+    gh.setAttribute("aria-hidden", "true");
+    var bl = seg.clientLeft, bt = seg.clientTop;          // الإطار لا يُحسب في الإزاحة
+    gh.style.cssText = "width:" + f.w + "px;height:" + f.h + "px;transform:translate(" + (f.x - bl) + "px," + (f.y - bt) + "px)";
+    seg.appendChild(gh);
+    on.classList.add("seg-landing");
+    void gh.offsetWidth;
+    gh.style.width = r.width + "px";
+    gh.style.height = r.height + "px";
+    gh.style.transform = "translate(" + (x - bl) + "px," + (y - bt) + "px)";
+    setTimeout(function () {
+      on.classList.remove("seg-landing");
+      if (gh.parentNode) gh.parentNode.removeChild(gh);
+    }, 340);
+  }
+
+  /* (3) زر «حذف»: سلة يُفتح غطاؤها فتبتلع الكلمة (The Bin Eats The Label).
+     الحركة تبدأ مع الضغط نفسه ولا تنتظر؛ نافذة التأكيد تفتح كما كانت. */
+  var BIN_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<g class="bin-lid"><path d="M3.5 6.5h17"/><path d="M9.5 6.3V4.6c0-.6.5-1.1 1.1-1.1h2.8c.6 0 1.1.5 1.1 1.1v1.7"/></g>' +
+    '<path d="M5.8 9l.9 10.3c.1 1 .9 1.7 1.9 1.7h6.8c1 0 1.8-.7 1.9-1.7L18.2 9"/><path d="M10 12v5.5M14 12v5.5"/></svg>';
+  function binButtons(root) {
+    if (!root || !root.querySelectorAll) return;
+    var l = root.matches && root.matches("button.btn") ? [root] : root.querySelectorAll("button.btn");
+    for (var i = 0; i < l.length; i++) {
+      var b = l[i];
+      if (b.__bin || b.children.length || b.textContent.trim() !== "حذف") continue;
+      b.__bin = true;
+      b.classList.add("bin-btn");
+      b.innerHTML = '<span class="bin" aria-hidden="true">' + BIN_SVG + '</span><span class="bin-lbl">حذف</span>';
+    }
+  }
+  var binAt = 0;
+  function eatLabel(b) {
+    if (reducedMotion()) return;
+    binAt = Date.now();
+    b.classList.remove("eat");
+    void b.offsetWidth;
+    b.classList.add("eat");
+    clearTimeout(b.__eat);
+    b.__eat = setTimeout(function () { b.classList.remove("eat"); }, 1100);
+  }
+
+  /* (4) النافذة تنمو من مكان الضغطة نفسه كما تنفتح بطاقة «Flow».
+     من لوحة المفاتيح (بلا ضغطة قريبة) تنفتح من وسطها كالعادة. */
+  function morphFrom(m) {
+    if (!m || reducedMotion()) return;
+    /* نافذة تأكيد الحذف: لا تنمو فوق السلة، والتغبيش يتأخّر قليلاً
+       فتُرى السلة وهي تبتلع الكلمة خلف النافذة. */
+    if (Date.now() - binAt < 400) { m.parentNode.classList.add("after-bin"); return; }
+    if (!lastPt || Date.now() - lastPt.t > 1500) return;
+    var r = m.getBoundingClientRect();
+    if (!r.width) return;
+    var ox = Math.max(-r.width, Math.min(r.width * 2, lastPt.x - r.left));
+    var oy = Math.max(-r.height, Math.min(r.height * 2, lastPt.y - r.top));
+    m.style.transformOrigin = Math.round(ox) + "px " + Math.round(oy) + "px";
+    m.classList.add("morph");
+  }
+
   function branchLabel() {
     var b = S.branch;
     var city = hasBadChars(b.city) ? "" : (b.city || "");
@@ -1211,7 +1339,9 @@ var App = (function () {
     { k: "wine", t: "نبيذي", c: "#8C2F39" },
     { k: "amber", t: "برتقالي", c: "#B26B10" },
     { k: "teal", t: "فيروزي", c: "#0F6B75" },
-    { k: "slate", t: "رمادي", c: "#3D4A57" }
+    { k: "slate", t: "رمادي", c: "#3D4A57" },
+    { k: "indigo", t: "نيلي", c: "#4F46E5" },
+    { k: "coral", t: "مرجاني", c: "#E0644C" }
   ];
 
   function applyTheme() {
@@ -1308,6 +1438,8 @@ var App = (function () {
     var page = null;
     PAGES.forEach(function (p) { if (p.k === k) page = p; });
     if (!page) { location.hash = "#/dash"; return; }
+    /* حركة دخول الصفحة عند الانتقال إليها فقط، لا مع كل ضغطة فلتر */
+    var entering = k !== current;
     current = k;
 
     document.querySelectorAll(".nav-item").forEach(function (b) {
@@ -1320,12 +1452,14 @@ var App = (function () {
 
     var view = document.getElementById("view");
     view.classList.toggle("flush", k === "pos");
+    view.classList.toggle("enter", entering);
     view.scrollTop = 0;
     view.innerHTML = page.f() || "";
     if (page.after) page.after();
     if (k === "pos" && Sales.afterRender) Sales.afterRender();
     if (k === "stock" && typeof Stock !== "undefined" && Stock.afterRender) Stock.afterRender();
     refreshBadges();
+    moveGlider();
   }
 
   function rerender() { route(); paintBlockBar(); }

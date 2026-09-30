@@ -1426,10 +1426,6 @@ body.ui-lg #rail #nav .nav-item .ic, body.ui-xl #rail #nav .nav-item .ic { width
   animation: qi-grow .5s var(--ease) both; }
 .mini.bars rect.now { opacity: 1; }
 .stat.hero .mini.bars rect { fill: #fff; }
-.mini.line .area { fill: color-mix(in srgb, var(--accent) 22%, transparent); animation: qi-fade .6s ease both; }
-.mini.line .stroke { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
-  stroke-dasharray: 400; stroke-dashoffset: 400; animation: qi-draw .9s var(--ease) .1s forwards; }
-.mini.line .dot { fill: var(--accent); stroke: var(--night); stroke-width: 2; }
 @keyframes qi-grow { from { transform: scaleY(0); } to { transform: none; } }
 @keyframes qi-draw { to { stroke-dashoffset: 0; } }
 
@@ -1503,8 +1499,8 @@ table.tbl tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, #fff
 @keyframes qi-pop2 { from { opacity: 0; transform: scale(.86); } 60% { transform: scale(1.03); } to { opacity: 1; transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .mini.bars rect, .mini.line .area, .done-pop, .done-pop .dp-card { animation: none !important; }
-  .mini.line .stroke, .done-pop .dp-c, .done-pop .dp-t { animation: none !important; stroke-dashoffset: 0; }
+  .mini.bars rect, .done-pop, .done-pop .dp-card { animation: none !important; }
+  .done-pop .dp-c, .done-pop .dp-t { animation: none !important; stroke-dashoffset: 0; }
   .nav-tip { transition: none; }
 }
 
@@ -1532,4 +1528,178 @@ body.ui-xs #toasts, body.ui-sm #toasts { inset-inline-start: 96px; }
   background:
     radial-gradient(260px 150px at 0% 0%, rgba(255,255,255,.30), transparent 70%),
     linear-gradient(150deg, color-mix(in srgb, var(--accent) 72%, #fff), var(--accent) 60%, var(--accent-dim));
+}
+
+/* ================================================================
+   المظهر 2.2 — حركات وألوان من الفيديوهات الخمسة
+   (Navigation Tabs V5 · Delete Button · Flow · Expenses Dashboard · Dashboards V3)
+   شكلٌ فقط: كل زر في مكانه ويفعل ما كان يفعله.
+   ================================================================ */
+:root { --spring: cubic-bezier(.34,1.36,.5,1); }
+
+/* ---------- لونان جديدان في الإعدادات ---------- */
+body.th-indigo { --accent:#4F46E5; --accent-dim:#3F37C9; --accent-wash:#ECEBFD; }
+body.th-indigo #rail { background:#17153A; }
+body.th-coral  { --accent:#E0644C; --accent-dim:#C24E38; --accent-wash:#FCECE8; }
+body.th-coral  #rail { background:#2A1512; }
+
+/* ---------- (1) كبسولة الشريط المنزلقة ---------- */
+#rail #nav { position: relative; }
+#rail #nav .nav-glider {
+  position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; opacity: 0;
+  border-radius: 15px; background: var(--accent);
+  box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--accent) 85%, #000), inset 0 1px 0 rgba(255,255,255,.25);
+}
+#rail #nav .nav-glider.show { opacity: 1; }
+#rail #nav .nav-glider.ready {
+  transition: transform .5s var(--spring), height .3s var(--ease), width .3s var(--ease), opacity .2s;
+}
+/* «الحدبة السائلة»: نتوء صغير على حافة الشريط يرافق الكبسولة */
+#rail #nav .nav-glider::after {
+  content: ""; position: absolute; top: 50%; inset-inline-start: -10px;
+  width: 4px; height: 24px; margin-top: -12px; border-radius: 0 4px 4px 0;
+  background: var(--accent); box-shadow: 0 0 14px var(--accent);
+}
+#rail #nav .nav-item { position: relative; z-index: 1; }
+#rail #nav .nav-glider.show ~ .nav-item.on { background: transparent; box-shadow: none; }
+#rail #nav .nav-glider.show ~ .nav-item.on::before { display: none; }
+#rail #nav .nav-item.on .ic { animation: qi-hop .5s var(--spring); }
+@keyframes qi-hop { 0% { transform: scale(.7) translateY(4px); } 60% { transform: scale(1.12); } 100% { transform: none; } }
+
+/* ---------- (2) المفاتيح المقسّمة: الكبسولة تنزلق للخيار الجديد ---------- */
+.seg { position: relative; isolation: isolate; }
+.seg button { position: relative; z-index: 1; }
+.seg .seg-ghost {
+  position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none;
+  border-radius: 99px; background: var(--accent);
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--accent) 90%, #000);
+  transition: transform .32s var(--spring), width .32s var(--ease), height .32s var(--ease);
+}
+.seg button.on.seg-landing, .mode-seg button.on.seg-landing,
+.pay-seg button.on.seg-landing, .stk-seg button.on.seg-landing { background: transparent !important; box-shadow: none !important; }
+
+/* ---------- (3) زر «حذف»: السلة تبتلع الكلمة ---------- */
+.bin-btn { display: inline-flex; align-items: center; gap: 5px; overflow: hidden; }
+.bin-btn .bin { display: inline-flex; width: 15px; height: 15px; flex: 0 0 15px; }
+.bin-btn.sm .bin { width: 13px; height: 13px; flex-basis: 13px; }
+.bin-btn .bin svg { width: 100%; height: 100%; overflow: visible; }
+.bin-btn .bin-lid { transform-box: fill-box; transform-origin: 100% 100%; transition: transform .25s var(--spring); }
+.bin-btn .bin-lbl { display: inline-block; }
+.bin-btn:hover { color: var(--stamp); background: color-mix(in srgb, #E5484D 10%, transparent); }
+.bin-btn:hover .bin-lid { transform: rotate(14deg) translateY(-1px); }
+.bin-btn.eat .bin-lid { animation: qi-lid .8s var(--ease) both; }
+.bin-btn.eat .bin-lbl { animation: qi-eaten .8s var(--ease) both; }
+.bin-btn.eat .bin { animation: qi-chomp .8s var(--ease) both; }
+.bin-btn.eat { animation: qi-ring .8s ease both; }
+@keyframes qi-lid {
+  0% { transform: none; } 12% { transform: rotate(34deg) translateY(-2px); }
+  46% { transform: rotate(34deg) translateY(-2px); } 58% { transform: none; }
+  76% { transform: rotate(8deg); } 84%, 100% { transform: none; }
+}
+@keyframes qi-eaten {                       /* الكلمة على يسار السلة ⇦ تُسحب يميناً إليها */
+  0% { transform: none; opacity: 1; } 12% { transform: translateX(-3px); opacity: 1; }
+  46% { transform: translateX(18px) scale(.15); opacity: 0; }
+  82% { transform: translateX(-4px) scale(.9); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes qi-chomp { 0%, 50% { transform: none; } 62% { transform: scale(1.22, .82); } 76% { transform: scale(.94, 1.06); } 100% { transform: none; } }
+@keyframes qi-ring {
+  0%, 62% { box-shadow: 0 0 0 0 color-mix(in srgb, #E5484D 45%, transparent); }
+  100% { box-shadow: 0 0 0 10px color-mix(in srgb, #E5484D 0%, transparent); }
+}
+
+/* ---------- (4) النافذة تنمو من مكان الضغطة (Flow) ---------- */
+.modal.morph { animation: qi-morph .46s var(--spring) both; }
+@keyframes qi-morph {
+  0% { opacity: 0; transform: scale(.08); border-radius: 60px; filter: blur(10px); }
+  45% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+.overlay.after-bin { animation: qi-fade .16s ease both, qi-unblur 1.05s ease both; }
+@keyframes qi-unblur {
+  0%, 72% { backdrop-filter: none; background: rgba(15,27,42,.18); }
+  100% { backdrop-filter: blur(6px) saturate(1.1); background: rgba(15,27,42,.36); }
+}
+
+/* ---------- (5) الكرة المضيئة السائلة خلف شعار الشريط وشاشة التفعيل ---------- */
+#rail .brand { position: relative; }
+#rail .brand::before, .lic-wrap::before {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  background: radial-gradient(circle at 35% 30%, #fff 0 6%, color-mix(in srgb, var(--accent) 80%, #fff) 20%, var(--accent) 55%, var(--accent-dim) 100%);
+  box-shadow: 0 0 26px 4px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: qi-blob 7s ease-in-out infinite;
+}
+#rail .brand::before { width: 44px; height: 44px; top: 13px; left: 50%; margin-left: -22px; opacity: .28; }
+#rail .brand-mark { position: relative; z-index: 1; }
+.lic-wrap { position: relative; padding-top: 58px; }
+.lic-wrap::before { width: 68px; height: 68px; top: 0; left: 50%; margin-left: -34px; }
+.lic-wrap > .card { position: relative; z-index: 1; }
+@keyframes qi-blob {
+  0%, 100% { border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%; transform: rotate(0) scale(1); }
+  25% { border-radius: 58% 42% 55% 45% / 45% 58% 42% 55%; transform: rotate(40deg) scale(1.04); }
+  50% { border-radius: 45% 55% 42% 58% / 56% 44% 57% 43%; transform: rotate(90deg) scale(.97); }
+  75% { border-radius: 53% 47% 60% 40% / 42% 55% 45% 58%; transform: rotate(140deg) scale(1.03); }
+}
+
+/* ---------- (6) الصفحات تدخل بميلٍ ثلاثي الأبعاد، والبطاقات تتتابع ---------- */
+#view > * { animation: qi-rise3d .5s var(--ease) both; }
+#view:not(.enter) > *, #view:not(.enter) .grid > .stat,
+#view:not(.enter) .mini.bars rect, #view:not(.enter) .mini.dots i { animation: none; }
+@keyframes qi-rise3d {
+  from { opacity: 0; transform: perspective(1400px) rotateX(9deg) translateY(22px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+.grid > .stat { animation: qi-card3d .55s var(--spring) backwards; }
+.grid > .stat:nth-child(2) { animation-delay: .05s; }
+.grid > .stat:nth-child(3) { animation-delay: .1s; }
+.grid > .stat:nth-child(4) { animation-delay: .15s; }
+@keyframes qi-card3d {
+  from { opacity: 0; transform: perspective(900px) rotateY(-14deg) translateY(14px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
+.stat { transition: transform .35s var(--spring), box-shadow .3s; }
+.stat:hover { transform: perspective(900px) rotateX(3deg) translateY(-3px); }
+
+/* ---------- (7) نقاط أيام الشهر (Expenses Dashboard) ---------- */
+.stat .mini.dots {
+  display: grid; grid-template-columns: repeat(16, 1fr); gap: 5px;
+  height: auto; margin-top: 12px; direction: rtl;
+}
+.mini.dots i {
+  display: block; aspect-ratio: 1; border-radius: 50%;
+  animation: qi-dot .4s var(--spring) both;
+}
+.mini.dots i.on { background: var(--accent); box-shadow: 0 0 8px -1px color-mix(in srgb, var(--accent) 80%, transparent); }
+.mini.dots i.off { background: rgba(255,255,255,.2); }
+.mini.dots i.fut { background: rgba(255,255,255,.07); }
+.mini.dots i.now { outline: 2px solid #fff; outline-offset: 1.5px; }
+@keyframes qi-dot { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: none; } }
+
+/* شريط تقدّم الجرد نقاطاً أيضاً */
+.prog {
+  height: 12px; border-radius: 0; overflow: hidden;
+  background: radial-gradient(circle, var(--line) 0 4px, transparent 4.5px) right center / 14px 12px repeat-x;
+}
+.prog-fill {
+  border-radius: 0; margin-inline-start: 0;
+  background: radial-gradient(circle, var(--accent) 0 4px, transparent 4.5px) right center / 14px 12px repeat-x;
+  transition: width .5s var(--spring);
+}
+
+/* ---------- (8) حقول البحث تتوهّج وتتمدّد قليلاً عند الكتابة ---------- */
+.scanbar .big-input, .big-input { transition: box-shadow .3s var(--ease), transform .3s var(--spring), border-color .2s; }
+.scanbar .big-input:focus, .big-input:focus {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent), 0 14px 30px -18px color-mix(in srgb, var(--accent) 80%, #000);
+  transform: scale(1.006);
+}
+
+/* ---------- (9) ضغطة الزر: ينكمش قليلاً ثم يرتدّ ---------- */
+.btn { transition: transform .25s var(--spring), background .18s, box-shadow .2s, color .18s, border-color .18s; }
+.btn:active { transform: scale(.95); }
+
+@media (prefers-reduced-motion: reduce) {
+  #rail #nav .nav-glider.ready, .seg .seg-ghost, .btn, .stat, .prog-fill { transition: none !important; }
+  #rail #nav .nav-item.on .ic, .bin-btn.eat, .bin-btn.eat *, .modal.morph, .grid > .stat,
+  .mini.dots i, #rail .brand::before, .lic-wrap::before, .overlay.after-bin { animation: none !important; }
+  .stat:hover { transform: none; }
 }
