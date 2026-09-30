@@ -344,6 +344,7 @@ var Stock = (function () {
   function page() {
     if (view.where === "branch") return branchPage(view.id);
     if (view.where === "warehouse") return warehousePage(view.id);
+    if (view.where === "room") return roomPage();
     if (view.where === "requests") return requestsPage();
     return hub();
   }
@@ -383,6 +384,18 @@ var Stock = (function () {
       '<div class="bc-foot"><span class="badge ok">مباشر</span>' +
       '<span class="bc-edit" onclick="event.stopPropagation();Stock.setupLink()">تعديل البيانات</span>' +
       "</div></button>";
+
+    // غرفة الخزين داخل المحل
+    var room = roomItems();
+    var roomPieces = room.reduce(function (a, x) { return a + App.storeQty(x.it); }, 0);
+    h += '<button class="card branch-card room" onclick="Stock.open(\'room\',\'\')">' +
+      '<div class="bc-top"><span class="bc-tag wh">غرفة الخزين</span>' + App.locPin() + "</div>" +
+      "<h3>غرفة الخزين</h3>" +
+      '<div class="bc-sub">داخل المحل — الكتب التي ليست على الرفوف</div>' +
+      '<div class="bc-nums"><div><b class="num">' + room.length + "</b><span>صنف</span></div>" +
+      '<div><b class="num">' + roomPieces + "</b><span>نسخة</span></div></div>" +
+      '<div class="bc-foot">' + (room.length ? '<span class="badge">فيها بضاعة</span>' : '<span class="badge ok">فارغة</span>') +
+      '<span class="bc-edit">نقل بالقارئ ⇄</span></div></button>';
 
     // الفروع المرتبطة
     S().remotes.forEach(function (r) {
@@ -826,6 +839,76 @@ var Stock = (function () {
     return h;
   }
 
+  /* ---------- غرفة الخزين ----------
+     جزء من كمية كل صنف موجود في غرفة الخزين (it.store) لا على الرفوف.
+     الصفحة تجمع: النقل بالقارئ، وما في الغرفة الآن، وإرجاعه كله. */
+  function roomItems() {
+    return App.allItems().filter(function (x) { return App.storeQty(x.it) > 0; });
+  }
+
+  function roomPage() {
+    var rows = roomItems();
+    var pieces = rows.reduce(function (a, x) { return a + App.storeQty(x.it); }, 0);
+    var h = '<div class="row" style="margin-bottom:16px">' +
+      '<button class="btn ghost" onclick="Stock.back()">→ كل المخازن</button>' +
+      '<div style="font-family:var(--font-head);font-size:22px;font-weight:700">غرفة الخزين</div>' +
+      '<span class="badge">داخل المحل</span><div class="spacer"></div>' +
+      (rows.length ? '<button class="btn" onclick="Stock.printRoom()">اطبع ما في الغرفة</button>' +
+        '<button class="btn" onclick="Stock.roomAllBack()">⇦ أرجع كل ما في الغرفة إلى الرفوف</button>' : "") +
+      "</div>";
+    h += Inv.moveScreen();
+    h += '<div class="card"><div class="card-head"><h3>ما في غرفة الخزين الآن</h3><div class="spacer"></div>' +
+      '<span class="muted small">' + rows.length + " صنف · " + pieces + " نسخة</span></div>" +
+      App.table([
+        {
+          h: "الصنف", c: function (x) {
+            return '<div class="name">' + App.esc(App.itemName(x.it)) + "</div>" +
+              '<div class="sub">' + (x.type === "book" ? "كتاب" : "قرطاسية") + (x.it.author ? " · " + App.esc(x.it.author) : "") + "</div>";
+          }
+        },
+        { h: "مكانه على الرفوف", c: function (x) { return x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"); } },
+        { h: "على الرفوف", cls: "num", c: function (x) { return '<b class="q-sh">' + App.shelfQty(x.it) + "</b>"; } },
+        { h: "في الغرفة", cls: "num", c: function (x) { return '<b class="q-st">' + App.storeQty(x.it) + "</b>"; } },
+        {
+          h: "", cls: "act", c: function (x) {
+            return '<button class="btn sm" onclick="Inv.move(\'' + x.type + "','" + x.it.id + '\',\'in\')">⇦ نقل للرفوف</button>';
+          }
+        }
+      ], rows, {
+        lazy: 60, emptyIcon: "check", emptyTitle: "الغرفة فارغة",
+        emptyText: "كل بضاعتك على الرفوف. ما تضعه هنا يظهر في هذه القائمة."
+      }) + "</div>";
+    return h;
+  }
+
+  function roomAllBack() {
+    var rows = roomItems();
+    if (!rows.length) return;
+    var n = rows.reduce(function (a, x) { return a + App.storeQty(x.it); }, 0);
+    App.confirm("سيُحسب كل ما في غرفة الخزين (" + n + " نسخة من " + rows.length + " صنف) على الرفوف. المجموع لا يتغيّر.",
+      function () {
+        var moved = 0;
+        rows.forEach(function (x) { moved += App.moveStock(x.it, App.storeQty(x.it), "in"); });
+        App.save(); App.rerender();
+        if (App.celebrate) App.celebrate("أُرجعت إلى الرفوف", moved + " نسخة");
+      }, { yes: "أرجع " + n + " نسخة إلى الرفوف" });
+  }
+
+  function printRoom() {
+    var rows = roomItems();
+    if (!rows.length) { App.toast("الغرفة فارغة."); return; }
+    var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
+      '<div class="c">ما في غرفة الخزين — ' + App.dateAr(App.today()) + "</div><hr>" +
+      "<table><thead><tr><th>الصنف</th><th>مكانه على الرفوف</th><th>على الرفوف</th><th>في الغرفة</th></tr></thead><tbody>";
+    rows.forEach(function (x) {
+      h += "<tr><td>" + App.esc(App.itemName(x.it)) + "</td><td>" +
+        (x.type === "book" ? App.esc((x.it.lib || "") + " / رف " + (x.it.shelf || "")) : App.esc(x.it.loc || "")) +
+        '</td><td class="num">' + App.shelfQty(x.it) + '</td><td class="num"><b>' + App.storeQty(x.it) + "</b></td></tr>";
+    });
+    h += "</tbody></table></div>";
+    App.printHtml(h);
+  }
+
   /* ---------- المخازن اليدوية ---------- */
 
   function addWarehouse(id) {
@@ -1219,6 +1302,7 @@ var Stock = (function () {
     respond: respond, confirmReceipt: confirmReceipt, pendingCount: pendingCount,
     requests: requests, branchName: branchName, resolveLocal: resolveLocal,
     addWarehouse: addWarehouse, addToWarehouse: addToWarehouse, editWhQty: editWhQty,
+    roomAllBack: roomAllBack, printRoom: printRoom,
     delWhLine: delWhLine, delWarehouse: delWarehouse,
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,

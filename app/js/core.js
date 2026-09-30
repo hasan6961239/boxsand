@@ -780,7 +780,7 @@ var App = (function () {
 
   function form(opts) {
     var vals = {};
-    var f = opts.fields;
+    var f = opts.fields.filter(function (x) { return x; });   // حقل null = غير مطلوب في هذه النافذة
     var host = document.createElement("div");
     if (opts.topHtml) {
       var top = document.createElement("div");
