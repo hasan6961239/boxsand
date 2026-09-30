@@ -92,9 +92,31 @@ public class CheckWorker extends Worker {
             return Result.success();           // بلا إنترنت: نحاول في الدورة القادمة
         }
         try {
-            check(c, sp, branches);
+            check(c, sp, branches, getInputData().getBoolean("force", false));
         } catch (Exception ignored) { }
         return Result.success();
+    }
+
+    /* «افحص الآن» من الإعدادات: فحص فوري يرسل ملخّصاً مهما كان */
+    static void runNow(Context c) {
+        androidx.work.OneTimeWorkRequest r = new androidx.work.OneTimeWorkRequest.Builder(CheckWorker.class)
+            .setInputData(new androidx.work.Data.Builder().putBoolean("force", true).build())
+            .build();
+        WorkManager.getInstance(c).enqueue(r);
+    }
+
+    static boolean enabled(Context c) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            c.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return false;
+        return NotificationManagerCompat.from(c).areNotificationsEnabled();
+    }
+
+    /* إشعار تجريبي فوري */
+    static boolean test(Context c) {
+        if (!enabled(c)) return false;
+        channels(c);
+        post(c, 99, CH_STOCK, "الإشعارات تعمل ✓", "هكذا تصلك تنبيهات المخزون من «مخزون المكتبة».", "dash");
+        return true;
     }
 
     private static JSONArray fetch(String u, String key) throws Exception {
@@ -125,7 +147,7 @@ public class CheckWorker extends Worker {
         String name; double total, shelf, room, min;
     }
 
-    private void check(Context c, SharedPreferences sp, JSONArray branches) throws Exception {
+    private void check(Context c, SharedPreferences sp, JSONArray branches, boolean force) throws Exception {
         Map<String, G> by = new HashMap<>();
         JSONObject main = null;
         for (int i = 0; i < branches.length(); i++) {
@@ -195,11 +217,19 @@ public class CheckWorker extends Worker {
 
         Set<String> sent = new HashSet<>(sp.getStringSet("sent", new HashSet<>()));
         boolean first = !sp.getBoolean("init", false);
-        boolean quiet = first || MainActivity.visible;   // أول مرة: لا سيل من التنبيهات القديمة
         List<String[]> newOut = fresh(out, sent), newLow = fresh(low, sent), newDry = fresh(dry, sent);
+        channels(c);
 
-        if (!quiet) {
-            channels(c);
+        /* أول فحص، أو «افحص الآن»: ملخّص واحد لما هو قائم بدل سيل من الإشعارات */
+        if (first || force) {
+            String sum = (out.size() + low.size() + dry.size() == 0) ? "كل شيء على ما يرام — لا نقص ولا نفاد."
+                : (out.isEmpty() ? "" : out.size() + " نفد · ") + (low.isEmpty() ? "" : low.size() + " قارب على النفاد · ") +
+                  (dry.isEmpty() ? "" : dry.size() + " يُجلب من غرفة الخزين");
+            sum = sum.replaceAll(" · $", "");
+            post(c, 100, CH_STOCK, "حالة المخزون الآن", sum, "alerts");
+            if (force && dailyKey != null) post(c, 104, CH_DAY, "ملخّص اليوم", dailyText, "dash");
+            if (force && syncKey != null) post(c, 105, CH_DAY, "المنظومة لم تُحدَّث", syncText, "settings");
+        } else {
             if (!newOut.isEmpty()) post(c, 101, CH_STOCK, newOut.size() == 1 ? "نفد: " + newOut.get(0)[1] : "نفد " + newOut.size() + " أصناف",
                 names(newOut), "alerts");
             if (!newLow.isEmpty()) post(c, 102, CH_STOCK, newLow.size() == 1 ? "قارب على النفاد: " + newLow.get(0)[1] : newLow.size() + " أصناف قاربت على النفاد",

@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.provider.Settings;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -43,10 +44,25 @@ public class MainActivity extends ComponentActivity {
 
     private WebView web;
     private String pendingScreen = null;          // شاشة يفتحها الضغط على إشعار
-    static volatile boolean visible = false;      // الفحص في الخلفية لا يُشعر والتطبيق أمامك
+    static volatile boolean visible = false;      // التطبيق أمام صاحبه الآن
 
     private final ActivityResultLauncher<String> askNotify =
-        registerForActivityResult(new ActivityResultContracts.RequestPermission(), ok -> { });
+        registerForActivityResult(new ActivityResultContracts.RequestPermission(), ok -> {
+            if (ok) { CheckWorker.schedule(this); CheckWorker.test(this); }
+            else openNotifySettings();          // رُفض سابقاً: لا يظهر السؤال ثانية، فنفتح الإعدادات
+            js("window.PhoneExt && PhoneExt.paintNotifState && PhoneExt.paintNotifState()");
+        });
+
+    private void openNotifySettings() {
+        try {
+            Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(i);
+        } catch (Exception e) {
+            try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
+            catch (Exception ignored) { }
+        }
+    }
 
     private final ActivityResultLauncher<ScanOptions> scanner =
         registerForActivityResult(new ScanContract(), result -> {
@@ -71,9 +87,7 @@ public class MainActivity extends ComponentActivity {
         ws.setSupportZoom(false);               // تطبيق لا صفحة: لا تكبير بالأصابع
         ws.setBuiltInZoomControls(false);
         ws.setDisplayZoomControls(false);
-        web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
         web.setHorizontalScrollBarEnabled(false);
-        web.setLongClickable(false);
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
             .setDomain(HOST)
@@ -185,6 +199,60 @@ public class MainActivity extends ComponentActivity {
 
         @JavascriptInterface
         public String version() { return BuildConfig.VERSION_NAME; }
+
+        /* on: مسموحة · ask: لم يُسأل بعد (أندرويد 13+) · off: ممنوعة من الإعدادات */
+        @JavascriptInterface
+        public String notifyStatus() {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return "ask";
+            return androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled() ? "on" : "off";
+        }
+
+        @JavascriptInterface
+        public void askNotify() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    askNotify.launch(Manifest.permission.POST_NOTIFICATIONS);
+                } else if (!androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled()) {
+                    openNotifySettings();
+                } else {
+                    CheckWorker.test(MainActivity.this);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean testNotify() { return CheckWorker.test(getApplicationContext()); }
+
+        @JavascriptInterface
+        public void checkNow() { CheckWorker.runNow(getApplicationContext()); }
+
+        /* بعض الشركات توقف التطبيقات في الخلفية: نطلب استثناء هذا التطبيق */
+        @JavascriptInterface
+        public void openBattery() {
+            runOnUiThread(() -> {
+                try {
+                    startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+                } catch (Exception e) {
+                    try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception ignored) { }
+                }
+            });
+        }
+
+        /* لون شريط الحالة يتبع لون التطبيق المختار */
+        @JavascriptInterface
+        public void setBar(String hex) {
+            runOnUiThread(() -> {
+                try {
+                    int c = Color.parseColor(hex);
+                    float[] hsv = new float[3];
+                    Color.colorToHSV(c, hsv);
+                    hsv[2] *= 0.8f;
+                    getWindow().setStatusBarColor(Color.HSVToColor(hsv));
+                } catch (Exception ignored) { }
+            });
+        }
 
         /* الواجهة تسلّم الربط وخيارات الإشعار ليفحص التطبيق في الخلفية */
         @JavascriptInterface

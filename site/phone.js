@@ -33,10 +33,14 @@ window.PhoneExt = (function () {
       clock: "M12 21a9 9 0 100-18 9 9 0 000 18zm0-14v5l3 2",
       chat: "M4 20l1.4-4A8 8 0 1112 20a8 8 0 01-3.6-.9L4 20z",
       phone2: "M8 3h8a1 1 0 011 1v16a1 1 0 01-1 1H8a1 1 0 01-1-1V4a1 1 0 011-1zm3 15h2",
-      zzz: "M4 6h6l-6 7h6M14 11h6l-6 8h6"
+      zzz: "M4 6h6l-6 7h6M14 11h6l-6 8h6",
+      edit: "M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z",
+      palette: "M12 21a9 9 0 110-18c5 0 9 3.6 9 8 0 2.5-2 4-4.5 4H15a2 2 0 00-1.4 3.4A1.9 1.9 0 0112 21zM7.5 11h.01M10 7.5h.01M14.5 7.5h.01"
     });
     var s = S();
     if (!Array.isArray(s.orders)) s.orders = [];
+    if (!Array.isArray(s.edits)) s.edits = [];
+    if (typeof s.accent !== "string") s.accent = "green";
     if (!Array.isArray(s.cart)) s.cart = [];
     if (!s.sell || typeof s.sell !== "object") s.sell = { disc: "", method: "cash", cust: "", paid: "" };
     if (!s.phone || typeof s.phone !== "object") s.phone = { id: "", name: "تلفون" };
@@ -46,6 +50,14 @@ window.PhoneExt = (function () {
     if (!Array.isArray(s.feed)) s.feed = [];
     if (inApp && main() && main().dash) s.screen = "dash";   // في التطبيق: اللوحة أول ما يُفتح
     window.addEventListener("online", function () { push(); });
+    /* خيارات الإشعار واسم التلفون تُحفظ لحظة تغييرها، بلا زر حفظ */
+    document.addEventListener("change", function (e) {
+      var t = e.target;
+      if (!t || !t.id || !/^(nf_|sPhone$)/.test(t.id)) return;
+      saveSettings(); A.save(); onConfig();
+    });
+    /* عند العودة من إعدادات التلفون تتحدّث حالة الإذن */
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) paintNotifState(); });
     setTimeout(function () { onConfig(); if (hasPending()) push(); }, 300);
   }
 
@@ -459,7 +471,7 @@ window.PhoneExt = (function () {
       items: s.cart.map(function (l) { return { b: l.b, k: l.k, n: l.n, q: A.num(l.q), p: A.num(l.p) }; }),
       disc: discNow(), method: method, cust: cust ? cust.id : "", custName: cust ? cust.n : "",
       paid: method === "credit" ? Math.min(Math.max(A.num(s.sell.paid), 0), tot) : tot,
-      total: tot, status: "pending"
+      total: tot, status: "pending", to: m && m.branch ? m.branch.id : ""
     };
     s.orders.unshift(o);
     if (s.orders.length > 80) s.orders.length = 80;
@@ -494,15 +506,17 @@ window.PhoneExt = (function () {
     if (pushing) { pushAgain = true; return; }
     var s = S();
     var pend = s.orders.filter(function (o) { return o.status === "pending"; });
-    if (!pend.length && s.pushedEmpty) return;
+    var pendE = s.edits.filter(function (e) { return e.status === "pending"; });
+    if (!pend.length && !pendE.length && s.pushedEmpty) return;
     pushing = true;
     var body = {
       kind: "phone", at: nowStamp(),
       branch: { id: s.phone.id, name: s.phone.name || "تلفون" },
       items: [],
       orders: pend.map(function (o) {
-        return { id: o.id, date: o.date, at: o.at, items: o.items, disc: o.disc, method: o.method, cust: o.cust, paid: o.paid };
-      })
+        return { id: o.id, date: o.date, at: o.at, items: o.items, disc: o.disc, method: o.method, cust: o.cust, paid: o.paid, to: o.to || "" };
+      }),
+      edits: pendE.map(function (e) { return { id: e.id, b: e.b, k: e.k, set: e.set, to: e.to || "" }; })
     };
     var base = String(s.cfg.url).trim().replace(/\/+$/, "");
     fetch(base + "/put", {
@@ -512,7 +526,8 @@ window.PhoneExt = (function () {
     }).then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       pend.forEach(function (o) { o.sent = true; });
-      s.pushedEmpty = !pend.length;
+      pendE.forEach(function (e) { e.sent = true; });
+      s.pushedEmpty = !pend.length && !pendE.length;
       A.save();
       if (pend.length && (S().screen === "orders" || S().screen === "dash")) A.render();
     }).catch(function () {
@@ -537,6 +552,12 @@ window.PhoneExt = (function () {
       changed = true;
       if (o.status === "done") newly.push(o);
     });
+    s.edits.forEach(function (e) {
+      if (e.status !== "pending" || !(e.id in acks)) return;
+      e.status = acks[e.id] ? "done" : "fail";
+      changed = true;
+    });
+    if (s.edits.length > 60) s.edits = s.edits.slice(0, 60);
     if (changed) { s.pushedEmpty = false; push(); }
     return newly;
   }
@@ -544,9 +565,23 @@ window.PhoneExt = (function () {
   /* نسخ بيعت هنا ولم يسجّلها الكمبيوتر بعد: تُطرح من المعروض */
   function adjust(list) {
     var pend = S().orders.filter(function (o) { return o.status === "pending"; });
-    if (!pend.length) return;
+    var pendE = S().edits.filter(function (e) { return e.status === "pending"; });
+    if (!pend.length && !pendE.length) return;
     var byB = {}, byK = {};
     list.forEach(function (g) { if (g.b) byB[g.b] = g; if (g.code) byK[String(g.code).toUpperCase()] = g; });
+    /* تعديل أُرسل ولم يُطبَّق بعد: يظهر فوراً مع شارة «بانتظار الكمبيوتر» */
+    pendE.forEach(function (e) {
+      var g = (e.b && byB[e.b]) || (e.k && byK[String(e.k).toUpperCase()]);
+      if (!g) return;
+      var f = e.set || {};
+      if (f.n) g.n = f.n;
+      if (f.a !== undefined) g.a = f.a;
+      if (f.p !== undefined) g.p = A.num(f.p);
+      if (f.m !== undefined) g.minTop = A.num(f.m);
+      if (f.qd) { g.total += A.num(f.qd); g.shelfQ += A.num(f.qd); }
+      g.low = g.minTop > 0 && g.total > 0 && g.total <= g.minTop;
+      g.editing = true;
+    });
     pend.forEach(function (o) {
       o.items.forEach(function (l) {
         var g = (l.b && byB[l.b]) || (l.k && byK[String(l.k).toUpperCase()]);
@@ -696,13 +731,123 @@ window.PhoneExt = (function () {
     }
   }
 
+  /* ============================================================
+     تعديل صنف من التلفون (داخل التطبيق)
+     ============================================================ */
+  function detailActs(g) {
+    if (!inApp) return "";
+    var pe = S().edits.filter(function (e) { return e.status === "pending" && ((e.b && e.b === g.b) || (!e.b && e.k === g.code)); }).length;
+    return '<div class="det-edit">' +
+      (pe ? '<span class="tag a">' + ico("clock", 11) + " تعديل بانتظار الكمبيوتر</span>" : "") +
+      '<button class="btn wide" data-act="editItem" data-arg="' + esc(g.key) + '">' + ico("edit", 16) + " تعديل الصنف</button></div>";
+  }
+
+  function editItem(key) {
+    var g = A.items().filter(function (x) { return x.key === key; })[0];
+    if (!g) return;
+    if (!g.b && !g.code) { A.toast("هذا الصنف بلا باركود ولا رمز — عدّله من الكمبيوتر.", "warn"); return; }
+    var w = g.at.filter(function (x) { return x.place.kind === "branch"; })[0] || g.at[0] || {};
+    var isB = g.t === "book";
+    function fld(id, lbl, val, attrs) {
+      return '<label class="fld"><span>' + lbl + '</span><input class="inp" id="' + id + '" value="' + esc(val == null ? "" : val) + '"' + (attrs || "") + "></label>";
+    }
+    var h = '<div class="inner"><div class="grab"></div><div class="det-head"><h2>' + ico("edit", 18) + " تعديل الصنف</h2>" +
+      '<p class="by">يُرسل للمنظومة على الكمبيوتر فتطبّقه في أول تحديث.</p></div>' +
+      fld("eN", isB ? "اسم الكتاب" : "اسم الصنف", g.n) +
+      fld("eA", isB ? "المؤلف" : "الماركة", g.a) +
+      '<div class="two">' + fld("eP", "سعر البيع", g.p, ' inputmode="decimal" dir="ltr"') +
+      fld("eM", "حد التنبيه", g.minTop || 0, ' inputmode="numeric" dir="ltr"') + "</div>" +
+      '<label class="fld"><span>الكمية الكلية (الآن ' + g.total + ')</span><div class="stepper">' +
+      '<button type="button" data-act="eStep" data-arg="-1">' + ico("minus", 18) + "</button>" +
+      '<input class="inp" id="eQ" inputmode="numeric" dir="ltr" value="' + g.total + '" data-was="' + g.total + '">' +
+      '<button type="button" data-act="eStep" data-arg="1">' + ico("plus", 18) + "</button></div>" +
+      '<small class="fld-hint" id="eQd"></small></label>' +
+      (isB ? '<div class="two">' + fld("eL", "المكتبة", w.lib || "") + fld("eS", "الرف", w.shelf || "", ' inputmode="numeric" dir="ltr"') + "</div>"
+           : fld("eLoc", "المكان", w.loc || "")) +
+      '<div class="det-acts"><button class="btn primary" data-act="editSave" data-arg="' + esc(key) + '">' + ico("check", 16) + " حفظ وإرسال</button>" +
+      '<button class="btn" data-act="closeSheet">إلغاء</button></div></div>';
+    var sh = el("sheet");
+    sh.classList.remove("closing");
+    sh.innerHTML = h;
+    sh.hidden = false;
+    var inner = sh.querySelector(".inner");
+    if (inner) inner.classList.add("morph", "omc");
+    document.body.style.overflow = "hidden";
+    var q = el("eQ");
+    if (q) q.addEventListener("input", qdHint);
+    qdHint();
+  }
+
+  function qdHint() {
+    var q = el("eQ"), hint = el("eQd");
+    if (!q || !hint) return;
+    var d = A.num(q.value) - A.num(q.getAttribute("data-was"));
+    hint.textContent = d ? (d > 0 ? "سيُضاف " + d + " إلى الكمية في المنظومة" : "سيُنقص " + (-d) + " من الكمية في المنظومة") : "";
+    hint.className = "fld-hint" + (d ? (d > 0 ? " up" : " down") : "");
+  }
+
+  function editSave(key) {
+    var g = A.items().filter(function (x) { return x.key === key; })[0];
+    if (!g) return;
+    function v(id) { var e = el(id); return e ? e.value.trim() : undefined; }
+    var set = {}, isB = g.t === "book";
+    var w = g.at.filter(function (x) { return x.place.kind === "branch"; })[0] || g.at[0] || {};
+    if (v("eN") && v("eN") !== g.n) set.n = v("eN");
+    if (v("eA") !== undefined && v("eA") !== (g.a || "")) set.a = v("eA");
+    if (v("eP") !== undefined && A.num(v("eP")) !== A.num(g.p)) set.p = A.num(v("eP"));
+    if (v("eM") !== undefined && A.num(v("eM")) !== A.num(g.minTop)) set.m = A.num(v("eM"));
+    var qd = A.num(v("eQ")) - A.num(el("eQ").getAttribute("data-was"));
+    if (qd) set.qd = qd;
+    if (isB) {
+      if (v("eL") !== undefined && v("eL") !== (w.lib || "")) set.l = v("eL");
+      if (v("eS") !== undefined && v("eS") !== (w.shelf || "")) set.s = v("eS");
+    } else if (v("eLoc") !== undefined && v("eLoc") !== (w.loc || "")) set.loc = v("eLoc");
+    if (!Object.keys(set).length) { A.closeSheet(); A.toast("لم يتغيّر شيء."); return; }
+    var m = main();
+    S().edits.unshift({ id: "e" + Date.now().toString(36) + rand(4), b: g.b || "", k: g.code || "", n: g.n, set: set,
+      at: nowStamp(), status: "pending", to: m && m.branch ? m.branch.id : "" });
+    S().pushedEmpty = false;
+    A.save();
+    A.closeSheet();
+    A.render();
+    A.toast("أُرسل التعديل — يُطبَّق في المنظومة عند تحديثها.", "ok");
+    push();
+  }
+
+  /* ---------- الإشعارات: الحالة والاختبار ---------- */
+  function notifStatus() {
+    if (!window.AndroidApp || !window.AndroidApp.notifyStatus) return "";
+    try { return window.AndroidApp.notifyStatus(); } catch (e) { return ""; }
+  }
+  function paintNotifState() {
+    var host = el("nfState");
+    if (!host) return;
+    var st = notifStatus();
+    host.className = "nf-state " + st;
+    host.innerHTML = st === "on" ? ico("check", 16) + " الإشعارات مسموحة على هذا التلفون"
+      : st === "ask" ? ico("bell", 16) + " لم تسمح بالإشعارات بعد — اضغط «السماح بالإشعارات»"
+      : st === "off" ? ico("alert", 16) + " الإشعارات ممنوعة لهذا التطبيق — اسمح بها من إعدادات التلفون"
+      : "";
+  }
+
   /* ---------- الإعدادات ---------- */
   function settingsHtml() {
     var s = S(), n = s.notif;
     function chk(k, t, sub) {
       return '<label class="chk"><input type="checkbox" id="nf_' + k + '"' + (n[k] ? " checked" : "") + "><span><b>" + t + "</b><i>" + sub + "</i></span></label>";
     }
-    return '<div class="card"><h2>هذا التلفون</h2>' +
+    var sw = Object.keys(A.accents).map(function (k) {
+      return '<button class="sw sw-' + k + (s.accent === k ? " on" : "") + '" data-act="accent" data-arg="' + k + '" aria-label="' + k + '"></button>';
+    }).join("");
+    var nfBtns = inApp ? '<div id="nfState" class="nf-state"></div><div class="nf-btns">' +
+      '<button class="btn" data-act="nfAsk">' + ico("bell", 16) + " السماح بالإشعارات</button>" +
+      '<button class="btn" data-act="nfTest">' + ico("check", 16) + " إشعار تجريبي</button>" +
+      '<button class="btn" data-act="nfCheck">' + ico("refresh", 16) + " افحص الآن</button>" +
+      '<button class="btn" data-act="nfBattery">' + ico("clock", 16) + " السماح بالعمل في الخلفية</button></div>" +
+      '<p class="sub">بعض التلفونات (شاومي، سامسونج، أوبو…) توقف التطبيقات في الخلفية لتوفير البطارية فتتأخّر الإشعارات. «السماح بالعمل في الخلفية» يمنع ذلك.</p>' : "";
+    return '<div class="card"><h2>' + ico("palette", 18) + ' لون التطبيق</h2><p class="sub">نفس ألوان المنظومة على الكمبيوتر. الوضع الليلي من الزر أعلى الشاشة.</p>' +
+      '<div class="swatches">' + sw + "</div></div>" +
+      '<div class="card"><h2>هذا التلفون</h2>' +
       '<label class="fld"><span>اسمه في المنظومة (يظهر على فواتيره)</span>' +
       '<input class="inp" id="sPhone" maxlength="40" value="' + esc(s.phone.name || "") + '"></label>' +
       "<h2>الإشعارات</h2>" +
@@ -712,7 +857,7 @@ window.PhoneExt = (function () {
       chk("restock", "املأ الرفوف", "نفد من الرفوف وله نسخ في غرفة الخزين") +
       chk("daily", "ملخّص آخر اليوم", "مبيعات اليوم بعد الساعة 8 مساءً") +
       chk("sync", "المنظومة توقّفت عن التحديث", "لم يصل خبر من الكمبيوتر منذ 3 ساعات") +
-      "</div>";
+      nfBtns + "</div>";
   }
   function saveSettings() {
     var s = S(), p = el("sPhone");
@@ -751,6 +896,29 @@ window.PhoneExt = (function () {
 
   var acts = {
     bell: function () { openBell(); },
+    editItem: function (k) { editItem(k); },
+    editSave: function (k) { editSave(k); },
+    eStep: function (d) { var q = el("eQ"); if (q) { q.value = Math.max(0, A.num(q.value) + (+d)); qdHint(); } },
+    accent: function (k) {
+      S().accent = k; A.save(); A.applyTheme();
+      Array.prototype.forEach.call(document.querySelectorAll(".sw"), function (b) { b.classList.toggle("on", b.getAttribute("data-arg") === k); });
+    },
+    nfAsk: function () {
+      if (window.AndroidApp && window.AndroidApp.askNotify) window.AndroidApp.askNotify();
+      setTimeout(paintNotifState, 1500);
+    },
+    nfTest: function () {
+      saveSettings(); A.save(); onConfig();
+      var ok = window.AndroidApp && window.AndroidApp.testNotify ? window.AndroidApp.testNotify() : false;
+      A.toast(ok ? "أُرسل إشعار تجريبي — انظر أعلى الشاشة." : "الإشعارات ممنوعة — اضغط «السماح بالإشعارات».", ok ? "ok" : "warn");
+      paintNotifState();
+    },
+    nfCheck: function () {
+      saveSettings(); A.save(); onConfig();
+      if (window.AndroidApp && window.AndroidApp.checkNow) window.AndroidApp.checkNow();
+      A.toast("يفحص المخزون الآن… يصلك ملخّص خلال ثوانٍ.", "ok");
+    },
+    nfBattery: function () { if (window.AndroidApp && window.AndroidApp.openBattery) window.AndroidApp.openBattery(); },
     bellGo: function (k) { bellGo(k); },
     bellRead: function () { bellRead(); },
     roomF: function (a) { roomF = a; paintRoom(); },
@@ -785,6 +953,7 @@ window.PhoneExt = (function () {
     init: init, tabs: tabs, tabOf: tabOf, chrome: chrome, adjust: adjust,
     afterRefresh: afterRefresh, settingsHtml: settingsHtml, saveSettings: saveSettings,
     onConfig: onConfig, onScan: onScan, back: back, acts: acts, events: events, push: push,
+    detailActs: detailActs, paintNotifState: paintNotifState,
     screens: {
       dash: paintDash, sell: paintSell, room: paintRoom, more: paintMore,
       debts: paintDebts, alerts: paintAlerts, orders: paintOrders

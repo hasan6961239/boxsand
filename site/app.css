@@ -802,16 +802,18 @@ body.in-app .search-x{inset-inline-end:52px}
    تُسحب جانباً ويظهر بياض، ويتّسع إطار العرض فينزل الشريط السفلي
    تحت الشاشة ولا يظهر. الآن الشارة تُقصّ بنقاط، والصفحة لا تتّسع.
    ============================================================ */
-html,body{overflow-x:hidden;max-width:100%}
+/* قصّ أفقي على الحاوية لا على html/body: «overflow-x:hidden» عليهما معاً
+   كان يمنع السحب للأسفل داخل WebView في بعض أجهزة أندرويد. clip لا يصنع
+   حاوية تمرير، فلا يمسّ السحب إطلاقاً. */
+#app,#view{max-width:100%;overflow-x:clip}
 .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;display:inline-block}
 .row-tags,.det-tags{min-width:0;max-width:100%}
 .row-main,.row-name,.row-sub{min-width:0;overflow-wrap:anywhere}
 .row-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* داخل التطبيق: إحساس تطبيق لا صفحة متصفح */
-body.in-app{overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-body.in-app input,body.in-app textarea,body.in-app .ltr{-webkit-user-select:text;user-select:text}
-body.in-app #view{overscroll-behavior-x:none;touch-action:pan-y}
+body.in-app{-webkit-touch-callout:none}
+body.in-app .row,body.in-app .tile,body.in-app .chip,body.in-app #tabs,body.in-app .more-tile,body.in-app button{-webkit-user-select:none;user-select:none}
 
 /* ============================================================
    شاشات التطبيق (phone.js): اليوم، الخزين، المزيد، الديون،
@@ -978,3 +980,45 @@ body.in-app #view{overscroll-behavior-x:none;touch-action:pan-y}
   .cline,.cline.pop,.sug,.done-pop .dp-card,.seg2 button.on{animation:none !important}
   .done-pop .dp-c,.done-pop .dp-t{animation:none !important;stroke-dashoffset:0}
 }
+
+/* ---------- ألوان التطبيق (كما في المنظومة) ---------- */
+:root[data-accent="blue"]{--green:#1D5F8A;--green-d:#164A6C;--green-l:#2E7FB4;--green-wash:#E3EEF6}
+:root[data-accent="violet"]{--green:#6B4593;--green-d:#553674;--green-l:#8A62B5;--green-wash:#EFE8F6}
+:root[data-accent="wine"]{--green:#8C2F39;--green-d:#6E242C;--green-l:#B24753;--green-wash:#F7E8EA}
+:root[data-accent="amber"]{--green:#B26B10;--green-d:#8C540C;--green-l:#D48A26;--green-wash:#FBF0DE}
+:root[data-accent="teal"]{--green:#0F6B75;--green-d:#0B535B;--green-l:#1C8C98;--green-wash:#E3F2F3}
+:root[data-accent="slate"]{--green:#3D4A57;--green-d:#2C3742;--green-l:#5A6B7C;--green-wash:#ECEFF2}
+:root[data-accent="indigo"]{--green:#4F46E5;--green-d:#3F37C9;--green-l:#6D66F0;--green-wash:#ECEBFD}
+:root[data-accent="coral"]{--green:#E0644C;--green-d:#C24E38;--green-l:#EE8672;--green-wash:#FCECE8}
+:root[data-theme="dark"][data-accent]:not([data-accent="green"]){--green-wash:color-mix(in srgb,var(--green) 24%,#10181D)}
+@media (prefers-color-scheme:dark){
+  :root[data-theme="auto"][data-accent]:not([data-accent="green"]){--green-wash:color-mix(in srgb,var(--green) 24%,#10181D)}
+}
+.swatches{display:grid;grid-template-columns:repeat(9,1fr);gap:8px;margin-top:10px}
+.sw{aspect-ratio:1;border-radius:50%;border:3px solid var(--card);box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0;
+  transition:transform .3s var(--spring),box-shadow .2s}
+.sw.on{box-shadow:0 0 0 2.5px var(--ink);transform:scale(1.12)}
+.sw:active{transform:scale(.9)}
+.sw-green{background:#0E6E62}.sw-blue{background:#1D5F8A}.sw-violet{background:#6B4593}.sw-wine{background:#8C2F39}
+.sw-amber{background:#B26B10}.sw-teal{background:#0F6B75}.sw-slate{background:#3D4A57}.sw-indigo{background:#4F46E5}.sw-coral{background:#E0644C}
+#top{transition:background .35s ease}
+.hero{transition:background .35s ease}
+
+/* ---------- تعديل صنف ---------- */
+.det-edit{margin:6px 0 4px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper .inp{text-align:center;font-family:var(--num);font-size:20px;font-weight:800}
+.stepper button{width:48px;height:48px;flex-shrink:0;border:1px solid var(--line);border-radius:12px;background:var(--card);
+  color:var(--ink);display:grid;place-items:center;cursor:pointer;transition:transform .25s var(--spring)}
+.stepper button:active{transform:scale(.88)}
+.fld-hint{display:block;min-height:18px;margin-top:6px;font-size:12.5px;color:var(--muted);font-weight:700}
+.fld-hint.up{color:var(--ok)} .fld-hint.down{color:var(--red)}
+
+/* ---------- حالة الإشعارات ---------- */
+.nf-state{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;border-radius:12px;margin:12px 0 8px}
+.nf-state:empty{display:none}
+.nf-state.on{background:var(--ok-wash);color:var(--ok);padding:10px 12px}
+.nf-state.ask,.nf-state.off{background:var(--amber-wash);color:var(--amber);padding:10px 12px}
+.nf-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.nf-btns .btn{font-size:13px;gap:6px}

@@ -321,7 +321,7 @@ const srv = http.createServer((q,s)=>{
   await pg.click('.crumb button'); await pg.waitForTimeout(500);
   const dLib = await pg.$$eval('.lib-card', e=>e.map(x=>x.textContent.replace(/\s+/g,' ')));
   ok('ومكتبة D تحسب الرفوف وحدها (3 لا 12)', dLib.some(t=>/مكتبة D/.test(t) && /3 قطعة/.test(t)), JSON.stringify(dLib));
-  ok('ولا style سطري بعد الحركات', (await pg.$$eval('[style]:not(body)', e=>e.length))===0);
+  ok('ولا style سطري بعد الحركات', (await pg.$$eval('[style]:not([style=""]):not(body)', e=>e.length))===0);
 
   // 22) رابط التهيئة يملأ البيانات ويمسح نفسه
   await pg.evaluate(()=>localStorage.removeItem('maktaba_stock_v2'));
@@ -355,7 +355,7 @@ const srv = http.createServer((q,s)=>{
     ok('ومن «اليوم» بلا بحث يسمح بإغلاق التطبيق', await ap.evaluate(()=>UI.back())===false);
     await ap.evaluate(()=>UI.onScan('000000')); await ap.waitForTimeout(400);
     ok('باركود غير موجود يُنبَّه عليه', /لا يوجد صنف بالباركود/.test(await ap.textContent('#toasts')));
-    ok('ولا style سطري في وضع التطبيق', (await ap.$$eval('[style]:not(body)', e=>e.length))===0);
+    ok('ولا style سطري في وضع التطبيق', (await ap.$$eval('[style]:not([style=""]):not(body)', e=>e.length))===0);
     if (SHOT) await ap.screenshot({path:SHOT+'app-home.png'});
     await actx.close();
   }
@@ -365,7 +365,10 @@ const srv = http.createServer((q,s)=>{
     const ap = await cx.newPage();
     ap.on('pageerror',e=>errs.push('APP2 PAGEERROR: '+e.message));
     ap.on('console',m=>{ const t=m.text(); if (/Content Security Policy|Refused to/.test(t)) errs.push('APP2 CSP: '+t.slice(0,120)); });
-    await ap.addInitScript(() => { window.__cfg = []; window.AndroidApp = { scan(){}, version(){ return '1.1'; }, setConfig(j){ window.__cfg.push(JSON.parse(j)); } }; });
+    await ap.addInitScript(() => { window.__cfg = []; window.__calls = [];
+      window.AndroidApp = { scan(){}, version(){ return '1.2'; }, setConfig(j){ window.__cfg.push(JSON.parse(j)); },
+        setBar(c){ window.__calls.push('bar:'+c); }, notifyStatus(){ return 'on'; }, askNotify(){ window.__calls.push('ask'); },
+        testNotify(){ window.__calls.push('test'); return true; }, checkNow(){ window.__calls.push('check'); }, openBattery(){ window.__calls.push('battery'); } }; });
     await ap.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr'); await ap.waitForTimeout(1600);
     const tabs = await ap.$$eval('#tabs button', e=>e.map(x=>x.getAttribute('data-tab')));
     ok('التطبيق: خمسة تبويبات (اليوم، المخزون، بيع، الخزين، المزيد)', tabs.join()==='dash,home,sell,room,more', tabs.join());
@@ -433,10 +436,72 @@ const srv = http.createServer((q,s)=>{
     if (SHOT) await ap.screenshot({path:SHOT+'app-bell.png'});
     await ap.click('button[data-act="bellRead"]'); await ap.waitForTimeout(400);
     ok('و«تحديد الكل كمقروء» يُخفي العدّاد', !(await ap.$('#btnBell .bdg')));
-    const st2 = await ap.$$eval('[style]:not(body)', e=>e.map(x=>x.tagName+'#'+x.id+'.'+x.className+' '+x.getAttribute('style')));
-    ok('لا style سطري في شاشات التطبيق', st2.length===0, JSON.stringify(st2));
+    const st2 = await ap.$$eval('[style]:not([style=""]):not(body)', e=>e.map(x=>x.tagName+'#'+x.id+'.'+x.className+' '+x.getAttribute('style')));
+    // تعديل صنف من التلفون
+    await ap.evaluate(()=>UI.closeSheet()); await ap.waitForTimeout(400);
+    await ap.evaluate(()=>UI.go('home')); await ap.waitForTimeout(400);
+    await ap.fill('#q','9789991234567'); await ap.waitForTimeout(400);
+    await ap.click('.row'); await ap.waitForTimeout(700);
+    ok('صفحة الصنف فيها زر «تعديل الصنف»', !!(await ap.$('button[data-act="editItem"]')));
+    await ap.click('button[data-act="editItem"]'); await ap.waitForTimeout(600);
+    await ap.fill('#eP','27.5');
+    await ap.click('button[data-act="eStep"][data-arg="1"]'); await ap.click('button[data-act="eStep"][data-arg="1"]'); await ap.waitForTimeout(200);
+    ok('و«سيُضاف 2» يظهر قبل الحفظ', /سيُضاف 2/.test(await ap.textContent('#eQd')));
+    if (SHOT) await ap.screenshot({path:SHOT+'app-edit.png'});
+    const pb = PUTS.length;
+    await ap.click('button[data-act="editSave"]'); await ap.waitForTimeout(1200);
+    const pe = PUTS[PUTS.length-1];
+    ok('التعديل يُرفع: السعر 27.5 والكمية +2 فرقاً', PUTS.length>pb && pe.edits && pe.edits.length===1 && pe.edits[0].set.p===27.5 && pe.edits[0].set.qd===2 && pe.edits[0].b==='9789991234567', JSON.stringify(pe.edits));
+    ok('وموجَّه لفرع المحل', pe.edits[0].to==='misrata', pe.edits[0].to);
+    const g2 = await ap.evaluate(()=>{ const g=UI.items().find(x=>x.b==='9789991234567'); return {p:g.p,t:g.total,e:!!g.editing}; });
+    ok('ويظهر فوراً في التلفون: السعر 27.5 والمجموع +2', g2.p===27.5 && g2.e, JSON.stringify(g2));
+    PAYLOAD.branches[0].acks[pe.edits[0].id] = 1;
+    await ap.evaluate(()=>UI.refresh(true)); await ap.waitForTimeout(1000);
+    ok('وتأكيد الكمبيوتر يُنهيه', await ap.evaluate(()=>UI.S.edits[0].status==='done'));
+
+    // الألوان والإشعارات
+    await ap.evaluate(()=>UI.go('settings')); await ap.waitForTimeout(600);
+    ok('الإعدادات: تسعة ألوان', (await ap.$$eval('.sw', e=>e.length))===9);
+    await ap.click('.sw-coral'); await ap.waitForTimeout(300);
+    ok('اختيار «مرجاني» يغيّر لون التطبيق وشريط الحالة', await ap.evaluate(()=>document.documentElement.getAttribute('data-accent')==='coral' && window.__calls.includes('bar:#E0644C')));
+    ok('وحالة الإشعارات ظاهرة', /مسموحة/.test(await ap.textContent('#nfState')));
+    await ap.click('button[data-act="nfTest"]'); await ap.waitForTimeout(200);
+    await ap.click('button[data-act="nfCheck"]'); await ap.waitForTimeout(200);
+    ok('و«إشعار تجريبي» و«افحص الآن» يصلان للتلفون', await ap.evaluate(()=>window.__calls.includes('test') && window.__calls.includes('check')));
+    await ap.click('#nf_daily'); await ap.waitForTimeout(200);
+    ok('وإطفاء نوع إشعار يُحفظ فوراً ويصل لأندرويد', await ap.evaluate(()=>{ const c=window.__cfg[window.__cfg.length-1]; return c.notif.daily===false && UI.S.notif.daily===false; }));
+    if (SHOT) await ap.screenshot({path:SHOT+'app-settings.png', fullPage:true});
+    await ap.click('.sw-green'); await ap.waitForTimeout(200);
+
+    const st3 = await ap.$$eval('[style]:not([style=""]):not(body)', e=>e.map(x=>x.tagName+'#'+x.id+'.'+x.className+' '+x.getAttribute('style')));
+    ok('لا style سطري في شاشات التطبيق', st2.length===0 && st3.length===0, JSON.stringify(st2.concat(st3)));
     const fit2 = await ap.evaluate(()=>({sw:document.documentElement.scrollWidth,w:innerWidth}));
     ok('ولا شيء يتّسع عن الشاشة', fit2.sw<=fit2.w, JSON.stringify(fit2));
+    await cx.close();
+  }
+
+  // 26) السحب للأسفل باللمس كتلفون حقيقي (الخطأ الذي بلّغ عنه صاحب المحل)
+  {
+    const cx = await b.newContext({viewport:{width:390,height:780}, isMobile:true, hasTouch:true, deviceScaleFactor:2});
+    const tp = await cx.newPage();
+    await tp.addInitScript(() => { window.AndroidApp = { scan(){}, version(){ return '1.2'; }, setConfig(){} }; });
+    await tp.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr'); await tp.waitForTimeout(1500);
+    const cdp = await cx.newCDPSession(tp);
+    const swipe = async () => {
+      const pt = y => [{x:200,y}];
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:pt(650)});
+      for (let y=640; y>=250; y-=15) { await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:pt(y)}); await new Promise(r=>setTimeout(r,12)); }
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+      await tp.waitForTimeout(500);
+    };
+    for (const scr of ['dash','home','more','alerts','settings']) {
+      await tp.evaluate(k=>{ UI.go(k); window.scrollTo(0,0); }, scr); await tp.waitForTimeout(700);
+      const need = await tp.evaluate(()=>document.documentElement.scrollHeight > innerHeight + 80);
+      if (!need) continue;
+      await swipe();
+      const y = await tp.evaluate(()=>Math.round(window.scrollY || document.scrollingElement.scrollTop));
+      ok('السحب بالإصبع ينزل الصفحة في «' + scr + '»', y > 100, 'scrollY=' + y);
+    }
     await cx.close();
   }
 

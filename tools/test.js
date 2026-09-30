@@ -1532,6 +1532,42 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await closePage(pg);
   }
 
+  console.log('\n== 18. التعديل من التلفون ==');
+  {
+    const st = seed();
+    st.sync = { url: 'https://sync.example', key: 'k', auto: false, everyMin: 10 };
+    writeStore(st);
+    const phone = [{ kind: 'phone', at: '2026-09-30 11:00', branch: { id: 'phone-ab12', name: 'تلفون صاحب المحل' },
+      orders: [{ id: 'o9', to: 'tripoli', method: 'cash', items: [{ b: '111', q: 1, p: 15 }] }],
+      edits: [
+        { id: 'e1', to: 'misrata', b: '111', set: { n: 'كتاب الرياضيات الجديد', p: 17, qd: 3 } },
+        { id: 'e2', b: '222', set: { qd: -150, loc: 'درج 2' } },
+        { id: 'e3', to: 'tripoli', b: '111', set: { p: 99 } },
+        { id: 'e4', b: '000', set: { p: 1 } }
+      ] }];
+    fs.writeFileSync(path.join(DATA, 'remote.json'), JSON.stringify(phone));
+    try { fs.unlinkSync(path.join(DATA, 'uploaded.json')); } catch (e) { }
+    const pg = await open();
+    await pg.evaluate(() => Stock.sync(true)); await sleep(2600);
+    const r = await pg.evaluate(() => {
+      const b = App.findItem('book', 'b1'), s = App.findItem('stat', 's1');
+      return { t: b.title, p: b.price, q: b.qty, code: b.barcode, sq: s.qty, loc: s.loc,
+        inv: App.S.invoices.length, done: App.S.phoneDone };
+    });
+    check('الاسم والسعر تغيّرا من التلفون', r.t === 'كتاب الرياضيات الجديد' && r.p === 17, JSON.stringify(r));
+    check('الكمية تُضاف فرقاً: 20 + 3 = 23', r.q === 23, String(r.q));
+    check('ونقص أكبر من الموجود لا يجعلها سالبة', r.sq === 0 && r.loc === 'درج 2', JSON.stringify(r));
+    check('الباركود لم يتغيّر', r.code === '111', r.code);
+    check('تعديل وطلب لفرع آخر يُتركان له', r.p !== 99 && r.inv === 0 && r.done.e3 === undefined && r.done.o9 === undefined, JSON.stringify(r.done));
+    check('الصنف غير الموجود يُؤكَّد بصفر', r.done.e4 === 0, JSON.stringify(r.done));
+    await pg.evaluate(() => Stock.sync(true)); await sleep(1800);
+    check('ولا يتكرّر التعديل عند التحديث التالي', await pg.evaluate(() => App.findItem('book', 'b1').qty === 23));
+    const up = JSON.parse(fs.readFileSync(path.join(DATA, 'uploaded.json'), 'utf8'));
+    check('اللقطة المرفوعة تؤكّد التعديلات للتلفون', up.acks && up.acks.e1 === 1 && up.acks.e2 === 1, JSON.stringify(up.acks));
+    fs.unlinkSync(path.join(DATA, 'remote.json'));
+    await closePage(pg);
+  }
+
   await b.close();
   console.log('\n' + '='.repeat(50));
   console.log('  نجح: ' + pass + '    فشل: ' + fail);

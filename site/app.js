@@ -97,16 +97,23 @@ var UI = (function () {
   function el(id) { return document.getElementById(id); }
 
   /* النمط: تلقائي يتبع الجهاز، أو فاتح أو ليلي بالاختيار */
+  /* ألوان التطبيق — نفس ألوان المنظومة على الكمبيوتر */
+  var ACCENTS = { green: "#0E6E62", blue: "#1D5F8A", violet: "#6B4593", wine: "#8C2F39", amber: "#B26B10",
+    teal: "#0F6B75", slate: "#3D4A57", indigo: "#4F46E5", coral: "#E0644C" };
+
   function applyTheme() {
     var t = (S && S.theme) || "auto";
     var r = document.documentElement;
     r.setAttribute("data-theme", t);
+    var ac = (S && ACCENTS[S.accent]) ? S.accent : "green";
+    r.setAttribute("data-accent", ac);
+    if (window.AndroidApp && window.AndroidApp.setBar) { try { window.AndroidApp.setBar(ACCENTS[ac]); } catch (e) { } }
     var m = document.querySelector('meta[name="theme-color"]');
     if (m) {
       var dark = t === "dark" ||
         (t === "auto" && window.matchMedia &&
          window.matchMedia("(prefers-color-scheme: dark)").matches);
-      m.setAttribute("content", dark ? "#10181D" : "#0E6E62");
+      m.setAttribute("content", dark ? "#10181D" : ACCENTS[ac]);
     }
   }
 
@@ -1023,6 +1030,7 @@ var UI = (function () {
 
     var ph = null;
     g.at.forEach(function (w) { if (!ph && w.place.phone) ph = w.place.phone; });
+    if (X && X.detailActs) h += X.detailActs(g);
     h += '<div class="det-acts">' +
       (ph ? '<a class="btn" href="tel:' +
         esc(String(ph).replace(/[^\d+]/g, "")) + '">' + ico("phone", 16) + " اتصل بالفرع</a>" : "") +
@@ -1129,6 +1137,7 @@ var UI = (function () {
     h += '<button class="btn wide" data-act="go" data-arg="home">رجوع للمخزون</button>';
     el("view").innerHTML = h;
     el("foot").innerHTML = "";
+    if (X && X.paintNotifState) X.paintNotifState();
   }
 
   /* ============================================================
@@ -1459,7 +1468,7 @@ var UI = (function () {
     X = window.PhoneExt || null;
     if (X) {
       X.init({
-        get S() { return S; }, el: el, ico: ico, icons: ICONS, esc: esc, num: num, money: money, norm: norm,
+        get S() { return S; }, el: el, ico: ico, icons: ICONS, accents: ACCENTS, applyTheme: applyTheme, esc: esc, num: num, money: money, norm: norm,
         toast: toast, items: items, places: places, isPhone: isPhone, search: search, sortItems: sortItems,
         render: render, go: go, open: open, closeSheet: closeSheet, save: save, refresh: refresh,
         rowHtml: rowHtml, emptyBox: emptyBox, ageOf: ageOf, countUp: countUp, reduced: reduced,

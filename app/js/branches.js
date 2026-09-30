@@ -122,6 +122,7 @@ var Stock = (function () {
       if (!snap || snap.kind !== "phone" || !Array.isArray(snap.orders)) return;
       snap.orders.forEach(function (o) {
         if (!o || !o.id || done[o.id]) return;
+        if (o.to && o.to !== S().branch.id) return;      // لفرع آخر: هو يسجّلها لا نحن
         var inv = Sales.applyPhoneOrder(o, (snap.branch && snap.branch.name) || "التلفون");
         done[o.id] = inv ? inv.no : 0;          // 0 = لم يُسجَّل (أصناف غير موجودة)
         if (inv) { n++; made.push(inv.no); }
@@ -137,6 +138,51 @@ var Stock = (function () {
     }
     return n;
   }
+  /* ---------- التعديل من التلفون ----------
+     الاسم، المؤلف/الماركة، السعر، حد التنبيه، المكان، والكمية فرقاً
+     (+3 أو −2) لا رقماً مطلقاً: ما بيع هنا بين التعديل ووصوله يبقى
+     محسوباً. مرة واحدة لكل تعديل، ويعود تأكيده للتلفون. */
+  function takePhoneEdits(list) {
+    if (S().meta.phoneSales === false) return 0;
+    var done = phoneDone(), n = 0;
+    list.forEach(function (snap) {
+      if (!snap || snap.kind !== "phone" || !Array.isArray(snap.edits)) return;
+      snap.edits.forEach(function (e) {
+        if (!e || !e.id || done[e.id] !== undefined) return;
+        if (e.to && e.to !== S().branch.id) return;
+        done[e.id] = applyPhoneEdit(e, (snap.branch && snap.branch.name) || "التلفون") ? 1 : 0;
+        if (done[e.id]) n++;
+      });
+    });
+    if (n) { App.save(); App.toast(n === 1 ? "وصل تعديل صنف من التلفون" : "وصلت " + n + " تعديلات من التلفون", "ok"); }
+    return n;
+  }
+  function applyPhoneEdit(e, device) {
+    var hit = null, bc = String(e.b || "").trim(), code = String(e.k || "").trim().toUpperCase();
+    App.allItems().forEach(function (x) {
+      if (hit) return;
+      if ((bc && String(x.it.barcode || "").trim() === bc) ||
+          (code && String(x.it.code || "").trim().toUpperCase() === code)) hit = x;
+    });
+    if (!hit) return false;
+    var it = hit.it, isB = hit.type === "book", f = e.set || {}, what = [];
+    function txt(v) { return String(v == null ? "" : v).trim().slice(0, 300); }
+    if (f.n !== undefined && txt(f.n)) { if (isB) it.title = txt(f.n); else it.name = txt(f.n); what.push("الاسم"); }
+    if (f.a !== undefined) { if (isB) it.author = txt(f.a); else it.brand = txt(f.a); what.push(isB ? "المؤلف" : "الماركة"); }
+    if (f.p !== undefined && App.num(f.p) >= 0) { it.price = App.num(f.p); what.push("السعر"); }
+    if (f.m !== undefined && App.num(f.m) >= 0) { it.min = App.num(f.m); what.push("حد التنبيه"); }
+    if (isB && f.l !== undefined) { it.lib = txt(f.l); what.push("المكتبة"); }
+    if (isB && f.s !== undefined) { it.shelf = txt(f.s); what.push("الرف"); }
+    if (!isB && f.loc !== undefined) { it.loc = txt(f.loc); what.push("المكان"); }
+    if (f.qd !== undefined && App.num(f.qd) !== 0) {
+      it.qty = Math.max(App.num(it.qty) + App.num(f.qd), 0);
+      what.push("الكمية " + (App.num(f.qd) > 0 ? "+" : "") + App.num(f.qd));
+    }
+    it.updated = App.nowStamp();
+    App.log("تعديل من التلفون", App.itemName(it) + ": " + what.join("، ") + " — " + device);
+    return true;
+  }
+
   function setPhoneSales(on) {
     S().meta.phoneSales = !!on;
     App.save();
@@ -192,7 +238,7 @@ var Stock = (function () {
       var seenBefore = {};
       requests().forEach(function (r) { seenBefore[r.id] = 1; });
       mergeRemotes(res.branches || []);
-      var gotPhone = takePhoneOrders(res.branches || []);
+      var gotPhone = takePhoneOrders(res.branches || []) + takePhoneEdits(res.branches || []);
       if (gotPhone) {
         App.rerender();
         // التأكيد يصل للتلفون الآن، لا في التحديث القادم بعد دقائق
@@ -1400,7 +1446,7 @@ var Stock = (function () {
     respond: respond, confirmReceipt: confirmReceipt, pendingCount: pendingCount,
     requests: requests, branchName: branchName, resolveLocal: resolveLocal,
     addWarehouse: addWarehouse, addToWarehouse: addToWarehouse, editWhQty: editWhQty,
-    roomAllBack: roomAllBack, printRoom: printRoom, setPhoneSales: setPhoneSales, takePhoneOrders: takePhoneOrders,
+    roomAllBack: roomAllBack, printRoom: printRoom, setPhoneSales: setPhoneSales, takePhoneOrders: takePhoneOrders, takePhoneEdits: takePhoneEdits,
     delWhLine: delWhLine, delWarehouse: delWarehouse,
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,
