@@ -185,6 +185,7 @@ var App = (function () {
 
   function save() {
     if (readOnly) return;
+    fixStores();
     dirty = true;
     if (!firstDirtyAt) firstDirtyAt = Date.now();
     if (saveTimer) clearTimeout(saveTimer);
@@ -195,6 +196,7 @@ var App = (function () {
 
   function saveNow() {
     if (readOnly) return Promise.resolve();
+    fixStores();
     if (saving) {
       dirty = true;
       if (saveTimer) clearTimeout(saveTimer);
@@ -590,6 +592,62 @@ var App = (function () {
     return n;
   }
 
+  /* ---------- غرفة الخزين ----------
+     it.qty يبقى كما كان: كل ما عندك من الصنف في المحل. it.store جزءٌ
+     منه موجود في غرفة الخزين، والباقي على الرفوف. فكل ما يحسب على
+     qty (القيمة، الجرد، التنبيهات، الفروع) لا يتغيّر، والكتب المسجّلة
+     قبل هذه الميزة كلها «على الرفوف» (store غير موجود = صفر). */
+  function storeQty(it) {
+    var s = num(it.store);
+    return s > 0 ? Math.min(s, Math.max(num(it.qty), 0)) : 0;
+  }
+  function shelfQty(it) { return num(it.qty) - storeQty(it); }
+  /* البيع يُنقص qty. إن بيعت نسخة لم تبقَ على الرفوف فهي من المخزن،
+     فيصير store = qty. يُستدعى قبل كل حفظ فيغطّي كل طرق الإنقاص. */
+  function fixStores() {
+    allItems().forEach(function (x) {
+      if (x.it.store === undefined) return;
+      var s = storeQty(x.it);
+      if (s !== x.it.store) {
+        if (s > 0) x.it.store = s; else delete x.it.store;
+      }
+    });
+  }
+  /* نقل بين الرفوف والمخزن — المجموع لا يتغيّر.
+     dir: "in" = من المخزن إلى الرفوف، "out" = من الرفوف إلى المخزن */
+  function moveStock(it, n, dir) {
+    n = Math.floor(num(n));
+    if (n <= 0) return 0;
+    var st = storeQty(it), sh = shelfQty(it);
+    if (dir === "in") n = Math.min(n, st); else n = Math.min(n, Math.max(sh, 0));
+    if (n <= 0) return 0;
+    var ns = dir === "in" ? st - n : st + n;
+    if (ns > 0) it.store = ns; else delete it.store;
+    it.updated = nowStamp();
+    log(dir === "in" ? "نقل للرفوف" : "نقل للمخزن", itemName(it) + " × " + n);
+    return n;
+  }
+  /* يستقبل كمية واصلة ويضع جزءاً منها في المخزن */
+  function receiveStock(it, add, toStore) {
+    add = num(add); toStore = Math.min(Math.max(num(toStore), 0), add);
+    it.qty = num(it.qty) + add;
+    if (toStore > 0) it.store = storeQty(it) + toStore;
+  }
+  /* نفد أو قلّ على الرفوف وله نسخ في المخزن */
+  function restockList() {
+    var out = [];
+    allItems().forEach(function (x) {
+      var st = storeQty(x.it);
+      if (!st) return;
+      var sh = shelfQty(x.it), mn = num(x.it.min);
+      if (sh > mn) return;
+      var want = Math.max(mn ? mn * 2 : 2, 1) - sh;
+      out.push({ type: x.type, it: x.it, shelf: sh, store: st, suggest: Math.max(1, Math.min(st, want)) });
+    });
+    out.sort(function (a, b) { return a.shelf - b.shelf; });
+    return out;
+  }
+
   function nextCode(type) {
     if (type === "book") { S.counters.book++; return "K" + String(S.counters.book).padStart(4, "0"); }
     S.counters.stat++; return "Q" + String(S.counters.stat).padStart(4, "0");
@@ -861,24 +919,41 @@ var App = (function () {
     }
     /* حدّ للصفوف المرسومة: بلا هذا كانت صفحة الفواتير ترسم كل فاتورة
        في التاريخ — 21,900 صفاً و481 ألف عنصر جمّدت النافذة دقيقتين. */
-    var shown = rows, hidden = 0;
+    var shown = rows, hidden = 0, rest = null;
     if (opts.limit && rows.length > opts.limit) {
       shown = rows.slice(0, opts.limit);
       hidden = rows.length - opts.limit;
+    }
+    /* رسم تدريجي: 900 كتاب = 29 ألف عنصر كانت تُرسم دفعة واحدة فتتجمّد
+       الصفحة ثانية كاملة. الآن تُرسم أول دفعة فوراً، والباقي كلما اقترب
+       التمرير من آخر الجدول. البيانات نفسها لا تتغيّر. */
+    if (opts.lazy && shown.length > opts.lazy + 20) {
+      rest = shown.slice(opts.lazy);
+      shown = shown.slice(0, opts.lazy);
+    }
+
+    function rowHtml(r, i) {
+      var cls = opts.rowClass ? opts.rowClass(r) : "";
+      var t = '<tr class="' + cls + '">';
+      cols.forEach(function (c) {
+        t += '<td class="' + (c.cls || "") + '">' + c.c(r, i) + "</td>";
+      });
+      return t + "</tr>";
     }
 
     var h = '<div class="table-wrap"><table class="tbl"><thead><tr>';
     cols.forEach(function (c) { h += "<th>" + esc(c.h) + "</th>"; });
     h += "</tr></thead><tbody>";
-    shown.forEach(function (r, i) {
-      var cls = opts.rowClass ? opts.rowClass(r) : "";
-      h += '<tr class="' + cls + '">';
-      cols.forEach(function (c) {
-        h += '<td class="' + (c.cls || "") + '">' + c.c(r, i) + "</td>";
-      });
-      h += "</tr>";
-    });
+    shown.forEach(function (r, i) { h += rowHtml(r, i); });
     h += "</tbody></table></div>";
+    if (rest) {
+      var at = shown.length;
+      h += lazyMore(function (n) {
+        var part = rest.splice(0, n), out = "";
+        part.forEach(function (r) { out += rowHtml(r, at++); });
+        return { html: out, left: rest.length };
+      }, "tbody", rest.length);
+    }
     if (hidden > 0) {
       h += '<div class="row" style="padding:14px 16px;align-items:center;gap:12px">' +
         '<span class="muted small">معروض ' + shown.length + " من " + rows.length + " — " +
@@ -887,6 +962,110 @@ var App = (function () {
         "</div>";
     }
     return h;
+  }
+
+  /* ---------- الرسم التدريجي ----------
+     علامة صغيرة بعد القائمة؛ حين تقترب من الشاشة تُلحق الدفعة التالية
+     بالعنصر الذي قبلها (tbody الجدول، أو شبكة البطاقات). */
+  var lazySeq = 0, lazyFns = {}, lazyObs = null;
+  function lazyMore(next, into, left) {
+    var id = "lz" + (++lazySeq);
+    lazyFns[id] = { next: next, into: into };
+    setTimeout(function () { watchLazy(id); }, 0);
+    return '<div class="lazy-more" data-lazy="' + id + '"><span class="lz-spin"></span>' +
+      "<span>يحمّل " + left + " صنفاً آخر…</span></div>";
+  }
+  function lazyStep(el) {
+    var id = el.getAttribute("data-lazy"), job = lazyFns[id];
+    if (!job) return;
+    var prev = el.previousElementSibling;
+    var host = prev && (job.into === "self" ? prev : prev.querySelector(job.into));
+    if (!host) return;
+    var res = job.next(120);
+    host.insertAdjacentHTML("beforeend", res.html);
+    if (res.left > 0) {
+      el.lastChild.textContent = "يحمّل " + res.left + " صنفاً آخر…";
+      if (lazyObs) { lazyObs.unobserve(el); lazyObs.observe(el); }   // إن بقيت ظاهرة تُلحق دفعة أخرى
+    } else {
+      delete lazyFns[id];
+      if (lazyObs) lazyObs.unobserve(el);
+      el.parentNode.removeChild(el);
+    }
+  }
+  function watchLazy(id) {
+    var el = document.querySelector('[data-lazy="' + id + '"]');
+    if (!el) { delete lazyFns[id]; return; }             // رُسمت الصفحة من جديد قبل الوصول
+    if (typeof IntersectionObserver === "undefined") {    // احتياط: كل شيء دفعة واحدة
+      while (lazyFns[id]) lazyStep(el);
+      return;
+    }
+    if (!lazyObs) {
+      lazyObs = new IntersectionObserver(function (ents) {
+        ents.forEach(function (en) {
+          if (en.isIntersecting) setTimeout(function () { if (en.target.isConnected) lazyStep(en.target); }, 0);
+        });
+      }, { rootMargin: "0px 0px 900px 0px" });
+    }
+    lazyObs.observe(el);
+    // تنظيف ما بقي من قوائم رُسمت فوقها صفحة أخرى
+    Object.keys(lazyFns).forEach(function (k) {
+      if (k !== id && !document.querySelector('[data-lazy="' + k + '"]')) delete lazyFns[k];
+    });
+  }
+
+  /* ---------- دائرة التحميل ----------
+     الضغط على صفحة في الشريط يُظهر الدائرة أولاً، ثم تُفتح الصفحة في
+     الإطار التالي. الدائرة تدور بخيط الرسم المستقل فتبقى تدور حتى لو
+     انشغلت المنظومة ثانية كاملة. لا تظهر أصلاً إن فُتحت الصفحة بسرعة. */
+  var busyEl = null;
+  function busyShow(label) {
+    if (!busyEl) {
+      busyEl = document.createElement("div");
+      busyEl.className = "busy-veil";
+      busyEl.setAttribute("aria-hidden", "true");
+      busyEl.innerHTML = '<div class="bv-card"><span class="bv-spin"></span><span class="bv-t"></span></div>';
+    }
+    busyEl.querySelector(".bv-t").textContent = label || "لحظة…";
+    var host = document.getElementById("view");
+    (host && host.parentNode ? host.parentNode : document.body).appendChild(busyEl);
+    busyEl.classList.remove("on");
+    void busyEl.offsetWidth;
+    busyEl.classList.add("on");
+  }
+  function busyHide() {
+    if (!busyEl || !busyEl.parentNode) return;
+    // بعد أن يُرسم الإطار الثقيل نفسه، لا قبله
+    requestAnimationFrame(function () {
+      setTimeout(function () {
+        if (busyEl && busyEl.parentNode) { busyEl.classList.remove("on"); busyEl.parentNode.removeChild(busyEl); }
+      }, 0);
+    });
+  }
+  /* يشغّل عملاً ثقيلاً بعد أن تظهر الدائرة */
+  function busy(label, fn) {
+    busyShow(label);
+    requestAnimationFrame(function () {
+      setTimeout(function () {
+        try { fn(); } finally { busyHide(); }
+      }, 0);
+    });
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest && e.target.closest("#nav .nav-item");
+      if (!b || !b.dataset.k || e.button) return;
+      var to = "#/" + b.dataset.k;
+      if (location.hash === to) return;
+      e.stopPropagation();                               // التنقّل يتم هنا بعد ظهور الدائرة
+      var lbl = b.querySelector("span:not(.count)");
+      busyShow("يفتح " + (lbl ? lbl.textContent : "") + "…");
+      requestAnimationFrame(function () {
+        setTimeout(function () {
+          location.hash = to;                            // route() يخفي الدائرة بعد الرسم
+          setTimeout(busyHide, 4000);                    // احتياط
+        }, 0);
+      });
+    }, true);
   }
 
   /* ---------- ملفات ---------- */
@@ -1063,7 +1242,7 @@ var App = (function () {
     { g: "المخزون" },
     { k: "stock", t: "المخزون والفروع", ic: "boxes", f: function () { return Stock.page(); }, badge2: true },
     { k: "purchases", t: "إدخال بضاعة", ic: "goods", f: function () { return Inv.goods(); } },
-    { k: "alerts", t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true },
+    { k: "alerts", t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true, badge6: true },
     { k: "stale", t: "البضاعة الراكدة", ic: "stale", f: function () { return Stale.page(); }, badge4: true },
     { k: "labels", t: "طباعة اللاصقات", ic: "tag", f: function () { return Labels.page(); }, badge5: true },
     { g: "الحسابات" },
@@ -1088,6 +1267,7 @@ var App = (function () {
         (p.badge3 ? '<span class="count" data-conscount hidden></span>' : "") +
         (p.badge4 ? '<span class="count" data-stalecount hidden></span>' : "") +
         (p.badge5 ? '<span class="count bad" data-lblcount hidden></span>' : "") +
+        (p.badge6 ? '<span class="count rs" data-restockcount hidden title="تحتاج نقلاً من المخزن إلى الرفوف"></span>' : "") +
         "</button>";
     });
     nav.innerHTML = h;
@@ -1236,6 +1416,16 @@ var App = (function () {
     document.addEventListener("click", function (e) {
       var bb = e.target.closest && e.target.closest(".bin-btn");
       if (bb) eatLabel(bb);
+      /* ✕ في سطر السلة: السطر ينسحب أولاً ثم يُحذف (خُمس ثانية) */
+      var xb = e.target.closest && e.target.closest(".cart-line > .x");
+      if (xb && typeof Sales !== "undefined") {
+        var line = xb.parentNode;
+        e.stopPropagation();
+        if (line.classList.contains("leaving")) return;   // ضغطتان سريعتان لا تحذفان سطرين
+        line.classList.add("leaving");
+        setTimeout(function () { Sales.delLine(+line.getAttribute("data-i")); }, reducedMotion() ? 0 : 190);
+        return;
+      }
       if (!segFrom) return;
       var f = segFrom;
       segFrom = null;
@@ -1404,6 +1594,10 @@ var App = (function () {
     document.querySelectorAll("[data-lblcount]").forEach(function (e) {
       if (lblN > 0) { e.hidden = false; e.textContent = lblN; } else e.hidden = true;
     });
+    var rsN = restockList().length;
+    document.querySelectorAll("[data-restockcount]").forEach(function (e) {
+      if (rsN > 0) { e.hidden = false; e.textContent = rsN; } else e.hidden = true;
+    });
   }
 
   /* رمز الأرباح: كان مخزّناً بالنص الصريح في store.json ويُقدَّم على
@@ -1460,6 +1654,7 @@ var App = (function () {
     if (k === "stock" && typeof Stock !== "undefined" && Stock.afterRender) Stock.afterRender();
     refreshBadges();
     moveGlider();
+    busyHide();
   }
 
   function rerender() { route(); paintBlockBar(); }
@@ -1718,7 +1913,7 @@ var App = (function () {
     boot: boot, rerender: rerender, route: route,
     get S() { return S; },
     save: save, saveNow: saveNow,
-    uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, hasNumber: hasNumber, digits: digits,
+    uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, busy: busy, lazyMore: lazyMore, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm,
     api: api, apiJson: apiJson, apiWrite: apiWrite,
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
@@ -1727,6 +1922,7 @@ var App = (function () {
     today: today, nowStamp: nowStamp, dateAr: dateAr, log: log,
     listOf: listOf, itemName: itemName, findItem: findItem, allItems: allItems,
     stockState: stockState, stockBadge: stockBadge, lowCount: lowCount, sellPrice: sellPrice,
+    storeQty: storeQty, shelfQty: shelfQty, moveStock: moveStock, receiveStock: receiveStock, restockList: restockList,
     nextCode: nextCode, locChip: locChip, locPin: locPin,
     toast: toast, modal: modal, confirm: confirm, form: form, table: table, setField: setField,
     canProfit: canProfit, unlockProfit: unlockProfit, lockProfit: lockProfit,

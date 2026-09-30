@@ -125,6 +125,32 @@ var Inv = (function () {
     });
   }
 
+  /* ---------- الرفوف والمخزن في الجداول ----------
+     عمود الكمية صار عمودين: على الرفوف، وفي غرفة الخزين (وتحته المجموع،
+     وهو الرقم القديم نفسه). حدّ التنبيه يُقارن بالمجموع كما كان. */
+  function qtyCols() {
+    return [
+      {
+        h: "الرفوف", cls: "num", c: function (x) {
+          return '<b class="q-sh">' + App.shelfQty(x) + "</b>" +
+            (App.num(x.min) ? '<span class="muted small"> / ' + App.num(x.min) + "</span>" : "");
+        }
+      },
+      {
+        h: "المخزن", cls: "num", c: function (x) {
+          var st = App.storeQty(x);
+          return st ? '<b class="q-st">' + st + '</b><div class="muted small q-tot">المجموع ' + App.num(x.qty) + "</div>"
+            : '<span class="muted">—</span>';
+        }
+      }
+    ];
+  }
+  /* «نفد من الرفوف» حين لا نسخة معروضة وفي المخزن نسخ */
+  function shelfBadge(x) {
+    if (App.storeQty(x) > 0 && App.shelfQty(x) <= 0) return '<span class="badge warn">نفد من الرفوف</span>';
+    return App.stockBadge(x);
+  }
+
   /* ---------- عرض البطاقات ----------
      الجدول أكثف، والبطاقات أوضح للعين على شاشة كبيرة أو عند المرور
      السريع على الرف. الاختيار محفوظ فلا يُعاد كل مرة. */
@@ -134,10 +160,10 @@ var Inv = (function () {
         "<p>غيّر البحث أو الفلتر.</p></div>";
     }
     var isB = type === "book";
-    var h = '<div class="item-cards">';
-    rows.forEach(function (x) {
+    var first = rows.length > 80 ? rows.slice(0, 60) : rows, rest = rows.slice(first.length);
+    function card(x) {
       var st = App.stockState(x);
-      h += '<div class="item-card ' + (st === "out" ? "out" : (st === "low" ? "low" : "")) + '">' +
+      return '<div class="item-card ' + (st === "out" ? "out" : (st === "low" ? "low" : "")) + '">' +
         '<div class="ic-top">' + lblMark(x) +
         '<b class="ic-name">' + App.esc(App.itemName(x)) + "</b></div>" +
         '<div class="ic-sub">' + App.esc(x.author || x.brand || "—") +
@@ -145,22 +171,31 @@ var Inv = (function () {
         '<div class="ic-chips">' +
         (isB ? App.locChip(x) : '<span class="badge">' + App.esc(x.loc || "—") + "</span>") +
         (x.cat ? '<span class="badge">' + App.esc(x.cat) + "</span>" : "") +
-        App.stockBadge(x) +
+        shelfBadge(x) +
         "</div>" +
         '<div class="ic-nums">' +
         '<div><span>البيع</span><b>' + App.money0(x.price) + "</b></div>" +
-        '<div><span>الكمية</span><b>' + App.num(x.qty) + "</b></div>" +
+        '<div><span>الرفوف · المخزن</span><b>' + App.shelfQty(x) +
+        (App.storeQty(x) ? ' <small class="muted">· ' + App.storeQty(x) + "</small>" : "") + "</b></div>" +
         '<div><span>الرمز</span><b class="num sm">' +
         App.esc(x.barcode || x.code || "—") + "</b></div>" +
         "</div>" +
         '<div class="ic-acts">' +
         '<button class="btn sm" onclick="Inv.addStock(\'' + type + "','" + x.id + '\')">+ كمية</button>' +
+        '<button class="btn sm" onclick="Inv.move(\'' + type + "','" + x.id + '\')">⇄ نقل</button>' +
         '<button class="btn sm" onclick="Inv.' + (isB ? "editBook" : "editStat") + "('" + x.id + '\')">تعديل</button>' +
         '<button class="btn sm ghost" onclick="Labels.one(\'' + type + "','" + x.id + '\')">⌷ لاصقة</button>' +
         '<button class="btn sm ghost" onclick="Inv.del(\'' + type + "','" + x.id + '\')">حذف</button>' +
         "</div></div>";
-    });
-    return h + "</div>";
+    }
+    var h = '<div class="item-cards">' + first.map(card).join("") + "</div>";
+    if (rest.length) {
+      h += App.lazyMore(function (n) {
+        var part = rest.splice(0, n);
+        return { html: part.map(card).join(""), left: rest.length };
+      }, "self", rest.length);
+    }
+    return h;
   }
 
   function paintBooks() {
@@ -185,17 +220,19 @@ var Inv = (function () {
       { h: "الرمز", c: function (b) { return '<span class="num small">' + App.esc(b.barcode || b.code || "") + "</span>"; } },
       { h: "الجملة", cls: "num", c: function (b) { return App.money0(b.cost); } },
       { h: "البيع", cls: "num", c: function (b) { return "<b>" + App.money0(b.price) + "</b>"; } },
-      { h: "الكمية", cls: "num", c: function (b) { return "<b>" + App.num(b.qty) + "</b>" + (App.num(b.min) ? '<span class="muted small"> / ' + App.num(b.min) + "</span>" : ""); } },
-      { h: "الحالة", c: function (b) { return App.stockBadge(b); } },
+    ].concat(qtyCols(), [
+      { h: "الحالة", c: shelfBadge },
       {
         h: "", cls: "act", c: function (b) {
           return '<button class="btn sm" onclick="Inv.addStock(\'book\',\'' + b.id + '\')">+ كمية</button> ' +
+            '<button class="btn sm" onclick="Inv.move(\'book\',\'' + b.id + '\')" title="نقل بين المخزن والرفوف">⇄ نقل</button> ' +
             '<button class="btn sm" onclick="Inv.editBook(\'' + b.id + '\')">تعديل</button> ' +
             '<button class="btn sm ghost" onclick="Labels.one(\'book\',\'' + b.id + '\')" title="طباعة لاصقة باركود">⌷ لاصقة</button> ' +
             '<button class="btn sm ghost" onclick="Inv.del(\'book\',\'' + b.id + '\')">حذف</button>';
         }
       }
-    ], rows, {
+    ]), rows, {
+      lazy: 60,
       rowClass: function (b) { var s = App.stockState(b); return s === "out" ? "out" : (s === "low" ? "low" : ""); },
       emptyIcon: "box",
       emptyTitle: S().books.length ? "لا نتيجة مطابقة" : "لم تُضف أي كتب بعد",
@@ -404,7 +441,8 @@ var Inv = (function () {
         { k: "cost", label: "سعر الشراء من المورّد", type: "money", min: 0 },
         { k: "price", label: "سعر البيع قطاعي", type: "money", min: 0, required: true, hint: "اكتبه واختر دار النشر ليُحسب سعر الجملة" },
         { k: "priceW", label: "سعر البيع جملة", type: "money", min: 0, hint: "يُحسب تلقائياً من نسبة دار النشر — أو اكتبه بيدك" },
-        { k: "qty", label: "الكمية الحالية", type: "number", min: 0 },
+        { k: "qty", label: "الكمية الحالية (كلها)", type: "number", min: 0, hint: "على الرفوف + في غرفة الخزين" },
+        { k: "store", label: "منها في غرفة الخزين", type: "number", min: 0, hint: "الباقي يُحسب على الرفوف. اتركه فارغاً إن كانت كلها معروضة" },
         { k: "min", label: "حد التنبيه", type: "number", min: 0, hint: "ينبّهك عند الوصول لهذا العدد" },
         { k: "note", label: "ملاحظة", type: "textarea", full: true }
       ],
@@ -413,6 +451,8 @@ var Inv = (function () {
         ["cost", "price", "priceW", "qty", "min"].forEach(function (k) {
           if (App.num(v[k]) < 0) v[k] = 0;
         });
+        // المخزن جزء من الكمية: لا يزيد عليها ولا يقلّ عن صفر
+        v.store = Math.min(Math.max(Math.floor(App.num(v.store)), 0), Math.max(App.num(v.qty), 0));
         var bc = String(v.barcode || "").trim();
         if (bc) {
           var clash = null;
@@ -1070,17 +1110,19 @@ var Inv = (function () {
       { h: "الرمز", c: function (p) { return '<span class="num small">' + App.esc(p.barcode || p.code || "") + "</span>"; } },
       { h: "الجملة", cls: "num", c: function (p) { return App.money0(p.cost); } },
       { h: "البيع", cls: "num", c: function (p) { return "<b>" + App.money0(p.price) + "</b>"; } },
-      { h: "الكمية", cls: "num", c: function (p) { return "<b>" + App.num(p.qty) + "</b>" + (App.num(p.min) ? '<span class="muted small"> / ' + App.num(p.min) + "</span>" : ""); } },
-      { h: "الحالة", c: function (p) { return App.stockBadge(p); } },
+    ].concat(qtyCols(), [
+      { h: "الحالة", c: shelfBadge },
       {
         h: "", cls: "act", c: function (p) {
           return '<button class="btn sm" onclick="Inv.addStock(\'stat\',\'' + p.id + '\')">+ كمية</button> ' +
+            '<button class="btn sm" onclick="Inv.move(\'stat\',\'' + p.id + '\')" title="نقل بين المخزن والرفوف">⇄ نقل</button> ' +
             '<button class="btn sm" onclick="Inv.editStat(\'' + p.id + '\')">تعديل</button> ' +
             '<button class="btn sm ghost" onclick="Labels.one(\'stat\',\'' + p.id + '\')" title="طباعة لاصقة باركود">⌷ لاصقة</button> ' +
             '<button class="btn sm ghost" onclick="Inv.del(\'stat\',\'' + p.id + '\')">حذف</button>';
         }
       }
-    ], rows, {
+    ]), rows, {
+      lazy: 60,
       rowClass: function (p) { var s = App.stockState(p); return s === "out" ? "out" : (s === "low" ? "low" : ""); },
       emptyIcon: "box",
       emptyTitle: S().stationery.length ? "لا نتيجة مطابقة" : "لم تُضف أي أصناف قرطاسية بعد",
@@ -1121,7 +1163,8 @@ var Inv = (function () {
         { k: "cost", label: "سعر الشراء من المورّد", type: "money", min: 0 },
         { k: "price", label: "سعر البيع قطاعي", type: "money", min: 0, required: true, hint: "اكتبه واختر دار النشر ليُحسب سعر الجملة" },
         { k: "priceW", label: "سعر البيع جملة", type: "money", min: 0, hint: "يُحسب تلقائياً من نسبة دار النشر — أو اكتبه بيدك" },
-        { k: "qty", label: "الكمية الحالية", type: "number", min: 0 },
+        { k: "qty", label: "الكمية الحالية (كلها)", type: "number", min: 0, hint: "على الرفوف + في غرفة الخزين" },
+        { k: "store", label: "منها في غرفة الخزين", type: "number", min: 0, hint: "الباقي يُحسب على الرفوف" },
         { k: "min", label: "حد التنبيه", type: "number", min: 0 },
         { k: "note", label: "ملاحظة", type: "textarea", full: true }
       ],
@@ -1129,6 +1172,8 @@ var Inv = (function () {
         ["cost", "price", "priceW", "qty", "min"].forEach(function (k) {
           if (App.num(v[k]) < 0) v[k] = 0;
         });
+        // المخزن جزء من الكمية: لا يزيد عليها ولا يقلّ عن صفر
+        v.store = Math.min(Math.max(Math.floor(App.num(v.store)), 0), Math.max(App.num(v.qty), 0));
         var bc2 = String(v.barcode || "").trim();
         if (bc2) {
           var clash2 = null;
@@ -1179,27 +1224,148 @@ var Inv = (function () {
       }, { danger: true, yes: "حذف" });
   }
 
+  /* ---------- استلام كمية: على الرفوف، في المخزن، أو مقسّمة ---------- */
+  var TO_LBL = { shelf: "على الرفوف", store: "في المخزن", split: "أقسّمها" };
+
   function addStock(type, id) {
     var it = App.findItem(type, id);
     if (!it) return;
-    App.form({
-      title: "إضافة كمية — " + App.itemName(it),
-      size: "narrow",
-      values: { add: 1, cost: it.cost },
-      fields: [
-        { k: "add", label: "الكمية المضافة", type: "number", min: 1, required: true, full: true },
-        { k: "cost", label: "سعر الجملة الجديد", type: "money", min: 0, full: true, hint: "اتركه كما هو إن لم يتغير" }
-      ],
-      saveLabel: "إضافة للمخزون",
-      onSave: function (v) {
-        it.qty = App.num(it.qty) + App.num(v.add);
-        if (App.num(v.cost) > 0) it.cost = App.num(v.cost);
-        it.updated = App.nowStamp();
-        App.log("إضافة كمية", App.itemName(it) + " +" + App.num(v.add));
-        App.save(); App.rerender();
-        App.toast("الكمية الآن: " + App.num(it.qty));
-      }
+    var to = S().meta.recvTo || "shelf";
+    var body =
+      '<div class="field"><label>الكمية الواصلة</label>' +
+      '<input class="inp num big-num" id="asAdd" type="number" min="1" value="1"></div>' +
+      '<div class="field"><label>تضعها في</label><div class="seg" id="asTo">' +
+      ["shelf", "store", "split"].map(function (k) {
+        return '<button type="button" data-to="' + k + '">' + TO_LBL[k] + "</button>";
+      }).join("") + "</div></div>" +
+      '<div class="grid g2" id="asSplit">' +
+      '<div class="field"><label>على الرفوف</label><input class="inp num" id="asSh" type="number" min="0"></div>' +
+      '<div class="field"><label>في المخزن</label><input class="inp num" id="asSt" type="number" min="0"></div></div>' +
+      '<div class="field"><label>سعر الجملة الجديد</label>' +
+      '<input class="inp num" id="asCost" type="number" min="0" step="0.01" value="' + App.num(it.cost) + '">' +
+      '<div class="hint">اتركه كما هو إن لم يتغير</div></div>' +
+      '<div class="rs-after" id="asNow"></div>';
+
+    var m = App.modal({
+      title: "إضافة كمية — " + App.itemName(it), size: "narrow", body: body,
+      actions: [{ label: "إضافة للمخزون", kind: "primary", click: function (close) { if (save()) close(); } }],
+      cancelLabel: "إلغاء"
     });
+    var el = function (i) { return m.el.querySelector("#" + i); };
+    function add() { return Math.max(0, Math.floor(App.num(el("asAdd").value))); }
+    function toStore() {
+      if (to === "store") return add();
+      if (to === "split") return Math.min(Math.max(Math.floor(App.num(el("asSt").value)), 0), add());
+      return 0;
+    }
+    function paint() {
+      Array.prototype.forEach.call(el("asTo").children, function (b) { b.classList.toggle("on", b.getAttribute("data-to") === to); });
+      el("asSplit").style.display = to === "split" ? "" : "none";
+      var a = add(), ts = toStore();
+      el("asNow").innerHTML = afterBoxes(App.shelfQty(it) + a - ts, App.storeQty(it) + ts, App.shelfQty(it), App.storeQty(it));
+    }
+    el("asTo").addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b) return;
+      to = b.getAttribute("data-to");
+      if (to === "split" && !el("asSt").value) {
+        var h = Math.ceil(add() / 2);
+        el("asSh").value = h; el("asSt").value = add() - h;
+      }
+      paint();
+    });
+    el("asAdd").addEventListener("input", function () {
+      if (to === "split") el("asSh").value = Math.max(add() - toStore(), 0);
+      paint();
+    });
+    el("asSh").addEventListener("input", function () {
+      el("asSt").value = Math.max(add() - Math.floor(App.num(el("asSh").value)), 0); paint();
+    });
+    el("asSt").addEventListener("input", function () {
+      el("asSh").value = Math.max(add() - toStore(), 0); paint();
+    });
+    m.el.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); if (save()) m.close(); }
+    });
+    function save() {
+      var a = add();
+      if (a <= 0) { App.toast("اكتب الكمية الواصلة.", "warn"); return false; }
+      var ts = toStore();
+      App.receiveStock(it, a, ts);
+      var c = App.num(el("asCost").value);
+      if (c > 0) it.cost = c;
+      it.updated = App.nowStamp();
+      S().meta.recvTo = to;
+      App.log("إضافة كمية", App.itemName(it) + " +" + a + (ts ? " (منها " + ts + " للمخزن)" : ""));
+      App.save(); App.rerender();
+      App.toast("الكمية الآن: " + App.num(it.qty) + " — على الرفوف " + App.shelfQty(it) + " · في المخزن " + App.storeQty(it));
+      return true;
+    }
+    paint();
+  }
+
+  /* مربّعا «قبل ⇦ بعد» للرفوف والمخزن */
+  function afterBoxes(sh, st, sh0, st0) {
+    function box(lbl, v, v0, cls) {
+      return '<div class="mv-box ' + cls + '"><div class="t">' + lbl + "</div>" +
+        '<div class="n">' + (v !== v0 ? "<s>" + v0 + "</s>" : "") + '<span class="v">' + v + "</span></div></div>";
+    }
+    return '<div class="mv-row">' + box("على الرفوف", sh, sh0, "acc") + box("في المخزن", st, st0, "") + "</div>";
+  }
+
+  /* ---------- نقل بين غرفة الخزين والرفوف ---------- */
+  function move(type, id, dir, n) {
+    var it = App.findItem(type, id);
+    if (!it) return;
+    var st0 = App.storeQty(it), sh0 = App.shelfQty(it);
+    dir = dir || (st0 > 0 ? "in" : "out");
+    var body =
+      '<div class="mv-title">' + App.esc(App.itemName(it)) + "</div>" +
+      '<div class="field"><div class="seg" id="mvDir">' +
+      '<button type="button" data-d="in">من المخزن ⇦ إلى الرفوف</button>' +
+      '<button type="button" data-d="out">من الرفوف ⇦ إلى المخزن</button></div></div>' +
+      '<div class="field"><label>كم نسخة تنقل؟</label>' +
+      '<input class="inp num big-num" id="mvN" type="number" min="1" value="' + (n || 1) + '"></div>' +
+      '<div id="mvBoxes"></div><div class="hint center" id="mvHint"></div>';
+    var m = App.modal({
+      title: "نقل بين المخزن والرفوف", size: "narrow", body: body,
+      actions: [{ label: "نقل", kind: "primary", click: function (close) { if (go()) close(); } }],
+      cancelLabel: "إلغاء"
+    });
+    var q = function (i) { return m.el.querySelector("#" + i); };
+    function avail() { return dir === "in" ? st0 : Math.max(sh0, 0); }
+    function cnt() { return Math.max(0, Math.floor(App.num(q("mvN").value))); }
+    function paint() {
+      Array.prototype.forEach.call(q("mvDir").children, function (b) { b.classList.toggle("on", b.getAttribute("data-d") === dir); });
+      var k = Math.min(cnt(), avail());
+      var sh = dir === "in" ? sh0 + k : sh0 - k, st = dir === "in" ? st0 - k : st0 + k;
+      q("mvBoxes").innerHTML = afterBoxes(sh, st, sh0, st0);
+      var over = cnt() > avail();
+      q("mvHint").className = "hint center" + (over ? " bad" : "");
+      q("mvHint").textContent = !avail()
+        ? (dir === "in" ? "لا توجد نسخ في المخزن." : "لا توجد نسخ على الرفوف.")
+        : over ? "المتاح للنقل " + avail() + " فقط — سيُنقل " + avail() + "."
+        : "المجموع يبقى " + App.num(it.qty) + " — يتغيّر المكان فقط، ويُسجَّل النقل في سجل العمليات.";
+      var btn = m.el.querySelector(".m-foot .btn.primary");
+      if (btn) btn.textContent = !k ? "نقل" : k === 1 ? "نقل نسخة واحدة" : k === 2 ? "نقل نسختين" : "نقل " + k + " نسخ";
+    }
+    q("mvDir").addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (b) { dir = b.getAttribute("data-d"); paint(); }
+    });
+    q("mvN").addEventListener("input", paint);
+    m.el.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); if (go()) m.close(); }
+    });
+    function go() {
+      var done = App.moveStock(it, cnt(), dir);
+      if (!done) { App.toast(avail() ? "اكتب عدد النسخ." : "لا يوجد ما يُنقل.", "warn"); return false; }
+      App.save(); App.rerender();
+      App.toast("نُقلت " + done + (dir === "in" ? " إلى الرفوف" : " إلى المخزن") +
+        " — الرفوف " + App.shelfQty(it) + " · المخزن " + App.storeQty(it));
+      return true;
+    }
+    paint();
   }
 
   function setF(k, v) { f[k] = v; if (k === "view") App.rerender(); else paintBooks(); }
@@ -1226,6 +1392,8 @@ var Inv = (function () {
         var need = Math.max(App.num(x.it.min) - App.num(x.it.qty), 1);
         return s + need * App.num(x.it.cost);
       }, 0)) + '</div><div class="foot">تقدير بسعر الجملة</div></div></div>';
+
+    h += restockCard();
 
     h += '<div class="card"><div class="card-head"><h3>قائمة الشراء المقترحة</h3><div class="spacer"></div>' +
       '<button class="btn sm" onclick="Inv.printShoppingList()">طباعة القائمة</button></div>';
@@ -1261,6 +1429,61 @@ var Inv = (function () {
     return h + "</div>";
   }
 
+  /* ---------- «املأ الرفوف» ----------
+     أصناف نفدت أو قلّت على الرفوف ولها نسخ في غرفة الخزين: ليست
+     نقصاً يُشترى، بل شيء يُجلب من الغرفة. */
+  function restockCard() {
+    var list = App.restockList();
+    if (!list.length) return "";
+    return '<div class="card restock" style="margin-bottom:16px"><div class="card-head">' +
+      "<h3>املأ الرفوف — " + list.length + " صنف في المخزن وليس على الرفوف</h3><div class=\"spacer\"></div>" +
+      '<button class="btn sm" onclick="Inv.printPickList()">اطبع قائمة السحب</button>' +
+      '<button class="btn sm primary" onclick="Inv.restockAll()">انقل المقترح كله</button></div>' +
+      App.table([
+        {
+          h: "الصنف", c: function (x) {
+            return '<div class="name">' + App.esc(App.itemName(x.it)) + "</div>" +
+              '<div class="sub">' + (x.type === "book" ? "كتاب" : "قرطاسية") + (x.it.author ? " · " + App.esc(x.it.author) : "") + "</div>";
+          }
+        },
+        { h: "الموقع", c: function (x) { return x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"); } },
+        { h: "على الرفوف", cls: "num", c: function (x) { return '<b class="' + (x.shelf <= 0 ? "q-bad" : "") + '">' + x.shelf + "</b>"; } },
+        { h: "في المخزن", cls: "num", c: function (x) { return "<b>" + x.store + "</b>"; } },
+        {
+          h: "", cls: "act", c: function (x) {
+            return '<button class="btn sm primary" onclick="Inv.move(\'' + x.type + "','" + x.it.id + "','in'," + x.suggest + ')">⇦ نقل ' + x.suggest + "</button>";
+          }
+        }
+      ], list, { lazy: 60 }) + "</div>";
+  }
+
+  function restockAll() {
+    var list = App.restockList();
+    if (!list.length) return;
+    var n = list.reduce(function (a, x) { return a + x.suggest; }, 0);
+    App.confirm("سيُنقل " + n + " نسخة من غرفة الخزين إلى الرفوف (" + list.length + " صنف)، حسب العدد المقترح لكل صنف.", function () {
+      var moved = 0;
+      list.forEach(function (x) { moved += App.moveStock(x.it, x.suggest, "in"); });
+      App.save(); App.rerender();
+      if (App.celebrate) App.celebrate("نُقلت إلى الرفوف", moved + " نسخة");
+    }, { yes: "نقل " + n + " نسخة" });
+  }
+
+  function printPickList() {
+    var list = App.restockList();
+    if (!list.length) { App.toast("لا يوجد ما يُجلب من المخزن."); return; }
+    var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
+      '<div class="c">قائمة السحب من غرفة الخزين — ' + App.dateAr(App.today()) + "</div><hr>" +
+      "<table><thead><tr><th>✓</th><th>الصنف</th><th>يوضع في</th><th>في المخزن</th><th>اجلب</th></tr></thead><tbody>";
+    list.forEach(function (x) {
+      h += "<tr><td>☐</td><td>" + App.esc(App.itemName(x.it)) + "</td><td>" +
+        (x.type === "book" ? App.esc((x.it.lib || "") + " / رف " + (x.it.shelf || "")) : App.esc(x.it.loc || "")) +
+        '</td><td class="num">' + x.store + '</td><td class="num"><b>' + x.suggest + "</b></td></tr>";
+    });
+    h += "</tbody></table></div>";
+    App.printHtml(h);
+  }
+
   function printShoppingList() {
     var rows = App.allItems().filter(function (x) { return App.stockState(x.it) !== "ok"; });
     if (!rows.length) { App.toast("لا يوجد نقص للطباعة."); return; }
@@ -1294,18 +1517,145 @@ var Inv = (function () {
       '<button class="' + (gd.mode === "new" ? "on" : "") + '" onclick="Inv.gset(\'mode\',\'new\')">بضاعة جديدة</button>' +
       '<button class="' + (gd.mode === "qty" ? "on" : "") + '" onclick="Inv.gset(\'mode\',\'qty\')">إضافة كمية</button>' +
       '<button class="' + (gd.mode === "view" ? "on" : "") + '" onclick="Inv.gset(\'mode\',\'view\')">عرض وتعديل</button>' +
+      '<button class="' + (gd.mode === "move" ? "on" : "") + '" onclick="Inv.gset(\'mode\',\'move\')">نقل ⇄ المخزن</button>' +
       "</div></div>" +
+      (gd.mode === "move" ? "" :
       '<div class="field"><label>النوع</label><div class="seg">' +
       '<button class="' + (gd.type === "book" ? "on" : "") + '" onclick="Inv.gset(\'type\',\'book\')">كتب</button>' +
       '<button class="' + (gd.type === "stat" ? "on" : "") + '" onclick="Inv.gset(\'type\',\'stat\')">قرطاسية</button>' +
-      "</div></div></div></div>";
+      "</div></div>") + "</div></div></div>";
 
+    if (gd.mode === "move") return h + moveScreen();
     if (gd.mode === "new") return h + newGoods();
     if (gd.mode === "qty") return h + purchases();
     return h + (gd.type === "book" ? books() : stationery());
   }
 
   function gset(k, v) { gd[k] = v; App.rerender(); }
+
+  /* ============================================================
+     نقل بالقارئ بين غرفة الخزين والرفوف — مثل الجرد: تحمل الكرتونة
+     وتمسح النسخ واحدة واحدة، ثم تؤكّد مرة واحدة.
+     ============================================================ */
+  var mv = { dir: "in", lines: [] };
+
+  function moveScreen() {
+    var h = '<div class="card mv-screen" style="margin-bottom:18px"><div class="card-head">' +
+      "<h3>نقل بين غرفة الخزين والرفوف</h3><div class=\"spacer\"></div>" +
+      '<span class="muted small">كل مسحة = نسخة واحدة. لا يتغيّر شيء حتى تضغط «تأكيد النقل».</span></div>' +
+      '<div class="card-body">' +
+      '<div class="seg" style="margin-bottom:14px">' +
+      '<button class="' + (mv.dir === "in" ? "on" : "") + '" onclick="Inv.mvSet(\'in\')">من المخزن ⇦ إلى الرفوف</button>' +
+      '<button class="' + (mv.dir === "out" ? "on" : "") + '" onclick="Inv.mvSet(\'out\')">من الرفوف ⇦ إلى المخزن</button></div>' +
+      '<div style="position:relative"><input class="big-input" id="mvScan" autocomplete="off" style="width:100%" ' +
+      'placeholder="امسح باركود النسخة التي تحملها، أو اكتب اسمها ثم Enter…" oninput="Inv.mvSuggest(this.value)">' +
+      '<div id="mvSug"></div></div>' +
+      '<div id="mvLines"></div></div></div>';
+    setTimeout(function () {
+      var el = document.getElementById("mvScan");
+      if (el) { App.scanField(el, mvEnter); el.focus(); }
+      paintMv();
+    }, 0);
+    return h;
+  }
+
+  function mvSet(d) { mv.dir = d; App.rerender(); }
+
+  function mvAvail(x) { return mv.dir === "in" ? App.storeQty(x) : Math.max(App.shelfQty(x), 0); }
+
+  function mvEnter(v, el) {
+    if (!v) return;
+    var hit = byBarcode(v) || searchItems(v, 1)[0];
+    if (!hit) { App.toast("لم يُعثر على «" + v + "».", "warn"); return; }
+    mvPick(hit.type, hit.it.id);
+    if (el) el.value = "";
+  }
+
+  function mvPick(type, id) {
+    var it = App.findItem(type, id);
+    if (!it) return;
+    var ln = null, idx = -1;
+    mv.lines.forEach(function (l, i) { if (l.type === type && l.id === id) { ln = l; idx = i; } });
+    var have = ln ? ln.n : 0;
+    if (have + 1 > mvAvail(it)) {
+      App.toast((mv.dir === "in" ? "لا نسخة أخرى في المخزن من: " : "لا نسخة أخرى على الرفوف من: ") + App.itemName(it), "warn");
+    } else if (ln) ln.n++;
+    else { mv.lines.unshift({ type: type, id: id, n: 1 }); idx = 0; }
+    var sug = document.getElementById("mvSug"); if (sug) sug.innerHTML = "";
+    var s2 = document.getElementById("mvScan"); if (s2) { s2.value = ""; s2.focus(); }
+    paintMv(idx < 0 ? 0 : idx);
+  }
+
+  function mvSuggest(q) {
+    var host = document.getElementById("mvSug");
+    if (!host) return;
+    var res = searchItems(q, 8);
+    if (!res.length || q.length < 2) { host.innerHTML = ""; return; }
+    host.innerHTML = '<div class="suggest">' + res.map(function (x) {
+      return '<button class="s-item" onclick="Inv.mvPick(\'' + x.type + '\',\'' + x.it.id + '\')">' +
+        '<span class="t"><b>' + App.esc(App.itemName(x.it)) + "</b><span>" +
+        "على الرفوف " + App.shelfQty(x.it) + " · في المخزن " + App.storeQty(x.it) + "</span></span></button>";
+    }).join("") + "</div>";
+  }
+
+  function mvQty(i, d, v) {
+    var l = mv.lines[i];
+    if (!l) return;
+    var it = App.findItem(l.type, l.id);
+    var n = v !== undefined ? Math.floor(App.num(v)) : l.n + d;
+    if (it && n > mvAvail(it)) { n = mvAvail(it); App.toast("المتاح للنقل " + n + " فقط.", "warn"); }
+    if (n <= 0) mv.lines.splice(i, 1); else l.n = n;
+    paintMv();
+  }
+  function mvDel(i) { mv.lines.splice(i, 1); paintMv(); }
+  function mvClear() { mv.lines = []; paintMv(); }
+
+  function paintMv(flash) {
+    var host = document.getElementById("mvLines");
+    if (!host) return;
+    mv.lines = mv.lines.filter(function (l) { return App.findItem(l.type, l.id); });
+    if (!mv.lines.length) {
+      host.innerHTML = '<div class="empty" style="padding:28px"><div class="big">' + App.icon("boxes", 40) + "</div>" +
+        "<h4>لم تمسح شيئاً بعد</h4><p>" + (mv.dir === "in"
+          ? "احمل الكتب من غرفة الخزين وامسحها هنا واحداً واحداً."
+          : "امسح الكتب التي ترجعها من الرفوف إلى غرفة الخزين.") + "</p></div>";
+      return;
+    }
+    var total = 0;
+    var h = '<div class="mv-list">' + mv.lines.map(function (l, i) {
+      var it = App.findItem(l.type, l.id);
+      total += l.n;
+      var st = App.storeQty(it), sh = App.shelfQty(it);
+      var st2 = mv.dir === "in" ? st - l.n : st + l.n, sh2 = mv.dir === "in" ? sh + l.n : sh - l.n;
+      return '<div class="mv-line' + (i === flash ? " bump" : "") + '">' +
+        '<button class="mv-x" title="إزالة من القائمة" onclick="Inv.mvDel(' + i + ')">✕</button>' +
+        '<div class="qty-box"><button onclick="Inv.mvQty(' + i + ',1)">+</button>' +
+        '<input class="num" type="number" min="0" value="' + l.n + '" onchange="Inv.mvQty(' + i + ',0,this.value)">' +
+        '<button onclick="Inv.mvQty(' + i + ',-1)">−</button></div>' +
+        '<div class="mv-info"><b>' + App.esc(App.itemName(it)) + "</b>" +
+        '<div class="ln-meta">' + (l.type === "book" ? App.locChip(it) : "") +
+        '<span class="badge">المخزن ' + st + " ⇦ " + st2 + "</span>" +
+        '<span class="badge ok">الرفوف ' + sh + " ⇦ " + sh2 + "</span></div></div></div>";
+    }).join("") + "</div>";
+    h += '<div class="row" style="margin-top:14px"><button class="btn ghost" onclick="Inv.mvClear()">مسح القائمة</button>' +
+      '<div class="spacer"></div><button class="btn primary lg" onclick="Inv.mvConfirm()">تأكيد نقل ' + total +
+      (total === 1 ? " نسخة" : total === 2 ? " نسختين" : " نسخ") + (mv.dir === "in" ? " إلى الرفوف" : " إلى المخزن") + "</button></div>";
+    host.innerHTML = h;
+  }
+
+  function mvConfirm() {
+    if (!mv.lines.length) return;
+    var moved = 0, kinds = 0;
+    mv.lines.forEach(function (l) {
+      var it = App.findItem(l.type, l.id);
+      if (!it) return;
+      var k = App.moveStock(it, l.n, mv.dir);
+      if (k) { moved += k; kinds++; }
+    });
+    mv.lines = [];
+    App.save(); App.rerender();
+    if (App.celebrate) App.celebrate(mv.dir === "in" ? "نُقلت إلى الرفوف" : "نُقلت إلى المخزن", moved + " نسخة · " + kinds + " صنف");
+  }
 
   function newGoods() {
     var isB = gd.type === "book";
@@ -1372,6 +1722,12 @@ var Inv = (function () {
       "</select></div>" +
       '<div class="field"><label>التاريخ</label><input type="date" class="inp" value="' + draft.date + '" onchange="Inv.pd(\'date\',this.value)"></div>' +
       '<div class="field"><label>ملاحظة / رقم فاتورة المورد</label><input class="inp" value="' + App.esc(draft.note) + '" oninput="Inv.pd(\'note\',this.value)"></div>' +
+      "</div>" +
+      '<div class="field" style="max-width:520px"><label>أين تضع هذه البضاعة؟</label><div class="seg">' +
+      ["shelf", "store", "split"].map(function (k) {
+        return '<button class="' + (purTo() === k ? "on" : "") + '" onclick="Inv.purSetTo(\'' + k + '\')">' + TO_LBL[k] + "</button>";
+      }).join("") + "</div>" +
+      (purTo() === "split" ? '<div class="hint">اكتب لكل صنف كم نسخة منه تذهب إلى المخزن، والباقي على الرفوف.</div>' : "") +
       "</div>" +
 
       '<div class="field" style="position:relative;margin-bottom:12px">' +
@@ -1482,18 +1838,24 @@ var Inv = (function () {
       return;
     }
     var total = 0;
+    var split = purTo() === "split";
     var h = '<table class="tbl"><thead><tr><th>الصنف</th><th>الموجود حالياً</th><th>الكمية المضافة</th>' +
-      "<th>سعر الشراء الجديد</th><th>الإجمالي</th><th>يصير المخزون</th><th></th></tr></thead><tbody>";
+      (split ? "<th>منها للمخزن</th>" : "") +
+      "<th>سعر الشراء الجديد</th><th>الإجمالي</th><th>يصير</th><th></th></tr></thead><tbody>";
     draft.lines.forEach(function (l, i) {
       var sub = App.num(l.qty) * App.num(l.cost); total += sub;
       var it0 = App.findItem(l.type, l.id);
       var have = it0 ? App.num(it0.qty) : 0;
+      var ts = lineToStore(l);
+      var sh1 = (it0 ? App.shelfQty(it0) : 0) + App.num(l.qty) - ts, st1 = (it0 ? App.storeQty(it0) : 0) + ts;
       h += "<tr><td>" + App.esc(l.name) + "</td>" +
-        '<td class="num">' + have + "</td>" +
+        '<td class="num">' + have + (it0 && App.storeQty(it0) ? '<div class="muted small">مخزن ' + App.storeQty(it0) + "</div>" : "") + "</td>" +
         '<td><input class="inp num" style="width:88px" type="number" min="1" value="' + App.num(l.qty) + '" onchange="Inv.purSet(' + i + ',\'qty\',this.value)"></td>' +
+        (split ? '<td><input class="inp num" style="width:88px" type="number" min="0" value="' + ts + '" onchange="Inv.purSet(' + i + ',\'st\',this.value)"></td>' : "") +
         '<td><input class="inp num" style="width:110px" type="number" step="0.01" min="0" value="' + App.num(l.cost) + '" onchange="Inv.purSet(' + i + ',\'cost\',this.value)"></td>' +
         '<td class="num"><b>' + App.money0(sub) + "</b></td>" +
-        '<td class="num"><b style="color:var(--accent)">' + (have + App.num(l.qty)) + "</b></td>" +
+        '<td class="num"><b style="color:var(--accent)">' + (have + App.num(l.qty)) + "</b>" +
+        '<div class="muted small">رفوف ' + sh1 + " · مخزن " + st1 + "</div></td>" +
         '<td class="act"><button class="btn sm ghost" onclick="Inv.purDel(' + i + ')">✕</button></td></tr>';
     });
     h += "</tbody></table>";
@@ -1510,6 +1872,16 @@ var Inv = (function () {
     paintPurLines();
   }
 
+  /* وجهة البضاعة الواصلة: تبقى على آخر اختيار */
+  function purTo() { return (draft && draft.to) || S().meta.recvTo || "shelf"; }
+  function purSetTo(k) { ensureDraft().to = k; App.rerender(); }
+  function lineToStore(l) {
+    var t = purTo(), q = App.num(l.qty);
+    if (t === "store") return q;
+    if (t === "split") return Math.min(Math.max(Math.floor(App.num(l.st)), 0), q);
+    return 0;
+  }
+
   function purDel(i) { ensureDraft(); draft.lines.splice(i, 1); paintPurLines(); }
   function purClear() { draft = { supplierId: "", date: App.today(), note: "", lines: [] }; App.rerender(); }
 
@@ -1521,7 +1893,8 @@ var Inv = (function () {
     draft.lines.forEach(function (l) {
       var it = App.findItem(l.type, l.id);
       if (!it) return;
-      it.qty = App.num(it.qty) + App.num(l.qty);
+      l.st = lineToStore(l);
+      App.receiveStock(it, App.num(l.qty), l.st);
       if (App.num(l.cost) > 0) it.cost = App.num(l.cost);
       it.updated = App.nowStamp();
     });
@@ -1529,6 +1902,7 @@ var Inv = (function () {
       id: App.uid(), date: draft.date, supplierId: draft.supplierId,
       note: draft.note, lines: draft.lines.slice(), total: total, at: App.nowStamp()
     });
+    S().meta.recvTo = purTo();
     App.log("إدخال بضاعة", draft.lines.length + " صنف بقيمة " + App.money0(total));
     App.toast("أُدخلت البضاعة وحُدِّث المخزون.");
     draft = null;
@@ -1585,6 +1959,8 @@ var Inv = (function () {
       },
       { h: "الرمز أو الباركود", c: function (x) { return x.barcode || x.code || ""; } },
       { h: "الكمية", t: "i", sum: true, c: function (x) { return App.num(x.qty); } },
+      { h: "على الرفوف", t: "i", sum: true, c: function (x) { return App.shelfQty(x); } },
+      { h: "في المخزن", t: "i", sum: true, c: function (x) { return App.storeQty(x); } },
       { h: "حد التنبيه", t: "i", c: function (x) { return App.num(x.min); } },
       { h: "سعر الشراء", t: "n", c: function (x) { return App.num(x.cost); } },
       { h: "سعر البيع قطاعي", t: "n", c: function (x) { return App.num(x.price); } },
@@ -1695,11 +2071,13 @@ var Inv = (function () {
   return {
     books: books, stationery: stationery, alerts: alerts, purchases: purchases,
     goods: goods, gset: gset,
-    editBook: editBook, editStat: editStat, del: del, addStock: addStock,
+    mvSet: mvSet, mvPick: mvPick, mvSuggest: mvSuggest, mvQty: mvQty, mvDel: mvDel, mvClear: mvClear, mvConfirm: mvConfirm,
+    editBook: editBook, editStat: editStat, del: del, addStock: addStock, move: move,
     setF: setF, setG: setG, showShelf: showShelf, printShoppingList: printShoppingList,
+    restockAll: restockAll, printPickList: printPickList,
     searchItems: searchItems, byBarcode: byBarcode,
     pd: pd, purSuggest: purSuggest, purKey: purKey, purAdd: purAdd,
-    purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase,
+    purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase, purSetTo: purSetTo,
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
     pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint,
     newPublisher: newPublisher, newSupplier: newSupplier,

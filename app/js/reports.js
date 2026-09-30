@@ -101,7 +101,10 @@ var Rep = (function () {
     h += '<div class="grid g4" style="margin-bottom:18px">';
     h += card("blue", "قيمة المخزون", App.money0(invValue), "بسعر الجملة");
     h += card(debts > 0 ? "bad" : "accent", "ديون على الزبائن", App.money0(debts), S().customers.filter(function (c) { return App.num(c.balance) > 0; }).length + " زبون");
-    h += card("accent", "عدد الكتب", String(S().books.length), sum(S().books, function (b) { return b.qty; }) + " نسخة في الرفوف");
+    var bStore = sum(S().books, function (b) { return App.storeQty(b); });
+    h += card("accent", "عدد الكتب", String(S().books.length), bStore
+      ? sum(S().books, function (b) { return App.shelfQty(b); }) + " على الرفوف · " + bStore + " في المخزن"
+      : sum(S().books, function (b) { return b.qty; }) + " نسخة في الرفوف");
     h += card("accent", "أصناف القرطاسية", String(S().stationery.length), sum(S().stationery, function (p) { return p.qty; }) + " قطعة");
     h += "</div>";
 

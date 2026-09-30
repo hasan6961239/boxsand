@@ -185,12 +185,20 @@ var Sales = (function () {
       badge.className = "badge lft " +
         (left <= 0 ? "bad" : left <= App.num(it.min) ? "warn" : "ok");
     }
+    var sb = row.querySelector(".badge.stq");
+    if (sb) sb.outerHTML = storeBadge(it, l);
     /* زرّا + و− يحملان الكمية الجديدة في نصّهما */
     var btns = row.querySelectorAll(".qty-box button");
     if (btns.length === 2) {
       btns[0].setAttribute("onclick", "Sales.setQty(" + i + "," + (App.num(l.qty) + 1) + ")");
       btns[1].setAttribute("onclick", "Sales.setQty(" + i + "," + (App.num(l.qty) - 1) + ")");
     }
+  }
+  /* نسخ الصنف في غرفة الخزين — وتنبيه إن كانت الكمية أكثر مما على الرفوف */
+  function storeBadge(it, l) {
+    if (App.num(l.qty) > Math.max(App.shelfQty(it), 0))
+      return '<span class="badge warn stq" title="على الرفوف ' + App.shelfQty(it) + ' فقط">من المخزن</span>';
+    return '<span class="badge stq" title="نسخ في غرفة الخزين">المخزن ' + App.storeQty(it) + "</span>";
   }
   function bump(i, d) { setQty(i, App.num(cart[i].qty) + d); }
   function delLine(i) { cart.splice(i, 1); paint(); }
@@ -239,7 +247,7 @@ var Sales = (function () {
       var left = App.num(it.qty) - App.num(l.qty);
       var pw = App.num(it.priceW) || App.num(it.price);
       return '<div class="cart-line" data-i="' + i + '">' +
-        '<button class="x" title="حذف" onclick="Sales.del(' + i + ')">✕</button>' +
+        '<button class="x" title="حذف السطر" onclick="Sales.delLine(' + i + ')">✕</button>' +
         '<div class="lp num">' + App.money0(App.num(l.price) * App.num(l.qty)) + "</div>" +
         '<div class="qty-box">' +
         '<button onclick="Sales.setQty(' + i + ',' + (App.num(l.qty) + 1) + ')">+</button>' +
@@ -255,6 +263,7 @@ var Sales = (function () {
         (it.cat ? '<span class="badge">' + App.esc(it.cat) + "</span>" : "") +
         '<span class="badge lft ' + (left <= 0 ? "bad" : left <= App.num(it.min) ? "warn" : "ok") +
         '">يبقى ' + left + "</span>" +
+        (App.storeQty(it) > 0 ? storeBadge(it, l) : "") +
         "</div>" +
         '<div class="ln-price">' +
         "قطاعي " + App.money0(it.price) + " · جملة " + App.money0(pw) +
@@ -596,9 +605,14 @@ var Sales = (function () {
     inv.due = App.r3(Math.max(t - inv.paid, 0));
 
     // خصم المخزون + تسجيل ما بِيع من الكتب على المباع
+    var fromStore = [];
     inv.items.forEach(function (l) {
       var it = App.findItem(l.type, l.id);
       if (it) {
+        /* يُخصم من الرفوف أولاً؛ ما زاد عليها أُخذ من غرفة الخزين
+           (يُصحَّح رقم المخزن تلقائياً عند الحفظ) */
+        var over = App.num(l.qty) - Math.max(App.shelfQty(it), 0);
+        if (over > 0 && App.storeQty(it) > 0) fromStore.push(App.itemName(it) + " × " + Math.min(over, App.storeQty(it)));
         it.qty = App.num(it.qty) - App.num(l.qty);
         it.updated = App.nowStamp();
         /* آخر بيع محفوظ على الصنف نفسه، لا محسوباً من الفواتير:
@@ -625,6 +639,7 @@ var Sales = (function () {
     App.saveNow();
     App.rerender();
     App.toast("تمت الفاتورة رقم " + inv.no + " — " + App.money0(t));
+    if (fromStore.length) App.toast("أُخذت من غرفة الخزين: " + fromStore.join("، "), "warn");
     if (App.celebrate) App.celebrate("تمت الفاتورة رقم " + inv.no, App.money0(t) + " " + (S().meta.currency || ""));
 
     if (doPrint) printInvoice(inv.id, true);

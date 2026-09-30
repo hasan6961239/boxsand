@@ -1407,6 +1407,82 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await pg.click('#modalHost .m-head button[data-x]'); await sleep(400);
   }
 
+  console.log('\n== 16أ. غرفة الخزين: رصيدان لكل صنف ==');
+  {
+    const st = seed();
+    st.books[0].qty = 120;                                   // 120 نسخة كلها «على الرفوف» (بلا store)
+    writeStore(st);
+    const pg = await open();
+    const q = () => pg.evaluate(() => { const b = App.findItem('book', 'b1'); return [App.shelfQty(b), App.storeQty(b), b.qty]; });
+    check('كتاب قديم بلا store: كله على الرفوف', (await q()).join() === '120,0,120', (await q()).join());
+    await pg.evaluate(() => { App.moveStock(App.findItem('book', 'b1'), 100, 'out'); App.save(); });
+    check('نقل 100 للمخزن: رفوف 20 · مخزن 100 · المجموع لم يتغيّر', (await q()).join() === '20,100,120', (await q()).join());
+    await pg.evaluate(() => { App.moveStock(App.findItem('book', 'b1'), 10, 'in'); App.save(); });
+    check('جلب 10 للرفوف: رفوف 30 · مخزن 90', (await q()).join() === '30,90,120', (await q()).join());
+    const capped = await pg.evaluate(() => App.moveStock(App.findItem('book', 'b1'), 500, 'in'));
+    check('لا يُنقل أكثر مما في المخزن', capped === 90, 'moved ' + capped);
+    await pg.evaluate(() => { App.moveStock(App.findItem('book', 'b1'), 118, 'out'); App.save(); });
+    check('رفوف 2 · مخزن 118', (await q()).join() === '2,118,120', (await q()).join());
+
+    /* البيع يأخذ من الرفوف أولاً، وما زاد من المخزن */
+    await pg.evaluate(() => { location.hash = '#/pos'; App.route(); }); await sleep(400);
+    await pg.evaluate(() => { Sales.add('book', 'b1'); Sales.setQty(0, 5); }); await sleep(200);
+    check('السلة تنبّه «من المخزن»', await pg.evaluate(() => !!document.querySelector('.cart-line .badge.stq.warn')));
+    await pg.evaluate(() => Sales.complete()); await sleep(300);
+    await pg.evaluate(() => Sales.pick('cash')); await sleep(500);
+    check('بيع 5 والرفوف 2: رفوف 0 · مخزن 115', (await q()).join() === '0,115,115', (await q()).join());
+
+    /* الاستلام إلى المخزن مباشرة */
+    await pg.evaluate(() => { App.receiveStock(App.findItem('book', 'b1'), 30, 20); App.save(); });
+    check('استلام 30 (20 للمخزن): رفوف 10 · مخزن 135', (await q()).join() === '10,135,145', (await q()).join());
+
+    /* تنبيه «املأ الرفوف» */
+    await pg.evaluate(() => { const b = App.findItem('book', 'b1'); b.min = 12; App.save(); App.refreshBadges(); });
+    const rs = await pg.evaluate(() => App.restockList().map(x => x.it.id + ':' + x.suggest).join());
+    check('يظهر في «املأ الرفوف» حين تقلّ الرفوف عن الحد', rs === 'b1:14', rs);
+    check('ورقمه على أيقونة التنبيهات', await pg.evaluate(() => { const e = document.querySelector('[data-restockcount]'); return !e.hidden && e.textContent === '1'; }));
+
+    /* لا يزيد المخزن على الكمية مهما حدث */
+    await pg.evaluate(() => { const b = App.findItem('book', 'b1'); b.qty = 7; App.save(); });
+    check('إنقاص الكمية بيدك يصحّح المخزن', (await q()).join() === '0,7,7', (await q()).join());
+
+    /* الجرد والقيمة تبقى على المجموع */
+    const total = await pg.evaluate(() => App.allItems().reduce((a, x) => a + App.num(x.it.qty), 0));
+    check('المجموع (للجرد والقيمة) لم يتغيّر معناه', total === 107, String(total));
+    await closePage(pg);
+  }
+
+  console.log('\n== 16ب. زر ✕ في سلة البيع يحذف السطر ==');
+  {
+    writeStore(seed());
+    const pg = await open();
+    await pg.evaluate(() => { location.hash = '#/pos'; App.route(); }); await sleep(400);
+    await pg.evaluate(() => { Sales.add('book', 'b1'); Sales.add('stat', 's1'); }); await sleep(200);
+    await pg.click('.cart-line[data-i="0"] .x'); await sleep(450);
+    const left = await pg.evaluate(() => [...document.querySelectorAll('.cart-line b')].map(e => e.textContent));
+    check('الضغط على ✕ يحذف السطر (كان لا يفعل شيئاً)', left.length === 1 && left[0] === 'قلم جاف', JSON.stringify(left));
+    await closePage(pg);
+  }
+
+  console.log('\n== 16ج. الجداول الكبيرة تُرسم تدريجياً ==');
+  {
+    const st = seed();
+    for (let i = 2; i <= 400; i++) st.books.push({ id: 'b' + i, code: 'K' + i, title: 'كتاب ' + i, lib: 'A', shelf: '1', cost: 1, price: 2, qty: 3 });
+    writeStore(st);
+    const pg = await open();
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); Inv.gset('mode', 'view'); Inv.gset('type', 'book'); Inv.setF('view', 'table'); });
+    await sleep(500);
+    const first = await pg.evaluate(() => document.querySelectorAll('#invBody tbody tr').length);
+    check('أول رسم أقل من كل الصفوف', first >= 60 && first < 400, String(first));
+    for (let i = 0; i < 8; i++) { await pg.evaluate(() => { const v = document.getElementById('view'); v.scrollTop = v.scrollHeight; }); await sleep(250); }
+    const all = await pg.evaluate(() => document.querySelectorAll('#invBody tbody tr').length);
+    check('وكلها تظهر عند التمرير', all === 400, String(all));
+    await pg.fill('#bq', 'كتاب 399'); await sleep(300);
+    const found = await pg.evaluate(() => [...document.querySelectorAll('#invBody tbody .name')].map(e => e.textContent.trim()));
+    check('والبحث يجد ما لم يُرسم بعد', found.some(t => t.includes('كتاب 399')), JSON.stringify(found.slice(0, 3)));
+    await closePage(pg);
+  }
+
   await b.close();
   console.log('\n' + '='.repeat(50));
   console.log('  نجح: ' + pass + '    فشل: ' + fail);
