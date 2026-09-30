@@ -1054,7 +1054,8 @@ var App = (function () {
 
   var PAGES = [
     { g: "البيع" },
-    { k: "dash", t: "لوحة اليوم", ic: "dash", f: function () { return Rep.dashboard(); } },
+    { k: "dash", t: "لوحة اليوم", ic: "dash", f: function () { return Rep.dashboard(); },
+      after: function () { countUp(document.getElementById("view")); } },
     { k: "pos", t: "نقطة البيع", ic: "pos", f: function () { return Sales.pos(); } },
     { k: "invoices", t: "الفواتير", ic: "invoice", f: function () { return Sales.invoices(); } },
     { k: "stocktake", t: "الجرد", ic: "stocktake", f: function () { return Rep.stockHub(); } },
@@ -1089,6 +1090,98 @@ var App = (function () {
         "</button>";
     });
     nav.innerHTML = h;
+    wireNavTips(nav);
+  }
+
+  /* ---------- تلميح اسم الصفحة ----------
+     الشريط الجانبي أيقونات فقط (أسلوب V5). اسم كل صفحة يظهر في كبسولة
+     سوداء بجانب الأيقونة عند المرور أو التركيز بلوحة المفاتيح. الكبسولة
+     عنصر ثابت خارج الشريط، فلا يقصّها تمرير الشريط ولا حوافّه. */
+  var navTip = null;
+  function wireNavTips(nav) {
+    if (!nav || nav.__tips) return;
+    nav.__tips = true;
+    function show(btn) {
+      var lbl = btn && btn.querySelector("span:not(.count)");
+      if (!lbl) return;
+      if (!navTip) {
+        navTip = document.createElement("div");
+        navTip.className = "nav-tip";
+        document.body.appendChild(navTip);
+      }
+      navTip.textContent = lbl.textContent;
+      var r = btn.getBoundingClientRect();
+      navTip.style.top = Math.round(r.top + r.height / 2) + "px";
+      navTip.style.left = "0px";
+      navTip.classList.add("on");
+      var w = navTip.offsetWidth;
+      // الشريط يمين الشاشة ⇦ التلميح يساره؛ ولو انقلب الاتجاه فيمينه
+      var x = r.left > window.innerWidth / 2 ? r.left - w - 12 : r.right + 12;
+      navTip.style.left = Math.round(x) + "px";
+    }
+    function hide() { if (navTip) navTip.classList.remove("on"); }
+    nav.addEventListener("mouseover", function (e) {
+      var b = e.target.closest && e.target.closest(".nav-item");
+      if (b) show(b); else hide();
+    });
+    nav.addEventListener("mouseleave", hide);
+    nav.addEventListener("focusin", function (e) {
+      var b = e.target.closest && e.target.closest(".nav-item");
+      if (b) show(b);
+    });
+    nav.addEventListener("focusout", hide);
+    nav.addEventListener("click", hide);
+    nav.addEventListener("scroll", hide);
+  }
+
+  /* ---------- الأرقام تعدّ صعوداً ----------
+     عند فتح اللوحة تعدّ أرقام البطاقات من الصفر إلى قيمتها في أقل من
+     نصف ثانية، وتنتهي بالنص الأصلي حرفاً بحرف. لا تعمل لمن ضبط جهازه
+     على تقليل الحركة. */
+  function reducedMotion() {
+    try { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+    catch (e) { return false; }
+  }
+  function countUp(root) {
+    if (!root || reducedMotion()) return;
+    var els = root.querySelectorAll(".stat .val");
+    Array.prototype.forEach.call(els, function (el) {
+      var final = el.textContent;
+      var m = /^\s*(-?)([\d,]+(?:\.(\d+))?)\s*$/.exec(final);
+      if (!m) return;
+      var target = parseFloat(m[2].replace(/,/g, "")) * (m[1] ? -1 : 1);
+      if (!target) return;
+      var dec = m[3] ? m[3].length : 0, t0 = null, DUR = 420;
+      function frame(ts) {
+        if (!el.isConnected) return;
+        if (t0 === null) t0 = ts;
+        var k = Math.min((ts - t0) / DUR, 1);
+        var e = 1 - Math.pow(1 - k, 3);                 // تباطؤ عند الوصول
+        if (k < 1) { el.textContent = (target * e).toFixed(dec); requestAnimationFrame(frame); }
+        else el.textContent = final;                    // النص الأصلي بالضبط
+      }
+      el.textContent = (0).toFixed(dec);
+      requestAnimationFrame(frame);
+    });
+  }
+
+  /* ---------- علامة ✓ بعد إتمام البيع ----------
+     تظهر وسط الشاشة لحظة وتختفي وحدها. لا تلتقط الفأرة ولا لوحة المفاتيح،
+     فالكاشير يمسح الكتاب التالي فوراً كأنها غير موجودة. */
+  function celebrate(title, sub) {
+    var old = document.querySelector(".done-pop");
+    if (old) old.parentNode.removeChild(old);
+    var el = document.createElement("div");
+    el.className = "done-pop";
+    el.setAttribute("aria-hidden", "true");
+    el.innerHTML =
+      '<div class="dp-card"><svg class="dp-check" viewBox="0 0 52 52">' +
+      '<circle class="dp-c" cx="26" cy="26" r="23"/><path class="dp-t" d="M15 27l7.5 7.5L37.5 19"/></svg>' +
+      '<div class="dp-title">' + esc(title || "") + "</div>" +
+      (sub ? '<div class="dp-sub num">' + esc(sub) + "</div>" : "") + "</div>";
+    document.body.appendChild(el);
+    setTimeout(function () { el.classList.add("out"); }, reducedMotion() ? 700 : 1050);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, reducedMotion() ? 900 : 1400);
   }
 
   function branchLabel() {
@@ -1491,7 +1584,7 @@ var App = (function () {
     boot: boot, rerender: rerender, route: route,
     get S() { return S; },
     save: save, saveNow: saveNow,
-    uid: uid, esc: esc, num: num, r3: r3, hasNumber: hasNumber, digits: digits,
+    uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm,
     api: api, apiJson: apiJson, apiWrite: apiWrite,
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,

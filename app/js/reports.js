@@ -81,10 +81,15 @@ var Rep = (function () {
     var low = App.lowCount();
 
     var h = '<div class="grid g4" style="margin-bottom:18px">';
-    h += card("accent", "مبيعات اليوم", App.money0(sum(todayInv, function (v) { return v.total; })), realSales.length + " فاتورة");
+    /* أسلوب V5: الرقم الأهم في بطاقة ممتلئة بلون المظهر، ومبيعات الشهر
+       في بطاقة داكنة، ولكلٍّ رسمه الصغير. */
+    h += card("accent hero", "مبيعات اليوم", App.money0(sum(todayInv, function (v) { return v.total; })),
+      realSales.length + " فاتورة · آخر 7 أيام", miniBars(dailyTotals(lastDays(7), 7)));
     if (App.canProfit()) h += card("blue", "ربح اليوم", App.money0(sum(todayInv, function (v) { return v.profit; })), "بعد خصم سعر الشراء");
     else h += card("blue", "عدد القطع المباعة", String(piecesNet(todayInv)), "اليوم");
-    h += card("accent", "مبيعات الشهر", App.money0(sum(monthInv, function (v) { return v.total; })), App.dateAr(monthStart()) + " حتى اليوم");
+    var mDays = Math.round((new Date(t + "T00:00:00") - new Date(monthStart() + "T00:00:00")) / 864e5) + 1;
+    h += card("accent night", "مبيعات الشهر", App.money0(sum(monthInv, function (v) { return v.total; })),
+      App.dateAr(monthStart()) + " حتى اليوم", miniLine(dailyTotals(monthStart(), mDays)));
     h += card(low ? "warn" : "accent", "أصناف تحتاج شراء", String(low), low ? "راجع صفحة التنبيهات" : "كل شيء متوفر");
     h += "</div>";
 
@@ -126,10 +131,63 @@ var Rep = (function () {
     return h;
   }
 
-  function card(kind, lbl, val, foot) {
+  function card(kind, lbl, val, foot, chart) {
     return '<div class="card stat ' + kind + '"><div class="lbl">' + App.esc(lbl) + "</div>" +
       '<div class="val">' + val + "</div>" +
-      (foot ? '<div class="foot">' + App.esc(foot) + "</div>" : "") + "</div>";
+      (foot ? '<div class="foot">' + App.esc(foot) + "</div>" : "") +
+      (chart || "") + "</div>";
+  }
+
+  /* ---------- رسوم صغيرة داخل البطاقات ----------
+     تقرأ الفواتير فقط ولا تكتب شيئاً. مجموع كل يوم = مجموع صافي فواتيره
+     (والإرجاع سالب فيُنقص يومه)، كما في بقية التقارير. */
+  function dayKey(d) {
+    var p = function (x) { return (x < 10 ? "0" : "") + x; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function dailyTotals(from, days) {
+    var map = {};
+    S().invoices.forEach(function (v) { map[v.date] = App.num(map[v.date]) + App.num(v.total); });
+    var out = [], d0 = new Date(from + "T00:00:00");
+    for (var i = 0; i < days; i++) {
+      var d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + i);
+      var k = dayKey(d);
+      out.push({ d: k, v: Math.max(App.num(map[k]), 0) });
+    }
+    return out;
+  }
+  function lastDays(n) {
+    var t = new Date(App.today() + "T00:00:00");
+    return dayKey(new Date(t.getFullYear(), t.getMonth(), t.getDate() - (n - 1)));
+  }
+
+  /* أعمدة آخر 7 أيام — اليوم هو العمود الأخير الأوضح */
+  function miniBars(pts) {
+    var max = Math.max.apply(null, pts.map(function (p) { return p.v; }).concat([1]));
+    var n = pts.length, gap = 3, w = (100 - gap * (n - 1)) / n;
+    var bars = pts.map(function (p, i) {
+      var h = Math.max(p.v / max * 30, 2);
+      return '<rect x="' + (i * (w + gap)).toFixed(2) + '" y="' + (32 - h).toFixed(2) + '" width="' + w.toFixed(2) +
+        '" height="' + h.toFixed(2) + '" rx="1.6"' + (i === n - 1 ? ' class="now"' : "") +
+        ' style="animation-delay:' + (i * 0.04).toFixed(2) + 's"><title>' + App.esc(App.dateAr(p.d)) + ": " +
+        App.money0(p.v) + "</title></rect>";
+    }).join("");
+    return '<svg class="mini bars" viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">' + bars + "</svg>";
+  }
+
+  /* خط أيام الشهر حتى اليوم */
+  function miniLine(pts) {
+    if (pts.length < 2) pts = pts.concat(pts);
+    var max = Math.max.apply(null, pts.map(function (p) { return p.v; }).concat([1]));
+    var xy = pts.map(function (p, i) {
+      return [(i / (pts.length - 1) * 100).toFixed(2), (30 - p.v / max * 26).toFixed(2)];
+    });
+    var line = xy.map(function (q, i) { return (i ? "L" : "M") + q[0] + " " + q[1]; }).join(" ");
+    var last = xy[xy.length - 1];
+    return '<svg class="mini line" viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">' +
+      '<path class="area" d="' + line + " L100 32 L0 32 Z" + '"/>' +
+      '<path class="stroke" d="' + line + '" vector-effect="non-scaling-stroke"/>' +
+      '<circle class="dot" cx="' + last[0] + '" cy="' + last[1] + '" r="2.2" vector-effect="non-scaling-stroke"/></svg>';
   }
 
   /* ============================================================

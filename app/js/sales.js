@@ -625,6 +625,7 @@ var Sales = (function () {
     App.saveNow();
     App.rerender();
     App.toast("تمت الفاتورة رقم " + inv.no + " — " + App.money0(t));
+    if (App.celebrate) App.celebrate("تمت الفاتورة رقم " + inv.no, App.money0(t) + " " + (S().meta.currency || ""));
 
     if (doPrint) printInvoice(inv.id, true);
     focusScan();

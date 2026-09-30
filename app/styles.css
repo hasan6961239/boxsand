@@ -1280,3 +1280,256 @@ table.tbl .name { font-weight: 700; }
   .stat:hover, .btn:hover, .qp:hover, .pay-btn:hover, .paybox:hover, .bookcase:hover, .item-card:hover { transform: none !important; }
 }
 .disc-bar .btn:hover { background: rgba(255,255,255,.26); color: #fff; border-color: rgba(255,255,255,.45); }
+
+/* ════════════════════════════════════════════════════════════
+   المظهر 2.1 — أسلوب «Dashboard V5»
+   ────────────────────────────────────────────────────────────
+   بطلب صاحب المحل من مقاطع أرسلها: لوحة بيضاء بلون واحد فاقع،
+   شريط جانبي أسود عائم بالأيقونات فقط، أزرار ومفاتيح كبسولية سوداء،
+   البطاقة الأهم ممتلئة باللون، ورسوم صغيرة داخل البطاقات.
+   «اللون الفاقع» هو لون المظهر المختار في الإعدادات.
+   ════════════════════════════════════════════════════════════ */
+
+:root {
+  --ground:  #F2F2EE;
+  --ink:     #111316;
+  --night:   #15171B;
+  --r:       18px;
+  --r-lg:    24px;
+  --shadow-1: 0 1px 2px rgba(17,19,22,.04), 0 2px 8px -2px rgba(17,19,22,.06);
+  --shadow-2: 0 14px 30px -12px rgba(17,19,22,.20), 0 4px 10px -4px rgba(17,19,22,.08);
+}
+
+#main {
+  background:
+    radial-gradient(900px 480px at 100% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 65%),
+    radial-gradient(700px 420px at 0% 100%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 60%),
+    var(--ground);
+}
+
+/* ---------- الشريط الجانبي: كبسولة سوداء عائمة بالأيقونات ---------- */
+#app > #rail {
+  width: 78px; flex: 0 0 78px;
+  margin: 12px; margin-inline-end: 0;
+  height: calc(100vh - 24px);
+  border-radius: 26px;
+  background: var(--night) !important;          /* فوق ألوان المظاهر القديمة للشريط */
+  box-shadow: 0 20px 40px -18px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+}
+body.ui-lg #app > #rail { width: 86px; flex-basis: 86px; }
+body.ui-xl #app > #rail { width: 96px; flex-basis: 96px; }
+body.ui-xs #app > #rail, body.ui-sm #app > #rail { width: 68px; flex-basis: 68px; }
+
+#rail .brand { justify-content: center; padding: 18px 0 14px; border-bottom: 0; }
+#rail .brand-txt { display: none; }
+#rail .brand-mark {
+  width: 34px; height: 34px; flex-basis: 34px;
+  color: var(--accent);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 70%, transparent));
+}
+
+#rail #nav { padding: 4px 10px 10px; scrollbar-width: none; }
+#rail #nav::-webkit-scrollbar { width: 0; }
+#rail #nav .group-label {
+  font-size: 0; height: 1px; padding: 0; margin: 10px 14px;
+  background: rgba(255,255,255,.08);
+}
+#rail #nav .nav-item {
+  justify-content: center; padding: 0; height: 48px; margin: 0 0 4px;
+  border-radius: 15px; color: rgba(255,255,255,.55);
+}
+body.ui-lg #rail #nav .nav-item { height: 54px; }
+body.ui-xl #rail #nav .nav-item { height: 60px; }
+body.ui-xs #rail #nav .nav-item, body.ui-sm #rail #nav .nav-item { height: 42px; }
+#rail #nav .nav-item > span:not(.count) {                /* الاسم يبقى للقارئ والتلميح */
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+#rail #nav .nav-item .ic { width: 22px; height: 22px; flex-basis: 22px; }
+body.ui-lg #rail #nav .nav-item .ic, body.ui-xl #rail #nav .nav-item .ic { width: 25px; height: 25px; flex-basis: 25px; }
+#rail #nav .nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+#rail #nav .nav-item:hover .ic { transform: scale(1.08); }
+#rail #nav .nav-item.on {
+  background: var(--accent); color: #fff;
+  box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--accent) 85%, #000), inset 0 1px 0 rgba(255,255,255,.25);
+}
+#rail #nav .nav-item.on::before {
+  inset-inline-start: -10px; top: 30%; bottom: 30%; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--accent); box-shadow: 0 0 10px var(--accent);
+}
+#rail #nav .nav-item .count {
+  position: absolute; top: 5px; inset-inline-end: 7px; margin: 0;
+  min-width: 17px; height: 17px; padding: 0 4px; line-height: 17px;
+  font-size: 10px; text-align: center; border-radius: 99px;
+  box-shadow: 0 0 0 2px var(--night);
+}
+#rail .rail-foot {
+  flex-direction: column; gap: 4px; padding: 10px 4px 16px;
+  border-top: 0; font-size: 9.5px; text-align: center; line-height: 1.35;
+}
+
+/* تلميح اسم الصفحة */
+.nav-tip {
+  position: fixed; z-index: 500; transform: translateY(-50%) translateX(6px); opacity: 0;
+  background: var(--night); color: #fff; font-size: 13px; font-weight: 700;
+  padding: 7px 13px; border-radius: 99px; white-space: nowrap; pointer-events: none;
+  box-shadow: 0 10px 24px -10px rgba(0,0,0,.6);
+  transition: opacity .14s, transform .18s var(--ease);
+}
+.nav-tip.on { opacity: 1; transform: translateY(-50%); }
+
+/* ---------- الشريط العلوي ---------- */
+#topbar { background: transparent; backdrop-filter: none; border-bottom: 0; box-shadow: none; }
+#topbar .page-title { font-weight: 800; letter-spacing: -.6px; }
+#topbar .clock { background: #fff; border-color: transparent; box-shadow: var(--shadow-1); }
+#topbar .btn.primary {
+  background: var(--night); border-color: var(--night); border-radius: 99px;
+  box-shadow: 0 8px 18px -8px rgba(0,0,0,.5);
+}
+#topbar .btn.primary:hover { background: #000; border-color: #000; }
+#topbar .btn.primary .small {
+  background: var(--accent); color: #fff; border-radius: 99px; padding: 1px 7px; margin-inline-start: 2px;
+}
+
+/* ---------- البطاقات ---------- */
+.card { border-color: transparent; box-shadow: var(--shadow-1); }
+.card > .card-head { border-bottom-color: transparent; padding-top: 16px; }
+.card > .card-head h3 { font-weight: 800; font-size: 15.5px; }
+.card > .card-head .btn.ghost {
+  background: var(--night); color: #fff; border-radius: 99px; padding-inline: 13px;
+}
+.card > .card-head .btn.ghost:hover { background: #000; color: #fff; }
+
+.stat { border-inline-start-color: transparent !important; }
+.stat::before { inset-block: 18px; }
+.stat .val { font-weight: 800; letter-spacing: -.8px; }
+
+/* البطاقة الأهم ممتلئة بلون المظهر */
+.stat.hero {
+  background:
+    radial-gradient(240px 140px at 0% 0%, rgba(255,255,255,.22), transparent 70%),
+    linear-gradient(150deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent-dim));
+  color: #fff; border-color: transparent;
+  box-shadow: 0 18px 36px -18px color-mix(in srgb, var(--accent) 90%, #000);
+}
+.stat.hero::before, .stat.night::before { display: none; }
+.stat.hero .lbl, .stat.hero .foot { color: rgba(255,255,255,.85); }
+.stat.hero .val { color: #fff; }
+/* والثانية داكنة */
+.stat.night { background: var(--night); color: #fff; }
+.stat.night .lbl, .stat.night .foot { color: rgba(255,255,255,.6); }
+.stat.night .val { color: #fff; }
+.stat.hero:hover, .stat.night:hover { border-color: transparent; }
+
+/* الرسوم الصغيرة */
+.stat .mini { display: block; width: 100%; height: 34px; margin-top: 10px; overflow: visible; }
+.mini.bars rect { fill: currentColor; opacity: .38; transform-origin: bottom; transform-box: fill-box;
+  animation: qi-grow .5s var(--ease) both; }
+.mini.bars rect.now { opacity: 1; }
+.stat.hero .mini.bars rect { fill: #fff; }
+.mini.line .area { fill: color-mix(in srgb, var(--accent) 22%, transparent); animation: qi-fade .6s ease both; }
+.mini.line .stroke { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 400; stroke-dashoffset: 400; animation: qi-draw .9s var(--ease) .1s forwards; }
+.mini.line .dot { fill: var(--accent); stroke: var(--night); stroke-width: 2; }
+@keyframes qi-grow { from { transform: scaleY(0); } to { transform: none; } }
+@keyframes qi-draw { to { stroke-dashoffset: 0; } }
+
+/* ---------- الأزرار والمفاتيح الكبسولية ---------- */
+.btn { border-radius: 12px; }
+.btn.primary {
+  background: var(--night); border-color: var(--night);
+  box-shadow: 0 8px 18px -10px rgba(0,0,0,.6);
+}
+.btn.primary:hover { background: #000; border-color: #000; box-shadow: 0 12px 24px -10px rgba(0,0,0,.6); }
+
+.seg { background: var(--night); border-color: var(--night); border-radius: 99px; padding: 4px; }
+.seg button { border-radius: 99px; color: rgba(255,255,255,.62); }
+.seg button:not(.on):hover { background: rgba(255,255,255,.09); color: #fff; box-shadow: none; }
+.seg button.on, .mode-seg button.on, .pay-seg button.on, .stk-seg button.on {
+  background: var(--accent); color: #fff;
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--accent) 90%, #000);
+}
+
+.inp { border-radius: 12px; }
+.badge { border-radius: 99px; }
+
+/* ---------- نقطة البيع ---------- */
+.scanbar { background: transparent; border-bottom: 0; backdrop-filter: none; }
+.scanbar .big-input { border-radius: 99px; padding-inline: 24px; }
+#pos .right { margin: 12px; border-radius: var(--r-lg); border-inline-start: 0; overflow: hidden; box-shadow: var(--shadow-2); }
+.cart-line { border-color: transparent; border-radius: 18px; }
+.totals .t-row.grand {
+  background: var(--night); color: #fff; box-shadow: none;
+}
+.totals .t-row.grand .num { color: var(--accent); }
+.pay-foot { background: transparent; border-top-color: var(--line-soft); }
+.pay-foot .btn.primary {
+  background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent-dim));
+  border-color: var(--accent-dim);
+  box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--accent) 95%, #000);
+}
+.pay-btn { border-radius: 20px; border-color: transparent; background: #F6F6F2; }
+.pay-btn:hover { background: #fff; }
+
+/* ---------- الجداول ---------- */
+.card .table-wrap { border-radius: 0 0 var(--r) var(--r); }
+table.tbl thead th { background: #fff; color: #7A8490; }
+table.tbl tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, #fff); }
+
+/* ---------- النوافذ ---------- */
+.modal { border-radius: 26px; }
+.modal .m-foot { border-radius: 0 0 26px 26px; }
+.toast { background: var(--night); border-radius: 99px; padding-inline: 20px; }
+
+/* ---------- علامة ✓ بعد إتمام البيع ---------- */
+.done-pop {
+  position: fixed; inset: 0; z-index: 600; pointer-events: none;
+  display: grid; place-items: center;
+  animation: qi-fade .15s ease both;
+}
+.done-pop.out { opacity: 0; transition: opacity .3s ease; }
+.done-pop .dp-card {
+  background: rgba(21,23,27,.94); color: #fff; backdrop-filter: blur(10px);
+  border-radius: 28px; padding: 26px 34px 22px; text-align: center; min-width: 240px;
+  box-shadow: 0 30px 60px -20px rgba(0,0,0,.6);
+  animation: qi-pop2 .42s var(--ease) both;
+}
+.done-pop .dp-check { width: 72px; height: 72px; display: block; margin: 0 auto 12px; }
+.done-pop .dp-c { fill: none; stroke: var(--accent); stroke-width: 3.2;
+  stroke-dasharray: 150; stroke-dashoffset: 150; animation: qi-draw .5s var(--ease) .05s forwards; }
+.done-pop .dp-t { fill: none; stroke: #fff; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 40; stroke-dashoffset: 40; animation: qi-draw .35s var(--ease) .38s forwards; }
+.done-pop .dp-title { font-size: 17px; font-weight: 800; }
+.done-pop .dp-sub { font-size: 22px; font-weight: 800; color: var(--accent); margin-top: 4px; }
+@keyframes qi-pop2 { from { opacity: 0; transform: scale(.86); } 60% { transform: scale(1.03); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mini.bars rect, .mini.line .area, .done-pop, .done-pop .dp-card { animation: none !important; }
+  .mini.line .stroke, .done-pop .dp-c, .done-pop .dp-t { animation: none !important; stroke-dashoffset: 0; }
+  .nav-tip { transition: none; }
+}
+
+/* تثبيتات المظهر 2.1 بعد المعاينة:
+   • الأيقونات الخمس عشرة تتقلّص لتسعها الشاشة كلها — كانت «الإعدادات»
+     تختفي أسفل الشريط وتحتاج تمريراً بلا شريط تمرير ظاهر.
+   • التنبيهات تظهر بجانب الشريط لا فوقه.
+   • البطاقة الممتلئة أزهى. */
+#rail #nav { display: flex; flex-direction: column; }
+#rail #nav .nav-item, body.ui-lg #rail #nav .nav-item, body.ui-xl #rail #nav .nav-item,
+body.ui-xs #rail #nav .nav-item, body.ui-sm #rail #nav .nav-item {
+  height: auto; flex: 0 1 48px; min-height: 34px;
+}
+body.ui-lg #rail #nav .nav-item { flex-basis: 54px; }
+body.ui-xl #rail #nav .nav-item { flex-basis: 60px; }
+body.ui-xs #rail #nav .nav-item, body.ui-sm #rail #nav .nav-item { flex-basis: 42px; }
+#rail #nav .group-label { flex: 0 0 1px; margin-block: 6px; }
+
+#toasts { inset-inline-start: 106px; }
+body.ui-lg #toasts { inset-inline-start: 114px; }
+body.ui-xl #toasts { inset-inline-start: 124px; }
+body.ui-xs #toasts, body.ui-sm #toasts { inset-inline-start: 96px; }
+
+.stat.hero {
+  background:
+    radial-gradient(260px 150px at 0% 0%, rgba(255,255,255,.30), transparent 70%),
+    linear-gradient(150deg, color-mix(in srgb, var(--accent) 72%, #fff), var(--accent) 60%, var(--accent-dim));
+}
