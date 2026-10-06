@@ -426,7 +426,12 @@ var Labels = (function () {
     return out;
   }
 
-  function setV(k, v) { view[k] = v; view.shown = 60; App.rerender(); }
+  /* البحث يعيد رسم الصفحة مع كل حرف — فنُبقي المؤشر في الخانة،
+     وإلا خرج منها بعد أول حرف ولم يُكتب غيره */
+  function setV(k, v) {
+    view[k] = v; view.shown = 60;
+    if (k === "q") App.rerenderKeep("lblQ"); else App.rerender();
+  }
   function more() { view.shown += 60; App.rerender(); }
 
   function toggle(id, qty) {
@@ -470,7 +475,7 @@ var Labels = (function () {
     /* شريط الأدوات */
     h += '<div class="row" style="margin-bottom:14px;flex-wrap:wrap;gap:10px">' +
       '<div class="search-wrap"><span class="mag">⌕</span>' +
-      '<input class="inp" placeholder="ابحث عن صنف…" value="' + App.esc(view.q) +
+      '<input class="inp" id="lblQ" autocomplete="off" placeholder="ابحث عن صنف…" value="' + App.esc(view.q) +
       '" oninput="Labels.setV(\'q\',this.value)"></div>' +
       '<div class="seg" style="max-width:400px">' +
       '<button class="' + (view.kind === "need" ? "on" : "") + '" onclick="Labels.setV(\'kind\',\'need\')">لم تُطبع</button>' +

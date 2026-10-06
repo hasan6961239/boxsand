@@ -1568,6 +1568,60 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await closePage(pg);
   }
 
+  console.log('\n— بحث اللاصقات وإدخال البضاعة والإيصال —');
+  {
+    const st = seed();
+    st.books.push({ id: 'b2', code: 'K0002', title: 'سلسلة شيرلوك هومز', lib: 'A', shelf: '1', cost: 0, price: 350, qty: 2, min: 0 });
+    st.books.push({ id: 'b3', code: 'K0003', title: 'شيرلوك هومز: كلب آل باسكرفيل', lib: 'A', shelf: '1', cost: 0, price: 30, qty: 1, min: 0 });
+    st.meta.footer = 'شكراً لزيارتكم — نرجو أن تكون زيارتكم القادمة قريبة ونتمنى لكم قراءة ممتعة ووقتاً طيباً';
+    st.invoices = [{ id: 'v1', no: 1, kind: 'sale', at: '2026-10-05 17:39', date: '2026-10-05',
+      items: [{ type: 'book', id: 'b2', name: 'سلسلة شيرلوك هومز', qty: 1, price: 350, cost: 0 }],
+      subtotal: 350, discount: 0, total: 350, profit: 350, method: 'cash', customerId: '', paid: 350, due: 0 }];
+    writeStore(st);
+    let pg = await open();
+    await pg.evaluate(() => location.hash = '#/labels'); await sleep(700);
+    await pg.evaluate(() => Labels.setV('kind', 'all')); await sleep(400);
+    await pg.click('#lblQ'); await pg.keyboard.type('هومز', { delay: 40 }); await sleep(300);
+    await pg.keyboard.press('Home'); await pg.keyboard.type('شيرلوك ', { delay: 40 }); await sleep(300);
+    const lq = await pg.evaluate(() => ({ v: document.getElementById('lblQ').value, f: document.activeElement.id,
+      n: document.querySelectorAll('#view table tbody tr').length }));
+    check('بحث اللاصقات: الكتابة لا تخرج من الخانة', lq.v === 'شيرلوك هومز' && lq.f === 'lblQ', JSON.stringify(lq));
+    check('بحث اللاصقات: يفلتر الأصناف (كتابا شيرلوك فقط)', lq.n === 2, String(lq.n));
+
+    await pg.evaluate(() => { location.hash = '#/purchases'; }); await sleep(600);
+    await pg.evaluate(() => Inv.gset('mode', 'qty')); await sleep(500);
+    await pg.click('#purSearch'); await pg.keyboard.type('شيرلوك', { delay: 30 }); await sleep(300);
+    await pg.locator('#purSug .s-item').first().click(); await sleep(250);
+    const p1 = await pg.evaluate(() => ({ v: document.getElementById('purSearch').value, f: document.activeElement.id,
+      open: document.querySelectorAll('#purSug .s-item').length, got: !!document.querySelector('#purSug .s-item.got'),
+      lines: document.querySelectorAll('#purLines tbody tr').length }));
+    check('إدخال بضاعة: اختيار كتاب يُبقي النص والقائمة', p1.v === 'شيرلوك' && p1.f === 'purSearch' && p1.open === 2 && p1.got, JSON.stringify(p1));
+    check('إدخال بضاعة: والكتاب أُضيف للإدخالية', p1.lines === 1, String(p1.lines));
+    const sg = await pg.evaluate(() => { const i = document.getElementById('purSearch').getBoundingClientRect();
+      const l = document.querySelector('#purSug .suggest').getBoundingClientRect(); return l.top >= i.bottom; });
+    check('إدخال بضاعة: النتائج تحت خانة البحث لا فوقها', sg);
+    await pg.keyboard.press('Escape'); await sleep(150);
+    await pg.keyboard.type('111', { delay: 5 }); await pg.keyboard.press('Enter'); await sleep(250);
+    const p2 = await pg.evaluate(() => ({ v: document.getElementById('purSearch').value, lines: document.querySelectorAll('#purLines tbody tr').length }));
+    check('إدخال بضاعة: المسح بالقارئ يفرّغ الخانة للمسحة التالية', p2.v === '' && p2.lines === 2, JSON.stringify(p2));
+    await pg.evaluate(() => Inv.purClear());
+
+    const rc = await pg.evaluate(() => {
+      window.print = function () { };
+      const v = App.S.invoices[0], long = Sales.receiptCanvas(v).height;
+      const f = App.S.meta.footer; App.S.meta.footer = 'شكراً لزيارتكم';
+      const short = Sales.receiptCanvas(v).height; App.S.meta.footer = f;
+      Sales.printInvoice('v1');
+      const css = document.querySelector('#printArea style').textContent;
+      return { long: long, short: short, css: css };
+    });
+    check('الإيصال: السطر الطويل يلتفّ فيطول الإيصال', rc.long > rc.short + 20, JSON.stringify([rc.short, rc.long]));
+    check('الإيصال: الورقة بمقاس الإيصال 80mm لا A4', /@page \{ size: 80mm \d+mm; margin: 0; \}/.test(rc.css), rc.css.slice(0, 60));
+    await sleep(300);
+    await closePage(pg);
+    writeStore(seed());
+  }
+
   await b.close();
   console.log('\n' + '='.repeat(50));
   console.log('  نجح: ' + pass + '    فشل: ' + fail);

@@ -1344,13 +1344,19 @@ var Sales = (function () {
 
     function font(size, bold) { g.font = (bold ? "bold " : "") + size + "px " + F; }
 
+    /* السطر الطويل يلتفّ على أكثر من سطر بدل أن يُقصّ من الجانبين،
+       والكلمة الواحدة الأعرض من الورقة يصغر خطها حتى تدخل */
     function line(str, size, opts) {
       opts = opts || {};
-      font(size, opts.bold);
-      g.textAlign = opts.align || "center";
       var xp = opts.align === "right" ? RIGHT : (opts.align === "left" ? LEFT : W / 2);
-      g.fillText(str, xp, y);
-      y += Math.round(size * 1.45);
+      wrap(str, RIGHT - LEFT, size, opts.bold).forEach(function (part) {
+        var sz = size;
+        font(sz, opts.bold);
+        while (sz > Math.round(size * 0.6) && g.measureText(part).width > RIGHT - LEFT) font(--sz, opts.bold);
+        g.textAlign = opts.align || "center";
+        g.fillText(part, xp, y);
+        y += Math.round(size * 1.45);
+      });
     }
 
     function sep(dashed) {
@@ -1365,8 +1371,8 @@ var Sales = (function () {
     }
 
     /* يلفّ الاسم الطويل على أكثر من سطر */
-    function wrap(str, maxW, size) {
-      font(size);
+    function wrap(str, maxW, size, bold) {
+      font(size, bold);
       var words = String(str).split(" ");
       var out = [], cur = "";
       words.forEach(function (wd) {
@@ -1470,13 +1476,23 @@ var Sales = (function () {
     var asImage = (m.receiptWidth !== "a4") && (m.printMode !== "text");
     if (!asImage) { App.printHtml(receiptHtml(v)); return; }
     try {
-      var cv = receiptCanvas(v);
-      var mm = (m.receiptWidth === "58") ? 48 : 72;
-      App.printHtml('<img class="receipt-img" src="' + cv.toDataURL("image/png") +
-        '" style="width:' + mm + 'mm;display:block;margin:0 auto">');
+      printCanvas(receiptCanvas(v));
     } catch (e) {
       App.printHtml(receiptHtml(v));   // لو تعذّر الرسم نعود للنص
     }
+  }
+
+  /* الورقة بمقاس الإيصال نفسه: عرض اللفة × طول الإيصال. بدونها يأخذ
+     المتصفح ورقة A4 (وأحياناً بالعرض) فيطلع الإيصال صغيراً في ركنها */
+  function printCanvas(cv) {
+    var m = S().meta;
+    var paper = (m.receiptWidth === "58") ? 58 : 80;
+    var mm = (m.receiptWidth === "58") ? 48 : 72;
+    var tall = Math.ceil(cv.height * mm / cv.width) + 8;
+    App.printHtml("<style>@page { size: " + paper + "mm " + tall + "mm; margin: 0; }" +
+      "@media print { html, body { height: auto !important; } body > *:not(#printArea) { display: none !important; } }</style>" +
+      '<img class="receipt-img" src="' + cv.toDataURL("image/png") +
+      '" style="width:' + mm + 'mm;display:block;margin:4mm auto 0">');
   }
 
   /* معاينة الإيصال كصورة — للتجربة من الإعدادات */
@@ -1497,11 +1513,7 @@ var Sales = (function () {
         '<div style="text-align:center;background:#fff;padding:12px;border:1px solid var(--line);border-radius:var(--r)">' +
         '<img src="' + cv.toDataURL("image/png") + '" style="max-width:100%;border:1px solid #eee"></div>',
       actions: [{
-        label: "طباعة تجريبية", kind: "primary", click: function () {
-          var mm = (S().meta.receiptWidth === "58") ? 48 : 72;
-          App.printHtml('<img class="receipt-img" src="' + cv.toDataURL("image/png") +
-            '" style="width:' + mm + 'mm;display:block;margin:0 auto">');
-        }
+        label: "طباعة تجريبية", kind: "primary", click: function () { printCanvas(cv); }
       }]
     });
   }

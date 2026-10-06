@@ -1706,7 +1706,7 @@ var Inv = (function () {
       '<span class="muted small">تُضاف الكميات للمخزون وتُحدَّث أسعار الجملة</span></div>' +
       '<div class="card-body">' +
       '<div style="margin-bottom:16px">' + destTabs(purTo(), "Inv.purSetTo") + "</div>" +
-      '<div class="grid g3" style="margin-bottom:14px">' +
+      '<div class="grid g3 pur-meta">' +
       '<div class="field"><label>المورد</label><select class="inp" onchange="Inv.pd(\'supplierId\',this.value)">' +
       '<option value="">— بدون مورد —</option>' +
       S().suppliers.map(function (s) { return '<option value="' + s.id + '"' + (draft.supplierId === s.id ? " selected" : "") + ">" + App.esc(s.name) + "</option>"; }).join("") +
@@ -1714,10 +1714,12 @@ var Inv = (function () {
       '<div class="field"><label>التاريخ</label><input type="date" class="inp" value="' + draft.date + '" onchange="Inv.pd(\'date\',this.value)"></div>' +
       '<div class="field"><label>ملاحظة / رقم فاتورة المورد</label><input class="inp" value="' + App.esc(draft.note) + '" oninput="Inv.pd(\'note\',this.value)"></div>' +
       "</div>" +
-      '<div class="field" style="position:relative;margin-bottom:12px">' +
+      '<div class="field pur-find">' +
       '<label>ابحث عن الصنف الذي وصلتك منه كمية</label>' +
+      '<div class="pur-search"><span class="mag">' + App.icon("search", 20) + "</span>" +
       '<input class="inp" id="purSearch" placeholder="اكتب اسم الصنف أو امسح الباركود…" autocomplete="off" ' +
-      'oninput="Inv.purSuggest(this.value)" onkeydown="Inv.purKey(event)">' +
+      'oninput="Inv.purSuggest(this.value)" onfocus="Inv.purSuggest(this.value)" onblur="Inv.purBlur()" onkeydown="Inv.purKey(event)">' +
+      '<button class="clr" type="button" title="مسح البحث" onclick="Inv.purClearQ()">✕</button></div>' +
       '<div id="purSug"></div>' +
       '<div class="hint">أو اختر من القائمة بالأسفل</div></div>' +
       quickPick() +
@@ -1751,12 +1753,12 @@ var Inv = (function () {
   function quickPick() {
     var arr = (gd.type === "book" ? S().books : S().stationery).slice(0, 40);
     if (!arr.length) return '<p class="muted small">لا توجد أصناف مسجّلة من هذا النوع بعد.</p>';
-    return '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr));margin-bottom:14px">' +
+    return '<div class="grid pur-picks">' +
       arr.map(function (x) {
-        return '<button class="card" style="padding:10px 12px;text-align:start;border:1px solid var(--line)" ' +
+        return '<button class="pur-pick" ' +
           'onclick="Inv.purAdd(\'' + gd.type + '\',\'' + x.id + '\')">' +
-          '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + App.esc(App.itemName(x)) + "</div>" +
-          '<div class="muted small">الموجود: <b class="num">' + App.num(x.qty) + "</b> · شراء " + App.money0(x.cost) + "</div></button>";
+          '<div class="pp-n">' + App.esc(App.itemName(x)) + "</div>" +
+          '<div class="pp-m">الموجود: <b class="num">' + App.num(x.qty) + "</b> · شراء " + App.money0(x.cost) + "</div></button>";
       }).join("") + "</div>";
   }
 
@@ -1768,37 +1770,61 @@ var Inv = (function () {
 
   function pd(k, v) { ensureDraft()[k] = v; }
 
+  /* الكمية المضافة من الصنف في هذه الإدخالية — تظهر علامةً في نتائج البحث */
+  function purHave(type, id) {
+    var n = 0;
+    ensureDraft().lines.forEach(function (l) { if (l.type === type && l.id === id) n = App.num(l.qty); });
+    return n;
+  }
+
   function purSuggest(q) {
     ensureDraft();
     var host = document.getElementById("purSug");
+    var box = document.querySelector(".pur-search");
+    if (box) box.classList.toggle("has", !!q);
     if (!host) return;
     var res = searchItems(q, 8);
     if (!res.length) { host.innerHTML = ""; return; }
     host.innerHTML = '<div class="suggest">' + res.map(function (x, i) {
-      return '<button class="s-item" onclick="Inv.purAdd(\'' + x.type + '\',\'' + x.it.id + '\')">' +
+      var got = purHave(x.type, x.it.id);
+      return '<button class="s-item' + (got ? " got" : "") + '" onmousedown="event.preventDefault()" ' +
+        'onclick="Inv.purAdd(\'' + x.type + '\',\'' + x.it.id + '\')">' +
         '<span class="t"><b>' + App.esc(App.itemName(x.it)) + "</b><span>" +
         (x.type === "book" ? "كتاب" : "قرطاسية") + " · متوفر: " + App.num(x.it.qty) +
-        " · جملة: " + App.money0(x.it.cost) + "</span></span></button>";
+        " · جملة: " + App.money0(x.it.cost) + "</span></span>" +
+        (got ? '<span class="badge ok">✓ مُضاف: ' + got + "</span>" : "") + "</button>";
     }).join("") + "</div>";
+  }
+
+  /* الضغط خارج الخانة يطوي القائمة (ويبقى النص) — والرجوع إليها يفتحها */
+  function purBlur() {
+    setTimeout(function () {
+      var s = document.getElementById("purSearch"), host = document.getElementById("purSug");
+      if (host && s && document.activeElement !== s) host.innerHTML = "";
+    }, 150);
+  }
+
+  function purClearQ() {
+    var s = document.getElementById("purSearch");
+    if (s) { s.value = ""; s.focus(); }
+    purSuggest("");
   }
 
   function purKey(e) {
     if (e.key === "Enter") {
       e.preventDefault();
       var hit = byBarcode(e.target.value);
-      if (hit) { purAdd(hit.type, hit.it.id); return; }
+      if (hit) { purAdd(hit.type, hit.it.id, true); return; }
       var res = searchItems(e.target.value, 1);
-      if (res.length) purAdd(res[0].type, res[0].it.id);
+      if (res.length) purAdd(res[0].type, res[0].it.id, true);
       else App.toast("لم يُعثر على الصنف. أضفه أولاً من صفحة الكتب أو القرطاسية.", "warn");
     }
-    if (e.key === "Escape") {
-      e.target.value = "";
-      var sg = document.getElementById("purSug");
-      if (sg) sg.innerHTML = "";
-    }
+    if (e.key === "Escape") purClearQ();
   }
 
-  function purAdd(type, id) {
+  /* الاختيار من النتائج يُبقي ما كتبته والقائمة مفتوحة لتختار غيره.
+     المسح بالقارئ أو Enter يفرّغ الخانة لتستقبل المسحة التالية. */
+  function purAdd(type, id, clear) {
     var it = App.findItem(type, id);
     if (!it) return;
     ensureDraft();
@@ -1807,9 +1833,9 @@ var Inv = (function () {
     if (ex) ex.qty = App.num(ex.qty) + 1;
     else draft.lines.push({ type: type, id: id, name: App.itemName(it), qty: 1, cost: App.num(it.cost) });
     var s = document.getElementById("purSearch");
-    if (s) { s.value = ""; s.focus(); }
-    var sug = document.getElementById("purSug");
-    if (sug) sug.innerHTML = "";
+    if (s && clear) s.value = "";
+    if (s) purSuggest(s.value);
+    if (s && document.getElementById("purSug").innerHTML) s.focus();
     paintPurLines();
   }
 
@@ -2051,7 +2077,7 @@ var Inv = (function () {
     setF: setF, setG: setG, showShelf: showShelf, printShoppingList: printShoppingList,
     restockAll: restockAll, printPickList: printPickList,
     searchItems: searchItems, byBarcode: byBarcode,
-    pd: pd, purSuggest: purSuggest, purKey: purKey, purAdd: purAdd,
+    pd: pd, purSuggest: purSuggest, purKey: purKey, purAdd: purAdd, purClearQ: purClearQ, purBlur: purBlur,
     purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase, purSetTo: purSetTo,
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
     pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint,

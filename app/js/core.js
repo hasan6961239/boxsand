@@ -1659,6 +1659,20 @@ var App = (function () {
 
   function rerender() { route(); paintBlockBar(); }
 
+  /* إعادة رسم الصفحة وخانة البحث ما زالت تحت يدك: يرجع المؤشر لمكانه
+     ولا تقفز الصفحة لأعلاها */
+  function rerenderKeep(id) {
+    var el = document.getElementById(id);
+    var a = el ? el.selectionStart : null, b = el ? el.selectionEnd : null;
+    var vw = document.getElementById("view"), top = vw ? vw.scrollTop : 0;
+    rerender();
+    if (vw) vw.scrollTop = top;
+    var n = document.getElementById(id);
+    if (!n) return;
+    n.focus();
+    if (a !== null) { try { n.setSelectionRange(a, b); } catch (x) { } }
+  }
+
   /* ---------- حقل بحث يفهم قارئ الباركود ----------
 
      القارئ يكتب الرمز دفعة واحدة. بلا معالجة يبقى الرمز السابق في الحقل
@@ -1930,6 +1944,6 @@ var App = (function () {
     paintBranchTag: paintBranchTag, branchLabel: branchLabel, applyUiSize: applyUiSize,
     icon: icon, applyTheme: applyTheme, THEMES: THEMES,
     download: download, toCsv: toCsv, parseCsv: parseCsv, pickFile: pickFile, xls: xls,
-    printHtml: printHtml, printImage: printImage, refreshBadges: refreshBadges
+    printHtml: printHtml, printImage: printImage, refreshBadges: refreshBadges, rerenderKeep: rerenderKeep
   };
 })();
