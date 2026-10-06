@@ -173,6 +173,18 @@ const srv = http.createServer((q,s)=>{
   ok('كلمتان متنافيتان: لا نتائج', rows===0, 'rows='+rows);
   if (SHOT) await pg.screenshot({path:SHOT+'site-3-empty.png'});
 
+  // 9ب) البحث المتسامح: غلط إملائي يجد الأقرب تحت «هل تقصد؟»
+  await pg.fill('#q','تشريخ جسم الانسن'); await pg.waitForTimeout(400);
+  rows = await pg.$$eval('.row-name', e=>e.map(x=>x.textContent.trim()));
+  let head = await pg.$eval('.near-head', e=>e.textContent).catch(()=>'');
+  ok('غلط إملائي: «تشريخ جسم الانسن» تجد «تشريح جسم الإنسان»', rows.length===1 && /تشريح/.test(rows[0]) && /هل تقصد/.test(head), JSON.stringify([rows, head]));
+  await pg.fill('#q','هندصة الورش'); await pg.waitForTimeout(400);
+  rows = await pg.$$eval('.row-name', e=>e.map(x=>x.textContent.trim()));
+  ok('الحروف المتشابهة: «هندصة» = «هندسة»', rows.length===2 && rows.every(r=>/الهندسة/.test(r)), JSON.stringify(rows));
+  await pg.fill('#q','55599998'); await pg.waitForTimeout(400);
+  rows = await pg.$$eval('.row', e=>e.length);
+  ok('باركود بخانة غلط لا يجد صنفاً آخر', rows===0, 'rows='+rows);
+
   await pg.click('#qx'); await pg.waitForTimeout(400);
   ok('زر المسح يرجع الكل', (await pg.$$eval('.row', e=>e.length))===5);
 

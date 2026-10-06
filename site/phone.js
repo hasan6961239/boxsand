@@ -401,8 +401,10 @@ window.PhoneExt = (function () {
       q.addEventListener("keydown", function (e) {
         if (e.key !== "Enter") return;
         e.preventDefault();
-        var hit = exact(this.value) || A.search(A.items(), this.value)[0];
+        var res = exact(this.value) ? null : A.search(A.items(), this.value);
+        var hit = exact(this.value) || (A.exactCount(res) ? res[0] : null);
         if (hit) { addToCart(hit); this.value = ""; suggest(""); }
+        else if (res && res.length) { suggest(this.value); A.toast("ما لقيناش الاسم بالضبط — اختر من «هل تقصد؟».", "warn"); }
         else A.toast("لا يوجد صنف بهذا الاسم أو الباركود.", "warn");
       });
     }
@@ -418,9 +420,9 @@ window.PhoneExt = (function () {
     var host = el("sellSug");
     if (!host) return;
     if (!String(qv || "").trim()) { host.innerHTML = ""; return; }
-    var res = A.search(A.items(), qv).slice(0, 8);
-    host.innerHTML = res.length ? '<div class="sugs">' + res.map(function (g) {
-      return '<button class="sug" data-act="cartAdd" data-arg="' + esc(g.key) + '">' +
+    var all = A.search(A.items(), qv), res = all.slice(0, 8);
+    host.innerHTML = res.length ? '<div class="sugs">' + res.map(function (g, i) {
+      return A.nearHead(all, i) + '<button class="sug" data-act="cartAdd" data-arg="' + esc(g.key) + '">' +
         '<span class="sg-main"><b>' + esc(g.n) + "</b><span>" + esc(g.a || g.d || "") + "</span></span>" +
         '<span class="sg-side"><b>' + money(g.p) + '</b><span class="' + (g.total <= 0 ? "out" : "") + '">متوفر ' + g.total + "</span></span></button>";
     }).join("") + "</div>" : '<p class="sub">لا نتائج.</p>';

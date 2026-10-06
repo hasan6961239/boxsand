@@ -101,20 +101,18 @@ var Stale = (function () {
 
   var view = { q: "", kind: "all", sort: "frozen", shown: 100 };
 
-  function setV(k, v) { view[k] = v; view.shown = 100; App.rerender(); }
+  function setV(k, v) {
+    view[k] = v; view.shown = 100;
+    if (k === "q") App.rerenderKeep("staleQ"); else App.rerender();
+  }
   function more() { view.shown += 100; App.rerender(); }
 
   function filtered() {
     var all = rows();
-    var nq = App.norm(view.q);
     var list = all.filter(function (r) {
       if (view.kind === "book" && r.type !== "book") return false;
       if (view.kind === "stat" && r.type !== "stat") return false;
       if (view.kind === "never" && !r.never) return false;
-      if (nq) {
-        var hay = App.norm(r.name + " " + (r.it.author || "") + " " + (r.it.cat || "") + " " + (r.it.barcode || ""));
-        if (hay.indexOf(nq) < 0) return false;
-      }
       return true;
     });
     var by = view.sort;
@@ -124,7 +122,9 @@ var Stale = (function () {
       if (by === "name") return a.name.localeCompare(b.name, "ar");
       return b.frozen - a.frozen;      // الافتراضي: المال المجمّد
     });
-    return list;
+    return App.rank(list, view.q, function (r) {
+      return r.name + " " + (r.it.author || "") + " " + (r.it.cat || "") + " " + (r.it.barcode || "");
+    });
   }
 
   function count() { return rows().length; }
@@ -167,7 +167,7 @@ var Stale = (function () {
     /* شريط الأدوات */
     h += '<div class="row" style="margin-bottom:14px;flex-wrap:wrap;gap:10px">' +
       '<div class="search-wrap"><span class="mag">⌕</span>' +
-      '<input class="inp" placeholder="ابحث في الراكد…" value="' + App.esc(view.q) +
+      '<input class="inp" id="staleQ" autocomplete="off" placeholder="ابحث في الراكد…" value="' + App.esc(view.q) +
       '" oninput="Stale.setV(\'q\',this.value)"></div>' +
       '<div class="seg" style="max-width:420px">' +
       '<button class="' + (view.kind === "all" ? "on" : "") + '" onclick="Stale.setV(\'kind\',\'all\')">الكل</button>' +

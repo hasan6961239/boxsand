@@ -73,7 +73,7 @@ var Sales = (function () {
     host.innerHTML = '<div class="suggest" id="sug">' + res.map(function (x, i) {
       var it = x.it, st = App.stockState(it);
       var pw = App.num(it.priceW) || App.num(it.price);
-      return '<button class="s-item rich" data-i="' + i + '" onclick="Sales.add(\'' + x.type + '\',\'' + it.id + '\')">' +
+      return App.sugHead(res, i) + '<button class="s-item rich" data-i="' + i + '" onclick="Sales.add(\'' + x.type + '\',\'' + it.id + '\')">' +
         '<span class="t">' +
         "<b>" + App.esc(App.itemName(it)) + "</b>" +
         '<span class="meta2">' +
@@ -116,9 +116,13 @@ var Sales = (function () {
     var hit = Inv.byBarcode(v);
     if (hit) { add(hit.type, hit.it.id); return; }
 
+    /* Enter يضيف المطابق وحده؛ النتيجة التقريبية تُختار بيدك من «هل تقصد؟»
+       حتى لا يدخل الفاتورة كتاب غير الذي تقصده */
     var res = Inv.searchItems(v, 2);
-    if (res.length === 1) { add(res[0].type, res[0].it.id); return; }
+    var ex = App.exactCount(res);
+    if (ex === 1) { add(res[0].type, res[0].it.id); return; }
     if (!res.length) App.toast("لا يوجد صنف بهذا الاسم أو الباركود.", "warn");
+    else if (!ex) { suggest(v); App.toast("ما لقيناش «" + v + "» بالضبط — اختر من «هل تقصد؟».", "warn"); }
   }
 
   function markHi(items) {
@@ -354,11 +358,9 @@ var Sales = (function () {
   function paintQuick() {
     var host = document.getElementById("qpList");
     if (!host) return;
-    var nq = App.norm(qSearch);
     var picks = S().meta.quickPicks || [];
-    var arr = App.allItems().filter(function (x) {
-      if (!nq) return true;
-      return App.norm(App.itemName(x.it) + " " + (x.it.barcode || "")).indexOf(nq) >= 0;
+    var arr = App.rank(App.allItems(), qSearch, function (x) {
+      return App.itemName(x.it) + " " + (x.it.barcode || "");
     }).slice(0, 120);
 
     host.innerHTML = '<div class="row" style="margin-bottom:8px">' +
@@ -734,17 +736,15 @@ var Sales = (function () {
   }
 
   function filteredInvoices() {
-    var nq = App.norm(invF.q);
-    return S().invoices.filter(function (v) {
+    var rows = S().invoices.filter(function (v) {
       if (invF.from && v.date < invF.from) return false;
       if (invF.to && v.date > invF.to) return false;
-      if (nq) {
-        var c = People.customer(v.customerId);
-        var hay = App.norm(String(v.no) + " " + (c ? c.name : "") + " " +
-          v.items.map(function (l) { return l.name; }).join(" "));
-        if (hay.indexOf(nq) < 0) return false;
-      }
       return true;
+    });
+    return App.rank(rows, invF.q, function (v) {
+      var c = People.customer(v.customerId);
+      return String(v.no) + " " + (c ? c.name : "") + " " +
+        v.items.map(function (l) { return l.name; }).join(" ");
     });
   }
 
@@ -1042,8 +1042,8 @@ var Sales = (function () {
     if (!host) return;
     var res = Inv.searchItems(q, 7);
     if (!res.length) { host.innerHTML = ""; return; }
-    host.innerHTML = '<div class="suggest">' + res.map(function (x) {
-      return '<button class="s-item" onclick="Sales.edAdd(\'' + x.type + '\',\'' + x.it.id + '\')">' +
+    host.innerHTML = '<div class="suggest">' + res.map(function (x, i) {
+      return App.sugHead(res, i) + '<button class="s-item" onclick="Sales.edAdd(\'' + x.type + '\',\'' + x.it.id + '\')">' +
         '<span class="t"><b>' + App.esc(App.itemName(x.it)) + "</b><span>المتوفر: " + App.num(x.it.qty) +
         " · " + App.money0(x.it.price) + "</span></span></button>";
     }).join("") + "</div>";
@@ -1055,7 +1055,8 @@ var Sales = (function () {
       var hit = Inv.byBarcode(e.target.value);
       if (hit) { edAdd(hit.type, hit.it.id); return; }
       var res = Inv.searchItems(e.target.value, 1);
-      if (res.length) edAdd(res[0].type, res[0].it.id);
+      if (App.exactCount(res)) edAdd(res[0].type, res[0].it.id);
+      else if (res.length) { edSuggest(e.target.value); App.toast("ما لقيناش الاسم بالضبط — اختر من «هل تقصد؟».", "warn"); }
     }
   }
 

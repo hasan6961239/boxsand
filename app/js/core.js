@@ -523,6 +523,170 @@ var App = (function () {
       .replace(/\s+/g, " ").trim();
   }
 
+  /* ============================================================
+     البحث المتسامح — يلقى الصنف ولو في الكتابة غلط
+     ------------------------------------------------------------
+     كل صنف يأخذ درجة:
+       300  النص كما كُتب موجود فيه (البحث القديم نفسه)
+       200  كل الكلمات موجودة فيه بأي ترتيب («هومز شيرلوك»)
+       1-99 «قريب»: كل كلمة تشبه كلمة فيه بحرف غلط (حرفين في الكلمة
+            الطويلة من 7 أحرف)، والحروف المتشابهة نطقاً حرف واحد
+            (ظ=ض، ذ=ز=د، ث=ت، ص=س، ط=ت)، و«ال» لا تُحسب
+     الأرقام والأكواد لا تُقرَّب أبداً: باركود بخانة غلط صنفٌ آخر.
+     ============================================================ */
+
+  function fold(s) {
+    return norm(digits(s))
+      .replace(/[ـء]/g, "")
+      .replace(/ظ/g, "ض").replace(/[ذز]/g, "د").replace(/ث/g, "ت")
+      .replace(/ص/g, "س").replace(/ط/g, "ت")
+      .replace(/[^ء-يa-z0-9]+/g, " ")
+      .replace(/\s+/g, " ").trim();
+  }
+
+  function fzStem(w) {
+    if (w.length > 5 && w.indexOf("وال") === 0) return w.slice(3);
+    if (w.length > 4 && w.indexOf("ال") === 0) return w.slice(2);
+    return w;
+  }
+
+  /* كلمات النص بعد الطيّ — تُحفظ لأن نفس الأصناف تُفحص مع كل حرف */
+  var FZC = {}, FZN = 0;
+  function fzWords(s) {
+    var k = String(s || "");
+    var w = FZC[k];
+    if (w) return w;
+    if (++FZN > 20000) { FZC = {}; FZN = 1; }
+    w = fold(k).split(" ").filter(Boolean).map(fzStem);
+    FZC[k] = w;
+    return w;
+  }
+
+  /* مسافة التحرير (مع تبديل حرفين متجاورين)، تتوقف حين تتجاوز الحدّ */
+  function fzDist(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    var pp = null, p = [], c, i, j;
+    for (j = 0; j <= b.length; j++) p[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      c = [i];
+      var low = i;
+      for (j = 1; j <= b.length; j++) {
+        var v = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (pp && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, pp[j - 2] + 1);
+        c[j] = v;
+        if (v < low) low = v;
+      }
+      if (low > max) return max + 1;
+      pp = p; p = c;
+    }
+    return p[b.length];
+  }
+
+  /* أقرب كلمة في الصنف لكلمة البحث: المسافة وموضعها، أو null */
+  function fzWord(q, words) {
+    var best = null;
+    var exactOnly = q.length < 3 || /\d/.test(q);
+    var max = q.length >= 7 ? 2 : 1;
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i], d;
+      if (w.indexOf(q) >= 0) d = 0;
+      else if (exactOnly || /\d/.test(w)) continue;
+      else if (q.length === 3) {
+        // الكلمة القصيرة تشبه كل شيء — نقارنها بكلمات بطولها فقط
+        if (w.length > 4) continue;
+        d = fzDist(q, w, 1);
+      } else {
+        d = fzDist(q, w, max);
+        // ما زلت تكتب: «شرلو» تبدأ بها «شيرلوك»
+        for (var L = q.length - 1; L <= q.length + 1 && d > 0; L++) {
+          if (L < 3 || L >= w.length) continue;
+          d = Math.min(d, fzDist(q, w.slice(0, L), max) + 0.25);
+        }
+      }
+      // +0.25 للكلمة غير المكتملة يرتّبها بعد الكاملة، ولا يُخرجها من الحدّ
+      if (Math.floor(d) <= max && (!best || d < best.d)) best = { d: d, at: i };
+      if (best && best.d === 0) break;
+    }
+    return best;
+  }
+
+  /* المطابقة الحرفية وحدها: 300 أو 200 أو 0 — سريعة */
+  function matchExact(q, hay) {
+    var nq = norm(q);
+    if (!nq) return 300;
+    var nh = norm(hay);
+    if (nh.indexOf(nq) >= 0) return 300;
+    var qs = nq.split(" ");
+    for (var i = 0; i < qs.length; i++) if (nh.indexOf(qs[i]) < 0) return 0;
+    return 200;
+  }
+
+  /* درجة القرب لما لم يطابق حرفياً: 1..90 أو 0 */
+  function matchNear(q, hay) {
+    var qw = fzWords(q), hw = fzWords(hay);
+    if (!qw.length || !hw.length) return 0;
+    var sum = 0, pos = 0;
+    for (var k = 0; k < qw.length; k++) {
+      var m = fzWord(qw[k], hw);
+      if (!m) return 0;
+      sum += m.d; pos += Math.min(m.at, 12);
+    }
+    return Math.max(1, Math.round(90 - sum * 15 - pos / qw.length));
+  }
+
+  function match(q, hay) { return matchExact(q, hay) || matchNear(q, hay); }
+
+  /* يفلتر القائمة بالبحث ويرتّبها: المطابق بترتيبه الأصلي أولاً، ثم
+     «القريب» من الأقرب للأبعد. rows.fz.first = أول صفّ قريب (أو -1).
+     مع limit: لا يُحسب القريب إلا إذا لم يكفِ المطابق. */
+  function rank(rows, q, hayOf, limit) {
+    if (!norm(q)) return rows;
+    var exact = [], near = [], rest = [];
+    rows.forEach(function (r) {
+      var h = hayOf(r);
+      if (matchExact(q, h)) exact.push(r); else rest.push(h, r);
+    });
+    if (limit && exact.length >= limit) {
+      exact = exact.slice(0, limit);
+      exact.fz = { first: -1, q: q };
+      return exact;
+    }
+    /* القوائم الضخمة (آلاف الفواتير): القريب فقط لما ما فيش مطابق — حتى
+       لا تثقل الكتابة */
+    if (rows.length <= 4000 || !exact.length) {
+      for (var i = 0; i < rest.length; i += 2) {
+        var sc = matchNear(q, rest[i]);
+        if (sc) near.push({ r: rest[i + 1], s: sc });
+      }
+    }
+    near.sort(function (a, b) { return b.s - a.s; });
+    // البعيد جداً عن أقرب نتيجة ضجيج لا يفيد
+    if (near.length) near = near.filter(function (x) { return x.s >= near[0].s - 20; });
+    var out = exact.concat(near.map(function (x) { return x.r; }));
+    if (limit) out = out.slice(0, limit);
+    out.fz = { first: near.length && exact.length < out.length ? exact.length : -1, q: q };
+    return out;
+  }
+
+  /* عنوان فاصل قبل أول نتيجة قريبة — في القوائم المنسدلة والجداول */
+  function nearLabel(rows) {
+    if (!rows || !rows.fz || rows.fz.first < 0) return "";
+    return rows.fz.first === 0
+      ? "ما لقيناش نتيجة مطابقة لـ«" + rows.fz.q + "» — هل تقصد؟"
+      : "نتائج قريبة (فيها اختلاف بسيط في الكتابة)";
+  }
+
+  /* عدد النتائج المطابقة فعلاً (قبل القريبة) — Enter لا يضيف غيرها */
+  function exactCount(rows) {
+    return rows && rows.fz && rows.fz.first >= 0 ? rows.fz.first : (rows ? rows.length : 0);
+  }
+
+  /* رأس «هل تقصد؟» في القوائم المنسدلة، قبل أول نتيجة قريبة */
+  function sugHead(rows, i) {
+    if (!rows || !rows.fz || rows.fz.first !== i) return "";
+    return '<div class="s-head">' + icon("search", 14) + " " + esc(nearLabel(rows)) + "</div>";
+  }
+
   function today() {
     var d = new Date(), p = function (x) { return (x < 10 ? "0" : "") + x; };
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
@@ -932,9 +1096,13 @@ var App = (function () {
       shown = shown.slice(0, opts.lazy);
     }
 
+    var nearAt = rows.fz && rows.fz.first >= 0 ? rows.fz.first : -1;
     function rowHtml(r, i) {
       var cls = opts.rowClass ? opts.rowClass(r) : "";
-      var t = '<tr class="' + cls + '">';
+      var t = i === nearAt
+        ? '<tr class="near-sep"><td colspan="' + cols.length + '">' + icon("search", 15) + " " + esc(nearLabel(rows)) + "</td></tr>"
+        : "";
+      t += '<tr class="' + cls + (i >= nearAt && nearAt >= 0 ? " near" : "") + '">';
       cols.forEach(function (c) {
         t += '<td class="' + (c.cls || "") + '">' + c.c(r, i) + "</td>";
       });
@@ -1928,7 +2096,7 @@ var App = (function () {
     get S() { return S; },
     save: save, saveNow: saveNow,
     uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, busy: busy, lazyMore: lazyMore, hasNumber: hasNumber, digits: digits,
-    money: money, money0: money0, norm: norm,
+    money: money, money0: money0, norm: norm, match: match, rank: rank, nearLabel: nearLabel, fold: fold, exactCount: exactCount, sugHead: sugHead,
     api: api, apiJson: apiJson, apiWrite: apiWrite,
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
     retryConnect: retryConnect,

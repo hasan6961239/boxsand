@@ -1622,6 +1622,82 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     writeStore(seed());
   }
 
+  console.log('\n— البحث المتسامح —');
+  {
+    const st = seed();
+    st.books.push({ id: 'b2', code: 'K0002', title: 'سلسلة شيرلوك هومز', author: 'آرثر كونان دويل', lib: 'A', shelf: '1', barcode: '31541517', cost: 0, price: 350, qty: 2, min: 0 });
+    st.books.push({ id: 'b3', code: 'K0003', title: 'حضارة الإسلام في أسبانيا', lib: 'A', shelf: '2', cost: 0, price: 25, qty: 3, min: 0 });
+    st.books.push({ id: 'b4', code: 'K0004', title: 'الكتاب المرجعي لمعلمة رياض الأطفال', lib: 'B', shelf: '1', cost: 0, price: 40, qty: 1, min: 0 });
+    writeStore(st);
+    let pg = await open();
+    const m = await pg.evaluate(() => ({
+      exact: App.match('شيرلوك', 'سلسلة شيرلوك هومز'),
+      order: App.match('هومز شيرلوك', 'سلسلة شيرلوك هومز'),
+      typo: App.match('شرلوك هولمز', 'سلسلة شيرلوك هومز'),
+      sound: App.match('حظارة الاسلام', 'حضارة الإسلام في أسبانيا'),
+      sound2: App.match('رياظ الاطفال', 'الكتاب المرجعي لمعلمة رياض الأطفال'),
+      typing: App.match('شرلو', 'سلسلة شيرلوك هومز'),
+      far: App.match('رياضيات', 'سلسلة شيرلوك هومز'),
+      code: App.match('31541518', 'سلسلة شيرلوك هومز 31541517'),
+      kcode: App.match('K0003', 'حضارة K0004')
+    }));
+    check('المطابق الحرفي 300، وأي ترتيب للكلمات 200', m.exact === 300 && m.order === 200, JSON.stringify(m));
+    check('غلط إملائي يُعدّ «قريب»', m.typo > 0 && m.typo < 200 && m.typing > 0, JSON.stringify(m));
+    check('الحروف المتشابهة (ظ=ض) قريبة جداً', m.sound >= 80 && m.sound2 >= 80, JSON.stringify(m));
+    check('كلمة بعيدة لا تطابق', m.far === 0, String(m.far));
+    check('الباركود والرمز لا يُقرَّبان أبداً', m.code === 0 && m.kcode === 0, JSON.stringify(m));
+
+    const r = await pg.evaluate(() => {
+      const res = Inv.searchItems('شرلوك', 8);
+      return { n: res.length, first: res[0] && res[0].it.id, ex: App.exactCount(res), near: res.fz && res.fz.first };
+    });
+    check('searchItems: القريب يظهر ومعلَّم أنه غير مطابق', r.first === 'b2' && r.ex === 0 && r.near === 0, JSON.stringify(r));
+
+    // نقطة البيع: Enter لا يضيف القريب، والضغط عليه يضيفه
+    await pg.evaluate(() => location.hash = '#/pos'); await sleep(500);
+    await pg.click('#scan'); await pg.keyboard.type('شرلوك', { delay: 25 }); await sleep(300);
+    const head = await pg.evaluate(() => (document.querySelector('#posResults .s-head') || {}).textContent || '');
+    await pg.keyboard.press('Enter'); await sleep(250);
+    const c0 = await pg.evaluate(() => Sales.__cartLen());
+    check('البيع: «هل تقصد؟» فوق النتيجة القريبة', /هل تقصد/.test(head), head);
+    check('البيع: Enter لا يضيف نتيجة تقريبية للفاتورة', c0 === 0, String(c0));
+    await pg.locator('#posResults .s-item').first().click(); await sleep(250);
+    check('البيع: الضغط على «هل تقصد؟» يضيفها', await pg.evaluate(() => Sales.__cartLen()) === 1);
+    await pg.fill('#scan', ''); await pg.click('#scan'); await pg.keyboard.type('حضارة الإسلام', { delay: 20 }); await pg.keyboard.press('Enter'); await sleep(250);
+    check('البيع: Enter يضيف المطابق كما كان', await pg.evaluate(() => Sales.__cartLen()) === 2);
+
+    // جدول الكتب: المطابق أولاً ثم فاصل «قريب»
+    await pg.evaluate(() => { location.hash = '#/purchases'; }); await sleep(400);
+    await pg.evaluate(() => Inv.gset('mode', 'view')); await sleep(500);
+    await pg.click('#bq'); await pg.keyboard.type('حظارة', { delay: 25 }); await sleep(350);
+    const tb = await pg.evaluate(() => ({ sep: (document.querySelector('#invBody tr.near-sep') || {}).textContent || '',
+      rows: [...document.querySelectorAll('#invBody tbody tr:not(.near-sep) .name')].map(e => e.textContent) }));
+    check('جدول الكتب: النتيجة القريبة تحت فاصل «هل تقصد؟»', /هل تقصد/.test(tb.sep) && tb.rows.length === 1 && /حضارة/.test(tb.rows[0]), JSON.stringify(tb));
+
+    // الجرد: اسم فيه غلط + Enter لا يُعدّ شيئاً حتى تختار من «هل تقصد؟»
+    await pg.evaluate(() => { location.hash = '#/stocktake'; }); await sleep(400);
+    await pg.evaluate(() => Rep.setStk('hub', 'phys')); await sleep(300);
+    await pg.evaluate(() => Count.start()); await sleep(400);
+    await pg.click('#cntScan'); await pg.keyboard.type('شرلوك', { delay: 20 }); await pg.keyboard.press('Enter'); await sleep(300);
+    const k1 = await pg.evaluate(() => ({ n: Object.keys(App.S.countSession.counted).length,
+      opts: [...document.querySelectorAll('.near-opt b')].map(e => e.textContent) }));
+    check('الجرد: الاسم الغلط لا يُعدّ تلقائياً ويعرض «هل تقصد؟»', k1.n === 0 && k1.opts[0] === 'سلسلة شيرلوك هومز', JSON.stringify(k1));
+    await pg.locator('.near-opt').first().click(); await sleep(300);
+    check('الجرد: اختيار «هل تقصد؟» يعدّ الصنف', await pg.evaluate(() => App.S.countSession.counted.b2 === 1));
+    await pg.evaluate(() => { App.S.countSession = null; App.save(); });
+
+    // خانات بحث كانت تخرج بعد أول حرف
+    for (const [hash, id, prep] of [['#/stale', 'staleQ', null], ['#/consign', 'consQ', null], ['#/stock', 'stockQ', "Stock.open('branch', App.S.branch.id)"]]) {
+      await pg.evaluate(h => location.hash = h, hash); await sleep(500);
+      if (prep) { await pg.evaluate(p => eval(p), prep); await sleep(500); }
+      await pg.click('#' + id); await pg.keyboard.type('تاريخ', { delay: 25 }); await sleep(250);
+      const st2 = await pg.evaluate(i => ({ v: document.getElementById(i).value, f: document.activeElement.id }), id);
+      check('البحث في ' + hash + ' لا يخرج من الخانة', st2.v === 'تاريخ' && st2.f === id, JSON.stringify(st2));
+    }
+    await closePage(pg);
+    writeStore(seed());
+  }
+
   await b.close();
   console.log('\n' + '='.repeat(50));
   console.log('  نجح: ' + pass + '    فشل: ' + fail);

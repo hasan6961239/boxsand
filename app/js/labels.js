@@ -406,7 +406,6 @@ var Labels = (function () {
   }
 
   function candidates() {
-    var nq = App.norm(view.q);
     var out = [];
     App.allItems().forEach(function (x) {
       var it = x.it;
@@ -414,14 +413,13 @@ var Labels = (function () {
       if (view.kind === "need" && !needsLabel(it)) return;
       if (view.kind === "printed" && !printed) return;
       if (view.kind === "done" && !it.labelPrinted) return;
-      if (nq) {
-        var hay = App.norm(App.itemName(it) + " " + (it.author || "") + " " + codeOf(it));
-        if (hay.indexOf(nq) < 0) return;
-      }
       out.push({ type: x.type, it: it, name: App.itemName(it), printed: printed });
     });
     out.sort(function (a, b) {
       return String(b.it.created || "").localeCompare(String(a.it.created || ""));
+    });
+    out = App.rank(out, view.q, function (r) {
+      return r.name + " " + (r.it.author || "") + " " + codeOf(r.it);
     });
     return out;
   }

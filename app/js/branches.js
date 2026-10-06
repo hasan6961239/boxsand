@@ -609,9 +609,8 @@ var Stock = (function () {
 
     var rows = [];
     App.allItems().forEach(function (x) {
-      var hay = App.norm(App.itemName(x.it) + " " + (x.it.author || "") + " " + (x.it.barcode || "") + " " + (x.it.code || ""));
-      if (hay.indexOf(nq) < 0) return;
       rows.push({
+        hay: App.itemName(x.it) + " " + (x.it.author || "") + " " + (x.it.barcode || "") + " " + (x.it.code || ""),
         where: S().branch.name || "فرعي", mine: true, bid: S().branch.id,
         n: App.itemName(x.it), a: x.it.author || "", q: App.num(x.it.qty), p: App.num(x.it.price),
         loc: x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"), ri: null
@@ -619,9 +618,8 @@ var Stock = (function () {
     });
     S().remotes.forEach(function (r) {
       (r.items || []).forEach(function (i) {
-        var hay = App.norm(i.n + " " + (i.a || "") + " " + (i.b || "") + " " + (i.k || ""));
-        if (hay.indexOf(nq) < 0) return;
         rows.push({
+          hay: i.n + " " + (i.a || "") + " " + (i.b || "") + " " + (i.k || ""),
           where: r.name, mine: false, bid: r.id, at: r.at,
           n: i.n, a: i.a || "", q: App.num(i.q), p: App.num(i.p),
           loc: i.t === "book" ? locOf(i) : App.esc(i.loc || "—"), ri: i
@@ -632,8 +630,8 @@ var Stock = (function () {
       (w.stock || []).forEach(function (st) {
         var it = App.findItem(st.type, st.itemId);
         if (!it) return;
-        if (App.norm(App.itemName(it)).indexOf(nq) < 0) return;
         rows.push({
+          hay: App.itemName(it),
           where: w.name, mine: false, bid: "", n: App.itemName(it), a: it.author || "",
           q: App.num(st.qty), p: App.num(it.price), loc: App.esc(w.place || "—"), ri: null
         });
@@ -641,6 +639,7 @@ var Stock = (function () {
     });
 
     rows.sort(function (a, b) { return (b.mine ? 1 : 0) - (a.mine ? 1 : 0) || b.q - a.q; });
+    rows = App.rank(rows, find, function (r) { return r.hay; });
 
     host.innerHTML = '<div class="card" style="margin-bottom:16px"><div class="card-head">' +
       "<h3>نتائج البحث في كل الفروع</h3><div class=\"spacer\"></div>" +
@@ -724,16 +723,15 @@ var Stock = (function () {
       });
     }
 
-    var nq = App.norm(view.q);
     var shown = rows.filter(function (x) {
       if (view.cat === "__none__") { if (x.c) return false; }
       else if (view.cat && x.c !== view.cat) return false;
-      if (nq && App.norm(x.n + " " + x.a).indexOf(nq) < 0) return false;
       return true;
     });
     if (view.sort === "qty") shown.sort(function (a, b) { return b.q - a.q; });
     else if (view.sort === "low") shown.sort(function (a, b) { return a.q - b.q; });
     else shown.sort(function (a, b) { return a.n > b.n ? 1 : -1; });
+    shown = App.rank(shown, view.q, function (x) { return x.n + " " + x.a; });
 
     var pieces = rows.reduce(function (s, x) { return s + x.q; }, 0);
     var value = rows.reduce(function (s, x) { return s + x.q * x.cost; }, 0);
@@ -789,7 +787,7 @@ var Stock = (function () {
 
     h += '<div class="card"><div class="card-head">' +
       '<div class="search-wrap" style="max-width:320px"><span class="mag">⌕</span>' +
-      '<input class="inp" placeholder="ابحث داخل هذا المخزن…" value="' + App.esc(view.q) + '" oninput="Stock.setQ(this.value)"></div>' +
+      '<input class="inp" id="stockQ" autocomplete="off" placeholder="ابحث داخل هذا المخزن…" value="' + App.esc(view.q) + '" oninput="Stock.setQ(this.value)"></div>' +
       '<select class="inp" style="width:auto" onchange="Stock.setV(\'sort\',this.value)">' +
       '<option value="qty"' + (view.sort === "qty" ? " selected" : "") + ">الأكثر كمية</option>" +
       '<option value="low"' + (view.sort === "low" ? " selected" : "") + ">الأقل كمية</option>" +
@@ -911,7 +909,7 @@ var Stock = (function () {
     var x = lastRows[i];
     if (x && x.ri) askTransfer(bid, x.ri);
   }
-  function setQ(v) { view.q = v; App.rerender(); }
+  function setQ(v) { view.q = v; App.rerenderKeep("stockQ"); }
 
   function st(kind, lbl, val, foot) {
     return '<div class="card stat ' + kind + '"><div class="lbl">' + App.esc(lbl) + "</div>" +

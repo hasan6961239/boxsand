@@ -12,20 +12,18 @@ var Inv = (function () {
 
   /* ---------- بحث مشترك ---------- */
 
+  /* المطابق أولاً، وإن لم يكفِ فالأقرب إليه (res.fz يحدّد أين يبدأ القريب) */
+  function itemHay(x) {
+    var it = x.it;
+    return App.itemName(it) + " " + (it.author || "") + " " + (it.brand || "") +
+      " " + (it.publisher || "") + " " + (it.code || "") + " " + (it.barcode || "") +
+      " " + (it.cat || "") + " " + (it.catFull || "") + " " + (it.lib || "") +
+      " " + (it.loc || "") + " " + (it.note || "");
+  }
+
   function searchItems(q, limit) {
-    var nq = App.norm(q);
-    if (!nq) return [];
-    var out = [];
-    App.allItems().forEach(function (x) {
-      if (out.length >= (limit || 8)) return;
-      var it = x.it;
-      var hay = App.norm(App.itemName(it) + " " + (it.author || "") + " " + (it.brand || "") +
-        " " + (it.publisher || "") + " " + (it.code || "") + " " + (it.barcode || "") +
-        " " + (it.cat || "") + " " + (it.catFull || "") + " " + (it.lib || "") +
-        " " + (it.loc || "") + " " + (it.note || ""));
-      if (hay.indexOf(nq) >= 0) out.push(x);
-    });
-    return out;
+    if (!App.norm(q)) return [];
+    return App.rank(App.allItems(), q, itemHay, limit || 8);
   }
 
   function byBarcode(code) {
@@ -110,18 +108,16 @@ var Inv = (function () {
   }
 
   function filteredBooks() {
-    var nq = App.norm(f.q);
-    return S().books.filter(function (b) {
+    var rows = S().books.filter(function (b) {
       if (f.lib && b.lib !== f.lib) return false;
       if (f.shelf && String(b.shelf) !== String(f.shelf)) return false;
       if (f.st && App.stockState(b) !== f.st) return false;
-      if (nq) {
-        var hay = App.norm((b.title || "") + " " + (b.author || "") + " " + (b.publisher || "") +
-          " " + (b.code || "") + " " + (b.barcode || "") + " " + (b.cat || "") +
-          " " + (b.catFull || ""));
-        if (hay.indexOf(nq) < 0) return false;
-      }
       return true;
+    });
+    return App.rank(rows, f.q, function (b) {
+      return (b.title || "") + " " + (b.author || "") + " " + (b.publisher || "") +
+        " " + (b.code || "") + " " + (b.barcode || "") + " " + (b.cat || "") +
+        " " + (b.catFull || "");
     });
   }
 
@@ -161,9 +157,12 @@ var Inv = (function () {
     }
     var isB = type === "book";
     var first = rows.length > 80 ? rows.slice(0, 60) : rows, rest = rows.slice(first.length);
+    var n = 0, nearAt = rows.fz && rows.fz.first >= 0 ? rows.fz.first : -1;
     function card(x) {
       var st = App.stockState(x);
-      return '<div class="item-card ' + (st === "out" ? "out" : (st === "low" ? "low" : "")) + '">' +
+      var sep = n++ === nearAt
+        ? '<div class="near-sep cards">' + App.icon("search", 15) + " " + App.esc(App.nearLabel(rows)) + "</div>" : "";
+      return sep + '<div class="item-card ' + (st === "out" ? "out" : (st === "low" ? "low" : "")) + '">' +
         '<div class="ic-top">' + lblMark(x) +
         '<b class="ic-name">' + App.esc(App.itemName(x)) + "</b></div>" +
         '<div class="ic-sub">' + App.esc(x.author || x.brand || "—") +
@@ -1085,15 +1084,12 @@ var Inv = (function () {
   function paintStat() {
     var host = document.getElementById("invBody");
     if (!host) return;
-    var nq = App.norm(g.q);
-    var rows = S().stationery.filter(function (p) {
+    var rows = App.rank(S().stationery.filter(function (p) {
       if (g.cat && p.cat !== g.cat) return false;
       if (g.st && App.stockState(p) !== g.st) return false;
-      if (nq) {
-        var hay = App.norm((p.name || "") + " " + (p.brand || "") + " " + (p.code || "") + " " + (p.barcode || "") + " " + (p.cat || ""));
-        if (hay.indexOf(nq) < 0) return false;
-      }
       return true;
+    }), g.q, function (p) {
+      return (p.name || "") + " " + (p.brand || "") + " " + (p.code || "") + " " + (p.barcode || "") + " " + (p.cat || "");
     });
 
     if (g.view === "cards") {
@@ -1555,7 +1551,9 @@ var Inv = (function () {
 
   function mvEnter(v, el) {
     if (!v) return;
-    var hit = byBarcode(v) || searchItems(v, 1)[0];
+    var res = byBarcode(v) ? null : searchItems(v, 1);
+    var hit = byBarcode(v) || (App.exactCount(res) ? res[0] : null);
+    if (!hit && res && res.length) { mvSuggest(v); App.toast("ما لقيناش «" + v + "» بالضبط — اختر من «هل تقصد؟».", "warn"); return; }
     if (!hit) { App.toast("لم يُعثر على «" + v + "».", "warn"); return; }
     mvPick(hit.type, hit.it.id);
     if (el) el.value = "";
@@ -1581,8 +1579,8 @@ var Inv = (function () {
     if (!host) return;
     var res = searchItems(q, 8);
     if (!res.length || q.length < 2) { host.innerHTML = ""; return; }
-    host.innerHTML = '<div class="suggest">' + res.map(function (x) {
-      return '<button class="s-item" onclick="Inv.mvPick(\'' + x.type + '\',\'' + x.it.id + '\')">' +
+    host.innerHTML = '<div class="suggest">' + res.map(function (x, i) {
+      return App.sugHead(res, i) + '<button class="s-item" onclick="Inv.mvPick(\'' + x.type + '\',\'' + x.it.id + '\')">' +
         '<span class="t"><b>' + App.esc(App.itemName(x.it)) + "</b><span>" +
         "على الرفوف " + App.shelfQty(x.it) + " · في المخزن " + App.storeQty(x.it) + "</span></span></button>";
     }).join("") + "</div>";
@@ -1787,7 +1785,7 @@ var Inv = (function () {
     if (!res.length) { host.innerHTML = ""; return; }
     host.innerHTML = '<div class="suggest">' + res.map(function (x, i) {
       var got = purHave(x.type, x.it.id);
-      return '<button class="s-item' + (got ? " got" : "") + '" onmousedown="event.preventDefault()" ' +
+      return App.sugHead(res, i) + '<button class="s-item' + (got ? " got" : "") + '" onmousedown="event.preventDefault()" ' +
         'onclick="Inv.purAdd(\'' + x.type + '\',\'' + x.it.id + '\')">' +
         '<span class="t"><b>' + App.esc(App.itemName(x.it)) + "</b><span>" +
         (x.type === "book" ? "كتاب" : "قرطاسية") + " · متوفر: " + App.num(x.it.qty) +
@@ -1816,7 +1814,8 @@ var Inv = (function () {
       var hit = byBarcode(e.target.value);
       if (hit) { purAdd(hit.type, hit.it.id, true); return; }
       var res = searchItems(e.target.value, 1);
-      if (res.length) purAdd(res[0].type, res[0].it.id, true);
+      if (App.exactCount(res)) purAdd(res[0].type, res[0].it.id, true);
+      else if (res.length) { purSuggest(e.target.value); App.toast("ما لقيناش الاسم بالضبط — اختر من «هل تقصد؟».", "warn"); }
       else App.toast("لم يُعثر على الصنف. أضفه أولاً من صفحة الكتب أو القرطاسية.", "warn");
     }
     if (e.key === "Escape") purClearQ();

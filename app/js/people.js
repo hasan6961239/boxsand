@@ -55,12 +55,12 @@ var People = (function () {
   function paintCustomers() {
     var host = document.getElementById("cList");
     if (!host) return;
-    var nq = App.norm(q);
-    var rows = S().customers.filter(function (c) {
+    var rows = App.rank(S().customers.filter(function (c) {
       if (onlyDebt && App.num(c.balance) <= 0) return false;
-      if (nq && App.norm(c.name + " " + (c.phone || "")).indexOf(nq) < 0) return false;
       return true;
-    }).sort(function (a, b) { return App.num(b.balance) - App.num(a.balance); });
+    }).sort(function (a, b) { return App.num(b.balance) - App.num(a.balance); }), q, function (c) {
+      return c.name + " " + (c.phone || "");
+    });
 
     host.innerHTML = App.table([
       {

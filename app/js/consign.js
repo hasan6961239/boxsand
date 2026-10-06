@@ -81,9 +81,8 @@ var Consign = (function () {
     var rows = S().consignors.map(function (c) {
       return { c: c, a: account(c.id) };
     });
-    var nq = App.norm(view.q);
-    if (nq) rows = rows.filter(function (r) { return App.norm(r.c.name + " " + (r.c.phone || "")).indexOf(nq) >= 0; });
     rows.sort(function (x, y) { return y.a.rest - x.a.rest; });
+    rows = App.rank(rows, view.q, function (r) { return r.c.name + " " + (r.c.phone || ""); });
 
     var totDue = rows.reduce(function (s, r) { return s + r.a.rest; }, 0);
     var totLeft = rows.reduce(function (s, r) { return s + r.a.left; }, 0);
@@ -98,7 +97,7 @@ var Consign = (function () {
 
     h += '<div class="row" style="margin-bottom:14px">' +
       '<div class="search-wrap"><span class="mag">⌕</span>' +
-      '<input class="inp" placeholder="ابحث باسم صاحب البضاعة أو رقم هاتفه…" value="' + App.esc(view.q) +
+      '<input class="inp" id="consQ" autocomplete="off" placeholder="ابحث باسم صاحب البضاعة أو رقم هاتفه…" value="' + App.esc(view.q) +
       '" oninput="Consign.setQ(this.value)"></div>' +
       '<div class="spacer"></div>' +
       '<button class="btn" onclick="Consign.exportAll()">تصدير Excel</button>' +
@@ -335,7 +334,7 @@ var Consign = (function () {
 
   function open(id) { view.where = "owner"; view.id = id; App.rerender(); }
   function back() { view.where = "list"; App.rerender(); }
-  function setQ(v) { view.q = v; App.rerender(); }
+  function setQ(v) { view.q = v; App.rerenderKeep("consQ"); }
 
   function ownerPage(id) {
     var o = owner(id);

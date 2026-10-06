@@ -57,6 +57,23 @@ var Count = (function () {
     if (e) { e.focus(); e.select(); }
   }
 
+  /* الاسم المكتوب ليس مطابقاً — نعرض الأقرب وأنت تختار، ولا يُعدّ شيء قبلها */
+  function nearPick(res, typed) {
+    var box = document.createElement("div");
+    box.innerHTML = '<p class="muted small" style="margin-top:0">ما لقيناش «' + App.esc(typed) +
+      '» بالضبط. اختر الصنف الصحيح ليُعدّ:</p><div class="near-list"></div>';
+    var list = box.querySelector(".near-list"), m;
+    res.forEach(function (x) {
+      var b = document.createElement("button");
+      b.className = "near-opt";
+      b.innerHTML = "<b>" + App.esc(App.itemName(x.it)) + "</b><span>" +
+        App.esc(x.it.author || x.it.brand || "") + (x.it.barcode ? " · " + App.esc(x.it.barcode) : "") + "</span>";
+      b.onclick = function () { m.close(); bump(x.it.id, 1); focusScan(); };
+      list.appendChild(b);
+    });
+    m = App.modal({ title: "هل تقصد؟", size: "narrow", body: box, actions: [] });
+  }
+
   function scanKey(e) {
     if (e.key !== "Enter") return;
     e.preventDefault();
@@ -64,8 +81,14 @@ var Count = (function () {
     if (!val) return;
     var hit = Inv.byBarcode(val);
     if (!hit) {
-      var res = Inv.searchItems(val, 1);
-      if (res.length) hit = res[0];
+      var res = Inv.searchItems(val, 3);
+      if (App.exactCount(res)) hit = res[0];
+      else if (res.length) {
+        // لا نعدّ صنفاً تقريبياً من غير ما تختاره — «هل تقصد؟»
+        nearPick(res, val);
+        e.target.value = "";
+        return;
+      }
     }
     e.target.value = "";
     if (!hit) { App.toast("لا يوجد صنف بهذا الباركود: " + val, "bad"); return; }
@@ -311,14 +334,13 @@ var Count = (function () {
   function paint() {
     var host = document.getElementById("cntRows");
     if (!host) return;
-    var nq = App.norm(v.q);
-    var r = rows().filter(function (x) {
-      if (!nq) return true;
-      return App.norm(App.itemName(x.it) + " " + (x.it.barcode || "") + " " + (x.it.author || "")).indexOf(nq) >= 0;
-    });
+    var r = rows().slice();
     r.sort(function (a, b) {
       if (a.has !== b.has) return a.has ? 1 : -1;          // غير المعدود أولاً
       return Math.abs(b.diff) - Math.abs(a.diff);
+    });
+    r = App.rank(r, v.q, function (x) {
+      return App.itemName(x.it) + " " + (x.it.barcode || "") + " " + (x.it.author || "");
     });
 
     host.innerHTML = App.table([

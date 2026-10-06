@@ -394,18 +394,124 @@ var UI = (function () {
     return out;
   }
 
+  /* ---------- البحث المتسامح (نفس منطق المنظومة) ----------
+     المطابق أولاً: كل كلمة موجودة بأي ترتيب («نحو ثانوي»). ثم «القريب»:
+     كل كلمة تشبه كلمة في الصنف بحرف غلط (حرفين في الكلمة من 7 أحرف)،
+     والحروف المتشابهة نطقاً حرف واحد (ظ=ض، ذ=ز=د، ث=ت، ص=س، ط=ت)،
+     و«ال» لا تُحسب. الأرقام والباركود لا تُقرَّب أبداً. */
+
+  function fold(s) {
+    return norm(s).replace(/ء/g, "")
+      .replace(/ظ/g, "ض").replace(/[ذز]/g, "د").replace(/ث/g, "ت")
+      .replace(/ص/g, "س").replace(/ط/g, "ت")
+      .replace(/[^ء-يa-z0-9]+/g, " ")
+      .replace(/\s+/g, " ").trim();
+  }
+
+  function fzStem(w) {
+    if (w.length > 5 && w.indexOf("وال") === 0) return w.slice(3);
+    if (w.length > 4 && w.indexOf("ال") === 0) return w.slice(2);
+    return w;
+  }
+
+  var FZC = {}, FZN = 0;
+  function fzWords(s) {
+    var k = String(s || ""), w = FZC[k];
+    if (w) return w;
+    if (++FZN > 20000) { FZC = {}; FZN = 1; }
+    w = fold(k).split(" ").filter(Boolean).map(fzStem);
+    FZC[k] = w;
+    return w;
+  }
+
+  function fzDist(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    var pp = null, p = [], c, i, j;
+    for (j = 0; j <= b.length; j++) p[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      c = [i];
+      var low = i;
+      for (j = 1; j <= b.length; j++) {
+        var v = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (pp && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, pp[j - 2] + 1);
+        c[j] = v;
+        if (v < low) low = v;
+      }
+      if (low > max) return max + 1;
+      pp = p; p = c;
+    }
+    return p[b.length];
+  }
+
+  function fzWord(q, words) {
+    var best = null;
+    var exactOnly = q.length < 3 || /\d/.test(q);
+    var max = q.length >= 7 ? 2 : 1;
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i], d;
+      if (w.indexOf(q) >= 0) d = 0;
+      else if (exactOnly || /\d/.test(w)) continue;
+      else if (q.length === 3) {
+        if (w.length > 4) continue;
+        d = fzDist(q, w, 1);
+      } else {
+        d = fzDist(q, w, max);
+        for (var L = q.length - 1; L <= q.length + 1 && d > 0; L++) {
+          if (L < 3 || L >= w.length) continue;
+          d = Math.min(d, fzDist(q, w.slice(0, L), max) + 0.25);
+        }
+      }
+      // +0.25 للكلمة غير المكتملة يرتّبها بعد الكاملة، ولا يُخرجها من الحدّ
+      if (Math.floor(d) <= max && (!best || d < best.d)) best = { d: d, at: i };
+      if (best && best.d === 0) break;
+    }
+    return best;
+  }
+
+  function matchNear(q, hay) {
+    var qw = fzWords(q), hw = fzWords(hay);
+    if (!qw.length || !hw.length) return 0;
+    var sum = 0, pos = 0;
+    for (var k = 0; k < qw.length; k++) {
+      var m = fzWord(qw[k], hw);
+      if (!m) return 0;
+      sum += m.d; pos += Math.min(m.at, 12);
+    }
+    return Math.max(1, Math.round(90 - sum * 15 - pos / qw.length));
+  }
+
   /* البحث: الاسم أو المؤلف أو الباركود أو الرمز أو التصنيف أو الناشر.
-     كل كلمة يجب أن توجد — فـ«نحو ثانوي» تجد ما فيه الاثنان. */
+     المطابق بترتيبه أولاً ثم القريب؛ out.fz.first = أول نتيجة قريبة أو -1. */
   function search(list, q) {
     var words = norm(q).split(" ").filter(Boolean);
     if (!words.length) return list;
-    return list.filter(function (g) {
-      var hay = norm([g.n, g.a, g.b, g.code, g.c, g.d].join(" "));
+    var exact = [], near = [];
+    list.forEach(function (g) {
+      var raw = [g.n, g.a, g.b, g.code, g.c, g.d].join(" "), hay = norm(raw);
       for (var i = 0; i < words.length; i++) {
-        if (hay.indexOf(words[i]) < 0) return false;
+        if (hay.indexOf(words[i]) < 0) {
+          var sc = matchNear(q, raw);
+          if (sc) near.push({ g: g, s: sc });
+          return;
+        }
       }
-      return true;
+      exact.push(g);
     });
+    near.sort(function (a, b) { return b.s - a.s; });
+    if (near.length) near = near.filter(function (x) { return x.s >= near[0].s - 20; });
+    var out = exact.concat(near.map(function (x) { return x.g; }));
+    out.fz = { first: near.length ? exact.length : -1, q: q };
+    return out;
+  }
+
+  /* عدد المطابق فعلاً — Enter لا يضيف القريب، يُختار باليد */
+  function exactCount(res) { return res && res.fz && res.fz.first >= 0 ? res.fz.first : (res ? res.length : 0); }
+
+  function nearHead(res, i) {
+    if (!res || !res.fz || res.fz.first !== i) return "";
+    return '<div class="near-head">' + (i === 0
+      ? "ما لقيناش نتيجة مطابقة لـ«" + esc(res.fz.q) + "» — هل تقصد؟"
+      : "نتائج قريبة (فيها اختلاف بسيط في الكتابة)") + "</div>";
   }
 
   function applyFilter(list) {
@@ -643,7 +749,7 @@ var UI = (function () {
       return;
     }
 
-    var list = sortItems(applyFilter(search(all, S.q)));
+    var list = search(sortItems(applyFilter(all)), S.q);
     var h = "";
 
     /* لوحة الأرقام تظهر عند العرض الكامل — لا وسط نتائج البحث */
@@ -680,7 +786,7 @@ var UI = (function () {
       '<span class="n">' + list.length + "</span></div>" + sortBar();
 
     var page = list.slice(0, S.shown);
-    h += '<div class="rows">' + page.map(rowHtml).join("") + "</div>";
+    h += '<div class="rows">' + page.map(function (g, i) { return nearHead(list, i) + rowHtml(g, i); }).join("") + "</div>";
 
     if (list.length > S.shown) {
       h += '<button class="btn wide mt" data-act="more">' +
@@ -1470,6 +1576,7 @@ var UI = (function () {
       X.init({
         get S() { return S; }, el: el, ico: ico, icons: ICONS, accents: ACCENTS, applyTheme: applyTheme, esc: esc, num: num, money: money, norm: norm,
         toast: toast, items: items, places: places, isPhone: isPhone, search: search, sortItems: sortItems,
+        exactCount: exactCount, nearHead: nearHead,
         render: render, go: go, open: open, closeSheet: closeSheet, save: save, refresh: refresh,
         rowHtml: rowHtml, emptyBox: emptyBox, ageOf: ageOf, countUp: countUp, reduced: reduced,
         configured: configured
@@ -1536,7 +1643,7 @@ var UI = (function () {
     go: go, open: open, closeSheet: closeSheet,
     setQ: setQ, clearQ: clearQ, setFilter: setFilter, reset: reset, more: more,
     saveCfg: saveCfg, wipe: wipe, gateSubmit: gateSubmit, onScan: onScan, back: back,
-    items: items, places: places, search: search, norm: norm, num: num, ageOf: ageOf,
+    items: items, places: places, search: search, exactCount: exactCount, nearHead: nearHead, norm: norm, num: num, ageOf: ageOf,
     get S() { return S; }
   };
 })();
