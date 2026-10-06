@@ -77,9 +77,9 @@ async function catalog(request, env, ctx) {
 
   let snap = null;
   if (want) {
+    // فرع محدد: قراءة واحدة فقط؛ وإن لم يوجد لا نمسح كل الفروع (حتى لا تُستنزف القراءات)
     try { snap = JSON.parse(await env.SHOP.get("branch:" + want) || "null"); } catch { }
-  }
-  if (!snap) {
+  } else {
     const listed = await env.SHOP.list({ prefix: "branch:" });
     for (const k of listed.keys) {
       try {
@@ -88,14 +88,21 @@ async function catalog(request, env, ctx) {
       } catch { }
     }
   }
-  if (!snap || snap.kind === "phone") return json({ ok: false, error: "لا توجد بيانات" }, 404);
+  if (!snap || snap.kind === "phone") {
+    const miss = new Response(JSON.stringify({ ok: false, error: "لا توجد بيانات" }), {
+      status: 404, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=120", ...CORS },
+    });
+    if (ctx) ctx.waitUntil(cache.put(cacheKey, miss.clone()));
+    return miss;
+  }
 
   const books = (snap.items || [])
     .filter(it => it && it.t === "book" && Number(it.q) > 0 && it.n)
     .map(it => [String(it.n).slice(0, 300), String(it.a || "").slice(0, 200),
                 String(it.b || it.k || "").slice(0, 40), String(it.c || "").slice(0, 300)]);
   const res = new Response(JSON.stringify({ ok: true, at: snap.at || snap.serverAt || "", books }), {
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=300", ...CORS },
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=300",
+               "X-Content-Type-Options": "nosniff", ...CORS },
   });
   if (ctx) ctx.waitUntil(cache.put(cacheKey, res.clone()));
   return res;
