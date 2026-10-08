@@ -129,7 +129,8 @@ var Sales = (function () {
        حتى لا يدخل الفاتورة كتاب غير الذي تقصده */
     var res = Inv.searchItems(v, 2);
     var ex = App.exactCount(res);
-    if (ex === 1) { add(res[0].type, res[0].it.id); return; }
+    // أو كتبت اسم صنف واحد كاملاً حرفاً بحرف («الفيزياء الأساسية»)
+    if (ex === 1 || (res.fz && res.fz.names === 1)) { add(res[0].type, res[0].it.id); return; }
     if (!res.length) App.toast("لا يوجد صنف بهذا الاسم أو الباركود.", "warn");
     else if (!ex) { suggest(v); App.toast("ما لقيناش «" + v + "» بالضبط — اختر من «هل تقصد؟».", "warn"); }
   }
@@ -370,7 +371,7 @@ var Sales = (function () {
     if (!host) return;
     var picks = S().meta.quickPicks || [];
     var arr = App.rank(App.allItems(), qSearch, function (x) {
-      return App.itemName(x.it) + " " + (x.it.barcode || "");
+      return [App.itemName(x.it), x.it.barcode];
     }).slice(0, 120);
 
     host.innerHTML = '<div class="row" style="margin-bottom:8px">' +
@@ -779,8 +780,7 @@ var Sales = (function () {
     });
     return App.rank(rows, invF.q, function (v) {
       var c = People.customer(v.customerId);
-      return String(v.no) + " " + (c ? c.name : "") + " " +
-        v.items.map(function (l) { return l.name; }).join(" ");
+      return [String(v.no), c ? c.name : ""].concat(v.items.map(function (l) { return l.name; }));
     });
   }
 

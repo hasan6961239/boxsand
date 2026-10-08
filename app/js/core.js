@@ -688,35 +688,107 @@ var App = (function () {
 
   function match(q, hay) { return matchExact(q, hay) || matchNear(q, hay); }
 
-  /* يفلتر القائمة بالبحث ويرتّبها: المطابق بترتيبه الأصلي أولاً، ثم
-     «القريب» من الأقرب للأبعد. rows.fz.first = أول صفّ قريب (أو -1).
+  /* ------------------------------------------------------------
+     ترتيب المطابق: الاسم أهمّ من باقي الخانات
+     ------------------------------------------------------------
+     كان كل صنف فيه الكلمات «في أي مكان» (التصنيف، الوصف، المؤلف) يُعدّ
+     مطابقاً، ويُعرض بترتيب الملف — فـ«الفيزياء الأساسية» نفسه يطلع
+     الحادي عشر وراء كتب تصنيفها «العلوم الأساسية: الفيزياء…»، وفي البيع
+     (8 نتائج) ما يطلعش أصلاً. الآن كل نتيجة تأخذ درجة:
+       1000 الاسم هو نفس البحث حرفاً بحرف
+        900 الاسم يبدأ به           850 في بداية كلمة من الاسم
+        800 داخل الاسم              750 خانة أخرى هي نفس البحث (كود، باركود، مؤلف)
+        700 كل الكلمات في الاسم بأي ترتيب
+        500 كل الكلمات موجودة وبعضها في الاسم
+        400 النص كما كُتب في خانة أخرى
+        300 الكلمات متفرّقة في الخانات الأخرى فقط
+     والمتساوي: الاسم الأقصر أولاً (الأقرب لما كتبت)، ثم الترتيب الأصلي.
+     hayOf يُرجع [الاسم، ...باقي الخانات]، أو نصاً واحداً يُعامل كاسم. */
+  var SEP = " ¦ ";
+  function isWordStart(s, p) {
+    if (p === 0) return true;
+    var notL = function (c) { return !/[ء-يa-z0-9]/.test(c); };
+    if (notL(s.charAt(p - 1))) return true;
+    // «فيزياء» في «الفيزياء»، «حضارة» في «والحضارة»
+    if (p >= 2 && s.substr(p - 2, 2) === "ال" && (p === 2 || notL(s.charAt(p - 3)))) return true;
+    return p >= 3 && s.substr(p - 3, 3) === "وال" && (p === 3 || notL(s.charAt(p - 4)));
+  }
+
+  function hayParts(h) {
+    if (!Array.isArray(h)) return { name: norm(h), other: "", raw: String(h || "") };
+    var others = h.slice(1).map(function (x) { return x == null ? "" : String(x); });
+    return {
+      name: norm(h[0]),
+      other: others.length ? norm(SEP + others.join(SEP) + SEP) : "",
+      raw: String(h[0] || "") + " " + others.join(" ")
+    };
+  }
+
+  function exactScore(nq, qs, p) {
+    var nh = p.name, no = p.other;
+    if (nh === nq) return 1000;
+    var at = nh.indexOf(nq);
+    if (at === 0) return 900;
+    if (at > 0) {
+      for (var k = at; k >= 0; k = nh.indexOf(nq, k + 1)) if (isWordStart(nh, k)) return 850;
+      return 800;
+    }
+    if (no && no.indexOf(SEP.trim() + " " + nq + " " + SEP.trim()) >= 0) return 750;
+    var inName = 0, i;
+    for (i = 0; i < qs.length; i++) {
+      if (nh.indexOf(qs[i]) >= 0) inName++;
+      else if (no.indexOf(qs[i]) < 0) return 0;
+    }
+    if (inName === qs.length) return 700;
+    if (inName) return 500;
+    return no.indexOf(nq) >= 0 ? 400 : 300;
+  }
+
+  /* يفلتر القائمة بالبحث ويرتّبها: المطابق بالأقرب للاسم أولاً، ثم
+     «القريب» من الأقرب للأبعد. rows.fz.first = أول صفّ قريب (أو -1)،
+     rows.fz.names = كم نتيجة اسمها هو نفس البحث بالضبط.
      مع limit: لا يُحسب القريب إلا إذا لم يكفِ المطابق. */
   function rank(rows, q, hayOf, limit) {
-    if (!norm(q)) return rows;
+    var nq = norm(q);
+    if (!nq) return rows;
+    var qs = nq.split(" ");
     var exact = [], near = [], rest = [];
-    rows.forEach(function (r) {
-      var h = hayOf(r);
-      if (matchExact(q, h)) exact.push(r); else rest.push(h, r);
+    rows.forEach(function (r, i) {
+      var p = hayParts(hayOf(r));
+      var s = exactScore(nq, qs, p);
+      if (s) exact.push({ r: r, s: s, l: s >= 700 ? p.name.length : 0, i: i });
+      else rest.push(p, r);
     });
+    exact.sort(function (a, b) { return b.s - a.s || a.l - b.l || a.i - b.i; });
+    var names = 0;
+    exact.forEach(function (x) { if (x.s === 1000) names++; });
     if (limit && exact.length >= limit) {
-      exact = exact.slice(0, limit);
-      exact.fz = { first: -1, q: q };
-      return exact;
+      var top = exact.slice(0, limit).map(function (x) { return x.r; });
+      top.fz = { first: -1, q: q, names: Math.min(names, limit) };
+      return top;
     }
     /* القوائم الضخمة (آلاف الفواتير): القريب فقط لما ما فيش مطابق — حتى
        لا تثقل الكتابة */
     if (rows.length <= 4000 || !exact.length) {
       for (var i = 0; i < rest.length; i += 2) {
-        var sc = matchNear(q, rest[i]);
-        if (sc) near.push({ r: rest[i + 1], s: sc });
+        var p = rest[i], sc = matchNear(q, p.raw);
+        if (!sc) continue;
+        // الاسم القريب أهمّ من كلمة قريبة في الوصف أو التصنيف، والاسم
+        // القصير الذي تغطيه كلماتك أقرب من الطويل
+        var sn = p.other ? matchNear(q, p.name) : sc;
+        if (sn) {
+          var nw = fzWords(p.name).length, qn = fzWords(q).length;
+          sc = sn + 100 + Math.round(10 * qn / Math.max(nw, qn, 1));
+        }
+        near.push({ r: rest[i + 1], s: sc });
       }
     }
     near.sort(function (a, b) { return b.s - a.s; });
     // البعيد جداً عن أقرب نتيجة ضجيج لا يفيد
     if (near.length) near = near.filter(function (x) { return x.s >= near[0].s - 20; });
-    var out = exact.concat(near.map(function (x) { return x.r; }));
+    var out = exact.map(function (x) { return x.r; }).concat(near.map(function (x) { return x.r; }));
     if (limit) out = out.slice(0, limit);
-    out.fz = { first: near.length && exact.length < out.length ? exact.length : -1, q: q };
+    out.fz = { first: near.length && exact.length < out.length ? exact.length : -1, q: q, names: names };
     return out;
   }
 

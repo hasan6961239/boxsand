@@ -59,7 +59,7 @@ var People = (function () {
       if (onlyDebt && App.num(c.balance) <= 0) return false;
       return true;
     }).sort(function (a, b) { return App.num(b.balance) - App.num(a.balance); }), q, function (c) {
-      return c.name + " " + (c.phone || "");
+      return [c.name, c.phone];
     });
 
     host.innerHTML = App.table([

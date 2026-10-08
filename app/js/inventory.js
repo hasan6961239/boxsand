@@ -15,10 +15,8 @@ var Inv = (function () {
   /* المطابق أولاً، وإن لم يكفِ فالأقرب إليه (res.fz يحدّد أين يبدأ القريب) */
   function itemHay(x) {
     var it = x.it;
-    return App.itemName(it) + " " + (it.author || "") + " " + (it.brand || "") +
-      " " + (it.publisher || "") + " " + (it.code || "") + " " + (it.barcode || "") +
-      " " + (it.cat || "") + " " + (it.catFull || "") + " " + (it.lib || "") +
-      " " + (it.loc || "") + " " + (it.note || "");
+    return [App.itemName(it), it.code, it.barcode, it.author, it.brand, it.publisher,
+      it.cat, it.catFull, it.lib, it.loc, it.note];
   }
 
   function searchItems(q, limit) {
@@ -115,9 +113,7 @@ var Inv = (function () {
       return true;
     });
     return App.rank(rows, f.q, function (b) {
-      return (b.title || "") + " " + (b.author || "") + " " + (b.publisher || "") +
-        " " + (b.code || "") + " " + (b.barcode || "") + " " + (b.cat || "") +
-        " " + (b.catFull || "");
+      return [b.title, b.code, b.barcode, b.author, b.publisher, b.cat, b.catFull];
     });
   }
 
@@ -1127,7 +1123,7 @@ var Inv = (function () {
       if (g.st && App.stockState(p) !== g.st) return false;
       return true;
     }), g.q, function (p) {
-      return (p.name || "") + " " + (p.brand || "") + " " + (p.code || "") + " " + (p.barcode || "") + " " + (p.cat || "");
+      return [p.name, p.code, p.barcode, p.brand, p.cat];
     });
 
     if (g.view === "cards") {

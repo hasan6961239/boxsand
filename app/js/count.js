@@ -340,7 +340,7 @@ var Count = (function () {
       return Math.abs(b.diff) - Math.abs(a.diff);
     });
     r = App.rank(r, v.q, function (x) {
-      return App.itemName(x.it) + " " + (x.it.barcode || "") + " " + (x.it.author || "");
+      return [App.itemName(x.it), x.it.barcode, x.it.author];
     });
 
     host.innerHTML = App.table([

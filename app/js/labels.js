@@ -419,7 +419,7 @@ var Labels = (function () {
       return String(b.it.created || "").localeCompare(String(a.it.created || ""));
     });
     out = App.rank(out, view.q, function (r) {
-      return r.name + " " + (r.it.author || "") + " " + codeOf(r.it);
+      return [r.name, codeOf(r.it), r.it.author];
     });
     return out;
   }

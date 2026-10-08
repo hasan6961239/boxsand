@@ -82,7 +82,7 @@ var Consign = (function () {
       return { c: c, a: account(c.id) };
     });
     rows.sort(function (x, y) { return y.a.rest - x.a.rest; });
-    rows = App.rank(rows, view.q, function (r) { return r.c.name + " " + (r.c.phone || ""); });
+    rows = App.rank(rows, view.q, function (r) { return [r.c.name, r.c.phone]; });
 
     var totDue = rows.reduce(function (s, r) { return s + r.a.rest; }, 0);
     var totLeft = rows.reduce(function (s, r) { return s + r.a.left; }, 0);

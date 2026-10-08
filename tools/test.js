@@ -1628,8 +1628,20 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     st.books.push({ id: 'b2', code: 'K0002', title: 'سلسلة شيرلوك هومز', author: 'آرثر كونان دويل', lib: 'A', shelf: '1', barcode: '31541517', cost: 0, price: 350, qty: 2, min: 0 });
     st.books.push({ id: 'b3', code: 'K0003', title: 'حضارة الإسلام في أسبانيا', lib: 'A', shelf: '2', cost: 0, price: 25, qty: 3, min: 0 });
     st.books.push({ id: 'b4', code: 'K0004', title: 'الكتاب المرجعي لمعلمة رياض الأطفال', lib: 'B', shelf: '1', cost: 0, price: 40, qty: 1, min: 0 });
+    // كتب تصنيفها فيه نفس الكلمات تأتي في الملف قبل الكتاب المقصود
+    for (let i = 0; i < 9; i++) st.books.push({ id: 'p' + i, code: 'P00' + i, title: 'أساسيات المختبر ' + i, cat: 'العلوم الأساسية: الفيزياء', lib: 'C', shelf: '1', cost: 0, price: 10, qty: 1, min: 0 });
+    st.books.push({ id: 'p9', code: 'P009', title: 'مسائل محلولة في الفيزياء الأساسية', lib: 'C', shelf: '2', cost: 0, price: 10, qty: 1, min: 0 });
+    st.books.push({ id: 'pb', code: 'P010', title: 'الفيزياء الأساسية', cat: 'العلوم الأساسية', lib: 'C', shelf: '2', cost: 0, price: 30, qty: 2, min: 0 });
     writeStore(st);
     let pg = await open();
+    const rk = await pg.evaluate(() => {
+      const a = Inv.searchItems('الفيزياء الاساسيه', 8), b = Inv.searchItems('الفيزياء', 8);
+      return { a: a.map(x => x.it.id), names: a.fz && a.fz.names, b: b.slice(0, 2).map(x => x.it.id),
+        tbl: App.rank(App.S.books, 'الفيزياء الأساسية', x => [x.title, x.code, x.cat]).map(x => x.id).slice(0, 3) };
+    });
+    check('الترتيب: الاسم المطابق حرفياً أول نتيجة قبل كتب التصنيف', rk.a[0] === 'pb' && rk.a[1] === 'p9' && rk.names === 1, JSON.stringify(rk));
+    check('الترتيب: كلمة واحدة — الكتب التي اسمها فيه الكلمة أولاً', rk.b[0] === 'pb' && rk.b[1] === 'p9', JSON.stringify(rk.b));
+    check('الترتيب: جدول الكتب بنفس الترتيب', rk.tbl[0] === 'pb' && rk.tbl[1] === 'p9', JSON.stringify(rk.tbl));
     const m = await pg.evaluate(() => ({
       exact: App.match('شيرلوك', 'سلسلة شيرلوك هومز'),
       order: App.match('هومز شيرلوك', 'سلسلة شيرلوك هومز'),
@@ -1665,6 +1677,9 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     check('البيع: الضغط على «هل تقصد؟» يضيفها', await pg.evaluate(() => Sales.__cartLen()) === 1);
     await pg.fill('#scan', ''); await pg.click('#scan'); await pg.keyboard.type('حضارة الإسلام', { delay: 20 }); await pg.keyboard.press('Enter'); await sleep(250);
     check('البيع: Enter يضيف المطابق كما كان', await pg.evaluate(() => Sales.__cartLen()) === 2);
+    await pg.fill('#scan', ''); await pg.click('#scan'); await pg.keyboard.type('الفيزياء الاساسيه', { delay: 15 }); await pg.keyboard.press('Enter'); await sleep(250);
+    const pc = await pg.evaluate(() => [...document.querySelectorAll('.cart-line .info b')].map(b => b.textContent));
+    check('البيع: Enter على اسم كامل له نتائج أخرى يضيف الكتاب نفسه', pc.length === 3 && pc.includes('الفيزياء الأساسية'), JSON.stringify(pc));
 
     // جدول الكتب: المطابق أولاً ثم فاصل «قريب»
     await pg.evaluate(() => { location.hash = '#/purchases'; }); await sleep(400);

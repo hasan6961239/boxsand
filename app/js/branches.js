@@ -615,7 +615,7 @@ var Stock = (function () {
     var rows = [];
     App.allItems().forEach(function (x) {
       rows.push({
-        hay: App.itemName(x.it) + " " + (x.it.author || "") + " " + (x.it.barcode || "") + " " + (x.it.code || ""),
+        hay: [App.itemName(x.it), x.it.barcode, x.it.code, x.it.author],
         where: S().branch.name || "فرعي", mine: true, bid: S().branch.id,
         n: App.itemName(x.it), a: x.it.author || "", q: App.num(x.it.qty), p: App.num(x.it.price),
         loc: x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"), ri: null
@@ -624,7 +624,7 @@ var Stock = (function () {
     S().remotes.forEach(function (r) {
       (r.items || []).forEach(function (i) {
         rows.push({
-          hay: i.n + " " + (i.a || "") + " " + (i.b || "") + " " + (i.k || ""),
+          hay: [i.n, i.b, i.k, i.a],
           where: r.name, mine: false, bid: r.id, at: r.at,
           n: i.n, a: i.a || "", q: App.num(i.q), p: App.num(i.p),
           loc: i.t === "book" ? locOf(i) : App.esc(i.loc || "—"), ri: i
@@ -636,7 +636,7 @@ var Stock = (function () {
         var it = App.findItem(st.type, st.itemId);
         if (!it) return;
         rows.push({
-          hay: App.itemName(it),
+          hay: [App.itemName(it)],
           where: w.name, mine: false, bid: "", n: App.itemName(it), a: it.author || "",
           q: App.num(st.qty), p: App.num(it.price), loc: App.esc(w.place || "—"), ri: null
         });
@@ -736,7 +736,7 @@ var Stock = (function () {
     if (view.sort === "qty") shown.sort(function (a, b) { return b.q - a.q; });
     else if (view.sort === "low") shown.sort(function (a, b) { return a.q - b.q; });
     else shown.sort(function (a, b) { return a.n > b.n ? 1 : -1; });
-    shown = App.rank(shown, view.q, function (x) { return x.n + " " + x.a; });
+    shown = App.rank(shown, view.q, function (x) { return [x.n, x.a]; });
 
     var pieces = rows.reduce(function (s, x) { return s + x.q; }, 0);
     var value = rows.reduce(function (s, x) { return s + x.q * x.cost; }, 0);

@@ -123,7 +123,7 @@ var Stale = (function () {
       return b.frozen - a.frozen;      // الافتراضي: المال المجمّد
     });
     return App.rank(list, view.q, function (r) {
-      return r.name + " " + (r.it.author || "") + " " + (r.it.cat || "") + " " + (r.it.barcode || "");
+      return [r.name, r.it.barcode, r.it.author, r.it.cat];
     });
   }
 
