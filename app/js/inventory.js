@@ -764,6 +764,18 @@ var Inv = (function () {
     return hit;
   }
 
+  /* باركود السطر مستعمل لصنف آخر، أو مكرر داخل اللصق نفسه. شاشة «كتاب
+     جديد» ترفضه، واللصق كان يحفظه صنفاً ثانياً بنفس الباركود — والمسح
+     يأخذ الأول دائماً فلا يُباع الثاني أبداً. */
+  function bulkBcClash(i) {
+    var r = bulkRows[i], bc = String((r && r.barcode) || "").trim();
+    if (!bc) return "";
+    var hit = byBarcode(bc), mine = findByTitle(r.title);
+    if (hit && !(mine && hit.it.id === mine.id)) return "مستعمل لـ«" + App.itemName(hit.it) + "»";
+    for (var j = 0; j < i; j++) if (String(bulkRows[j].barcode || "").trim() === bc) return "مكرر مع السطر " + (j + 1);
+    return "";
+  }
+
   function bulkSet(i, k, v) {
     if (!bulkRows[i]) return;
     if (k === "qty" || k === "min") bulkRows[i][k] = Math.max(0, Math.round(App.num(v)));
@@ -820,11 +832,13 @@ var Inv = (function () {
     if (!host) return;
     var dupes = bulkRows.filter(function (r) { return r.dupe; }).length;
     var noPrice = bulkRows.filter(function (r) { return App.num(r.price) <= 0; }).length;
+    var bcBad = bulkRows.filter(function (r, i) { return !!bulkBcClash(i); }).length;
 
     var h = '<div class="row" style="gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">' +
       '<span class="badge ok">' + bulkRows.length + " كتاب</span>" +
       (dupes ? '<span class="badge warn">' + dupes + " موجود مسبقاً (سيُحدَّث)</span>" : "") +
       (noPrice ? '<span class="badge bad">' + noPrice + " بلا سعر بيع</span>" : "") +
+      (bcBad ? '<span class="badge bad">' + bcBad + " باركود مستعمل — صحّحه أو امسحه</span>" : "") +
       '<div class="spacer"></div>' +
       '<div class="field"><label class="small">سعر بيع للكل</label>' +
       '<input class="inp num" style="width:110px" type="text" inputmode="decimal" placeholder="—" ' +
@@ -859,8 +873,10 @@ var Inv = (function () {
       {
         h: "الباركود", c: function (r, i) {
           // 13 رقم ISBN يحتاج هذا العرض كاملاً وإلا بدا مقصوصاً
-          return '<input class="inp num" style="width:152px" value="' + App.esc(r.barcode) +
-            '" placeholder="امسحه" onchange="Inv.bulkSet(' + i + ',\'barcode\',this.value)">';
+          var cl = bulkBcClash(i);
+          return '<input class="inp num" style="width:152px' + (cl ? ';border-color:var(--stamp)' : '') + '" value="' + App.esc(r.barcode) +
+            '" placeholder="امسحه" onchange="Inv.bulkSet(' + i + ',\'barcode\',this.value)">' +
+            (cl ? '<div class="sub" style="color:var(--stamp)">' + App.esc(cl) + "</div>" : "");
         }
       },
       {
@@ -898,6 +914,10 @@ var Inv = (function () {
 
   function bulkSave(close) {
     if (!bulkRows.length) { App.toast("لا كتب للحفظ.", "warn"); return; }
+    for (var bi = 0; bi < bulkRows.length; bi++) {
+      var cl = bulkBcClash(bi);
+      if (cl) { App.toast("السطر " + (bi + 1) + ": الباركود " + cl + ". صحّحه أو امسحه ثم احفظ.", "warn"); return; }
+    }
     var added = 0, upd = 0, ids = [];
 
     bulkRows.forEach(function (r) {
@@ -2001,14 +2021,63 @@ var Inv = (function () {
     App.toast("نُزّل ملف القرطاسية. افتحه ببرنامج Excel.");
   }
 
+  /* ---------- الاستيراد ----------
+     الأعمدة تُقرأ بأسمائها لا بترتيبها: ملف «تصدير Excel» (18 عموداً) كان
+     يُقرأ بترتيب النموذج (12) فيصير سعر البيع = عدد النسخ على الرف، والكمية
+     = عدد المخزن، وسطور العنوان والإجمالي كتباً وهمية — لكل الكتب بضغطة.
+     والخانة الفارغة لا تمسح ما هو مسجّل: ملف فيه «الاسم والسعر» فقط كان
+     يمسح الباركود والكمية والمؤلف والمكان. الملف بلا عناوين مفهومة يُقرأ
+     بترتيب النموذج كما كان. */
+  var IMP_HEAD = {
+    title: ["اسم الكتاب", "الاسم", "العنوان", "اسم الصنف", "الصنف", "title", "name"],
+    author: ["المؤلف", "author"],
+    brand: ["الماركة"],
+    publisher: ["دار النشر", "الناشر"],
+    cat: ["التصنيف", "الفئة"],
+    lib: ["المكتبة", "الخزانة"],
+    shelf: ["الرف"],
+    loc: ["الموقع", "المكان"],
+    unit: ["الوحدة"],
+    barcode: ["الباركود", "الرمز أو الباركود", "باركود", "الرمز", "barcode", "isbn"],
+    cost: ["سعر الجملة", "سعر الشراء", "شراء", "التكلفة", "cost"],
+    price: ["سعر البيع", "سعر البيع قطاعي", "بيع", "السعر", "price"],
+    priceW: ["سعر البيع جملة"],
+    qty: ["الكمية", "العدد", "qty"],
+    store: ["في المخزن"],
+    min: ["حد التنبيه", "الحد"],
+    note: ["ملاحظة", "ملاحظات", "الوصف"]
+  };
+  function impHeadKey(h) {
+    var n = App.norm(String(h || "").replace(/^﻿/, ""));
+    var hit = "";
+    Object.keys(IMP_HEAD).forEach(function (k) {
+      IMP_HEAD[k].forEach(function (x) { if (!hit && App.norm(x) === n) hit = k; });
+    });
+    return hit;
+  }
+  /* يبحث عن سطر العناوين في أول الملف (ملف التصدير يبدأ بعنوان واسم المحل) */
+  function impLayout(rows, type) {
+    for (var r = 0; r < Math.min(rows.length, 8); r++) {
+      var map = {}, n = 0;
+      rows[r].forEach(function (h, i) { var k = impHeadKey(h); if (k && map[k] === undefined) { map[k] = i; n++; } });
+      if (map.title !== undefined && n >= 3) return { start: r + 1, map: map, byName: true };
+    }
+    var pos = type === "book"
+      ? ["title", "author", "publisher", "cat", "lib", "shelf", "barcode", "cost", "price", "qty", "min", "note"]
+      : ["title", "cat", "brand", "unit", "loc", "barcode", "cost", "price", "qty", "min", "note"];
+    var m2 = {}; pos.forEach(function (k, i) { m2[k] = i; });
+    return { start: 1, map: m2, byName: false };
+  }
+
   function importItems(type) {
     var cols = type === "book" ? BOOK_COLS : STAT_COLS;
     App.modal({
       title: "استيراد " + (type === "book" ? "كتب" : "أصناف قرطاسية") + " من ملف",
-      body: '<p style="line-height:1.8;margin-top:0">اختر ملف CSV بنفس ترتيب الأعمدة التالي (الصف الأول عناوين):</p>' +
+      body: '<p style="line-height:1.8;margin-top:0">اختر ملف CSV فيه سطر عناوين. الأعمدة تُعرف بأسمائها، مثل:</p>' +
         '<div style="background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:11px;font-size:12.5px" class="num">' +
         App.esc(cols.join(" ، ")) + "</div>" +
-        '<p class="muted small" style="line-height:1.7">في Excel: ملف ← حفظ باسم ← اختر النوع <b>CSV UTF-8</b>. الأصناف الموجودة بنفس الاسم تُحدَّث بدل تكرارها.</p>',
+        '<p class="muted small" style="line-height:1.7">في Excel: ملف ← حفظ باسم ← اختر النوع <b>CSV UTF-8</b>. ملف «تصدير Excel» نفسه يصلح بعد تعديله. ' +
+        "الصنف الموجود (بالباركود أو بالاسم) يُحدَّث، والخانة الفارغة لا تغيّر ما هو مسجّل.</p>",
       actions: [
         {
           label: "تحميل ملف نموذج", click: function () {
@@ -2020,52 +2089,129 @@ var Inv = (function () {
             App.pickFile(".csv,text/csv", function (txt) {
               var rows = App.parseCsv(txt);
               if (rows.length < 2) { App.toast("الملف فارغ أو غير صالح.", "bad"); return; }
-              rows.shift();
-              var added = 0, upd = 0, badCells = 0;
-              /* خلية فيها نص لكنها لا تحمل رقماً مفهوماً = قراءة ضائعة.
-                 نعدّها وننبّه، بدل إدخال الصنف بسعر صفر بصمت. */
-              function money(cell) {
-                var raw = String(cell === null || cell === undefined ? "" : cell).trim();
-                if (raw && !App.hasNumber(raw)) badCells++;
-                return App.num(raw);
-              }
-              rows.forEach(function (r) {
-                var name = String(r[0] || "").trim();
-                if (!name) return;
-                var list = App.listOf(type);
-                var ex = null;
-                list.forEach(function (x) { if (App.norm(App.itemName(x)) === App.norm(name)) ex = x; });
-                var o = ex || { id: App.uid(), code: App.nextCode(type), created: App.nowStamp() };
-                if (type === "book") {
-                  o.title = name; o.author = r[1] || ""; o.publisher = r[2] || ""; o.cat = r[3] || "";
-                  o.lib = r[4] || ""; o.shelf = r[5] || ""; o.barcode = r[6] || "";
-                  o.cost = money(r[7]); o.price = money(r[8]); o.qty = money(r[9]); o.min = money(r[10]);
-                  if (r[11] !== undefined && String(r[11]).trim()) o.note = String(r[11]).trim();
-                } else {
-                  o.name = name; o.cat = r[1] || ""; o.brand = r[2] || ""; o.unit = r[3] || "قطعة";
-                  o.loc = r[4] || ""; o.barcode = r[5] || "";
-                  o.cost = money(r[6]); o.price = money(r[7]); o.qty = money(r[8]); o.min = money(r[9]);
-                  if (r[10] !== undefined && String(r[10]).trim()) o.note = String(r[10]).trim();
-                }
-                o.updated = App.nowStamp();
-                if (ex) upd++; else { list.push(o); added++; }
-              });
-              App.log("استيراد", "أضيف " + added + " وحُدّث " + upd);
-              App.save(); close(); App.rerender();
-              App.toast("تم الاستيراد: " + added + " جديد، " + upd + " محدَّث.");
-              if (badCells > 0) {
-                App.modal({
-                  title: "انتبه — خانات لم تُقرأ",
-                  body: "<p style=\"line-height:1.9\">" + badCells + " خانة سعر أو كمية في الملف لم يُفهم رقمها، " +
-                    "فسُجّلت صفراً. الغالب أن الملف محفوظ بأرقام غير معتادة أو فيه رموز عملة داخل الخانة.</p>" +
-                    "<p style=\"line-height:1.9\">راجع الأصناف التي سعرها صفر في «عرض وتعديل» قبل البيع.</p>"
-                });
-              }
+              var plan = importPlan(type, rows);
+              if (!plan.ops.length) { App.toast("لم أجد في الملف أي صنف للاستيراد.", "warn"); return; }
+              if (!plan.upd) { importApply(type, plan); close(); return; }
+              importConfirm(type, plan, close);
             });
           }
         }
       ]
     });
+  }
+
+  /* يقرأ الملف ويحسب ما سيتغيّر — قبل أن يُلمس أي شيء */
+  function importPlan(type, rows) {
+    var lay = impLayout(rows, type), M = lay.map, isB = type === "book";
+    var plan = { ops: [], add: 0, upd: 0, badCells: 0, changed: { price: 0, qty: 0, cost: 0, barcode: 0 }, skipped: 0 };
+    function cell(r, k) {
+      if (M[k] === undefined) return null;
+      var v = r[M[k]];
+      v = String(v === null || v === undefined ? "" : v).trim();
+      return v === "" ? null : v;                       // null = لا تغيّر
+    }
+    function money(v) {
+      if (v === null) return null;
+      if (!App.hasNumber(v)) { plan.badCells++; return 0; }
+      return App.num(v);
+    }
+    var list = App.listOf(type), seenNew = {};
+    rows.slice(lay.start).forEach(function (r) {
+      var name = cell(r, "title");
+      if (!name) return;
+      if (App.norm(name) === App.norm("الإجمالي")) { plan.skipped++; return; }
+      var bc = cell(r, "barcode");
+      var ex = null;
+      if (bc) list.forEach(function (x) {
+        if (!ex && (String(x.barcode || "").trim() === bc || String(x.code || "").trim().toUpperCase() === bc.toUpperCase())) ex = x;
+      });
+      if (!ex) list.forEach(function (x) { if (App.norm(App.itemName(x)) === App.norm(name)) ex = x; });
+      if (!ex && seenNew[App.norm(name) + "|" + (bc || "")]) { plan.skipped++; return; }
+      var f = {};
+      f[isB ? "title" : "name"] = name;
+      ["author", "publisher", "cat", "lib", "shelf", "note"].forEach(function (k) { var v = cell(r, k); if (v !== null) f[k] = v; });
+      if (!isB) {
+        var br = cell(r, "brand"); if (br === null) br = cell(r, "author"); if (br !== null) f.brand = br;
+        var un = cell(r, "unit"); if (un !== null) f.unit = un;
+        delete f.author; delete f.publisher; delete f.lib; delete f.shelf;
+      }
+      var loc = cell(r, "loc");
+      if (loc !== null) {
+        if (isB) {
+          var mm = loc.match(/^\s*([^\/]+?)\s*(?:\/\s*رف\s*(\S+))?\s*$/);
+          if (mm) { if (f.lib === undefined) f.lib = mm[1].trim(); if (mm[2] && f.shelf === undefined) f.shelf = mm[2]; }
+        } else f.loc = loc;
+      }
+      if (bc !== null && !(ex && String(ex.code || "").trim().toUpperCase() === bc.toUpperCase())) f.barcode = bc;
+      ["cost", "price", "priceW", "qty", "min"].forEach(function (k) { var v = money(cell(r, k)); if (v !== null) f[k] = v; });
+      var st = money(cell(r, "store")); if (st !== null) f.store = st;
+      if (ex) {
+        ["price", "qty", "cost", "barcode"].forEach(function (k) {
+          if (f[k] !== undefined && String(f[k]) !== String(k === "barcode" ? (ex.barcode || "") : App.num(ex[k]))) plan.changed[k]++;
+        });
+        plan.upd++;
+      } else {
+        seenNew[App.norm(name) + "|" + (bc || "")] = 1;
+        plan.add++;
+      }
+      plan.ops.push({ ex: ex, f: f });
+    });
+    return plan;
+  }
+
+  function importConfirm(type, plan, closeFirst) {
+    var c = plan.changed, ch = [];
+    if (c.price) ch.push("سعر البيع في <b>" + c.price + "</b>");
+    if (c.qty) ch.push("الكمية في <b>" + c.qty + "</b>");
+    if (c.cost) ch.push("سعر الشراء في <b>" + c.cost + "</b>");
+    if (c.barcode) ch.push("الباركود في <b>" + c.barcode + "</b>");
+    App.modal({
+      title: "قبل الاستيراد — راجع ما سيتغيّر",
+      size: "narrow",
+      body: '<p style="line-height:1.9;margin-top:0">سيُضاف <b class="num">' + plan.add + "</b> صنفاً جديداً، ويُحدَّث <b class=\"num\">" +
+        plan.upd + "</b> صنفاً موجوداً.</p>" +
+        (ch.length ? '<p style="line-height:1.9">يتغيّر ' + ch.join("، ") + " صنفاً.</p>" : '<p class="muted">لا تتغيّر أسعار ولا كميات.</p>') +
+        (plan.badCells ? '<p style="line-height:1.8;color:var(--stamp)">' + plan.badCells + " خانة سعر أو كمية لم يُفهم رقمها وستُسجَّل صفراً.</p>" : "") +
+        '<p class="muted small" style="line-height:1.8;margin-bottom:0">الخانات الفارغة في الملف لا تغيّر شيئاً. إن كانت الأرقام غير متوقعة فالغالب أن الملف ليس ملف كتب — اضغط «إلغاء».</p>',
+      cancelLabel: "إلغاء",
+      actions: [{
+        label: "استيراد", kind: "primary", click: function (close) {
+          close(); if (closeFirst) closeFirst();
+          importApply(type, plan);
+        }
+      }]
+    });
+  }
+
+  function importApply(type, plan) {
+    var list = App.listOf(type), isB = type === "book";
+    plan.ops.forEach(function (op) {
+      var o = op.ex;
+      if (!o) {
+        o = { id: App.uid(), code: App.nextCode(type), created: App.nowStamp() };
+        if (isB) { o.title = ""; o.author = ""; o.publisher = ""; o.cat = ""; o.lib = ""; o.shelf = ""; }
+        else { o.name = ""; o.cat = ""; o.brand = ""; o.unit = "قطعة"; o.loc = ""; }
+        o.barcode = ""; o.cost = 0; o.price = 0; o.qty = 0; o.min = 0;
+        list.push(o);
+      }
+      Object.keys(op.f).forEach(function (k) { o[k] = op.f[k]; });
+      if (o.store !== undefined) {
+        var s2 = Math.min(Math.max(App.num(o.store), 0), Math.max(App.num(o.qty), 0));
+        if (s2 > 0) o.store = s2; else delete o.store;
+      }
+      o.updated = App.nowStamp();
+    });
+    App.log("استيراد", "أضيف " + plan.add + " وحُدّث " + plan.upd);
+    App.save(); App.rerender();
+    App.toast("تم الاستيراد: " + plan.add + " جديد، " + plan.upd + " محدَّث.");
+    if (plan.badCells > 0) {
+      App.modal({
+        title: "انتبه — خانات لم تُقرأ",
+        body: "<p style=\"line-height:1.9\">" + plan.badCells + " خانة سعر أو كمية في الملف لم يُفهم رقمها، " +
+          "فسُجّلت صفراً. الغالب أن الملف محفوظ بأرقام غير معتادة أو فيه رموز عملة داخل الخانة.</p>" +
+          "<p style=\"line-height:1.9\">راجع الأصناف التي سعرها صفر في «عرض وتعديل» قبل البيع.</p>"
+      });
+    }
   }
 
   return {

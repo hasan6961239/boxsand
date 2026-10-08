@@ -976,10 +976,21 @@ var Rep = (function () {
     if (!host) return;
     App.api("/api/backups").then(function (r) { return r.json(); }).then(function (list) {
       host.innerHTML = App.table([
-        { h: "النسخة", c: function (b) { return '<span class="num">' + App.esc(b.name) + "</span>"; } },
+        {
+          h: "النسخة", c: function (b) {
+            return (b.last ? '<b>آخر حفظ سليم قبل المشكلة</b> <span class="badge ok">الأحدث</span><div class="sub num">' + App.esc(b.name) + "</div>"
+              : '<span class="num">' + App.esc(b.name) + "</span>") +
+              (b.ok === false ? ' <span class="badge bad">تالفة</span>' : "");
+          }
+        },
         { h: "التاريخ", c: function (b) { return '<span class="num small">' + App.esc(b.date) + "</span>"; } },
         { h: "الحجم", cls: "num", c: function (b) { return (b.size / 1024).toFixed(1) + " KB"; } },
-        { h: "", cls: "act", c: function (b) { return '<button class="btn sm" onclick="Rep.restore(\'' + App.esc(b.name) + '\')">استعادة</button>'; } }
+        {
+          h: "", cls: "act", c: function (b) {
+            return b.ok === false ? '<span class="muted small">لا تصلح</span>'
+              : '<button class="btn sm' + (b.last ? " primary" : "") + '" onclick="Rep.restore(\'' + App.esc(b.name) + '\')">استعادة</button>';
+          }
+        }
       ], list || [], { emptyIcon: "box", emptyTitle: "لا نسخ بعد", emptyText: "ستُؤخذ أول نسخة تلقائياً غداً، أو خذ واحدة الآن." });
     }).catch(function () { host.innerHTML = '<div class="empty"><p>تعذّر قراءة النسخ.</p></div>'; });
   }
@@ -1009,15 +1020,21 @@ var Rep = (function () {
     setTimeout(loadBackups, 0);
   }
 
+  /* شاشة الملف التالف تفتح «للعرض فقط» بلا ملكية كتابة — والمحرك يرفض
+     الاستعادة بلا ملكية، فكان زر «استعادة» لا يفعل شيئاً وصاحب المحل عالق.
+     الآن تُطلب الملكية للاستعادة وحدها (يبقى الحفظ العادي موقوفاً)، والفشل
+     يظهر برسالته الحقيقية. */
   function restore(name) {
     App.confirm("سيتم استبدال بياناتك الحالية بمحتوى النسخة «" + name +
       "». تُحفظ نسخة من الوضع الحالي قبل الاستبدال.", function () {
-        App.api("/api/restore", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name })
-        }).then(function (r) { return r.json(); }).then(function (res) {
-          if (res && res.ok) { App.toast("استُعيدت النسخة. سيُعاد تحميل البرنامج."); setTimeout(function () { location.reload(); }, 900); }
-          else App.toast((res && res.error) || "تعذّرت الاستعادة.", "bad");
+        App.ensureWriteToken().then(function () {
+          return App.apiWrite("/api/restore", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name })
+          });
+        }).then(function () {
+          App.toast("استُعيدت النسخة. سيُعاد تحميل البرنامج.");
+          setTimeout(function () { location.reload(); }, 900);
         }).catch(function (e) {
           App.toast("تعذّرت الاستعادة: " + (e && e.message ? e.message : "سبب غير معروف"), "bad");
         });
@@ -1167,11 +1184,19 @@ var Rep = (function () {
           }
 
           var n = (d.books || []).length + (d.stationery || []).length;
+          // نسخة من جهاز آخر (أو بلا بصمة): الربط والإشعارات يُسأل عنهما قبل تشغيلهما
+          if (d.meta && d.meta.homeFp !== App.deviceFp()) d.meta.cloneCheck = true;
           /* الكتابة تمر بـapiWrite فيظهر سبب الفشل الحقيقي بدل صمت
-             كان يبدو معه أن الزر لا يفعل شيئاً. */
-          App.apiWrite("/api/save", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(d)
+             كان يبدو معه أن الزر لا يفعل شيئاً.
+             وقبلها نسخة احتياطية من البيانات الحالية: ملف قديم اختير بالخطأ
+             كان يمسح عمل اليوم بلا رجعة (النسخة اليومية تُؤخذ عند التشغيل فقط). */
+          App.saveNow().then(function () {
+            return App.apiWrite("/api/backup", { method: "POST" });
+          }).then(function () {
+            return App.apiWrite("/api/save", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(d)
+            });
           }).then(function () {
             App.toast("استُعيدت البيانات — " + n + " صنف. يُعاد التحميل…", "ok");
             setTimeout(function () { location.reload(); }, 900);

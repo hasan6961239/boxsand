@@ -21,6 +21,7 @@ var Notify = (function () {
 
   function on(kind) {
     var c = cfg();
+    if (App.outboundHeld && App.outboundHeld()) return false;      // بيانات المحل على جهاز آخر
     return c && c.enabled && c.topic && c.kinds && c.kinds[kind];
   }
 
@@ -175,7 +176,7 @@ var Notify = (function () {
 
   function page() {
     var c = cfg();
-    var h = '<div class="grid g2">';
+    var h = (App.holdBanner ? App.holdBanner() : "") + '<div class="grid g2">';
 
     // الإعداد
     h += '<div class="card"><div class="card-head"><h3>إعداد الإشعارات</h3><div class="spacer"></div>' +

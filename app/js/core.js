@@ -191,7 +191,10 @@ var App = (function () {
     if (saveTimer) clearTimeout(saveTimer);
     // لا يتأخر الحفظ أكثر من ثانيتين مهما تتابعت التعديلات
     if (!saving && Date.now() - firstDirtyAt > 2000) { saveNow(); return; }
-    saveTimer = setTimeout(saveNow, 500);
+    /* كان الانتظار نصف ثانية: تعديل ثم إغلاق النافذة فوراً كان يضيّع التعديل،
+       لأن الحفظ عند الإغلاق لا يحمل أكثر من 64 كيلوبايت. الحفظ المتتابع
+       يتجمّع على أي حال (saving)، فالانتظار القصير يكفي لتجميع الكتابة. */
+    saveTimer = setTimeout(saveNow, 80);
   }
 
   function saveNow() {
@@ -213,6 +216,9 @@ var App = (function () {
       .then(function (res) {
         saving = false;
         if (res && res.ok) { dirty = false; firstDirtyAt = 0; setState("ok"); return; }
+        /* المحرك أُعيد تشغيله فلا مالك له (free): هذه النافذة هي الوحيدة —
+           نأخذ الملكية ونعيد الحفظ بدل التحوّل إلى «للعرض فقط» وضياع ما بيع. */
+        if (res && res.notOwner && res.free) { dirty = true; reclaimAndSave(); return; }
         // نافذة أخرى أخذت الملكية — نتوقف فوراً بدل الكتابة فوق عملها
         if (res && res.notOwner) { lostOwnership(); return; }
         setState("error");
@@ -254,12 +260,22 @@ var App = (function () {
   }
 
   /* يتأكد أن النواة عادت قبل أن يزيل الشريط — لا يخفيه على أمل */
+  /* المحرك عاد: كان «أعد المحاولة» يعيد التحميل مباشرة، فتضيع فاتورة بيعت
+     أثناء التوقف (والإيصال طُبع). الآن تُؤخذ الملكية من المحرك الجديد
+     ويُحفظ المعلّق أولاً، ثم يُعاد التحميل. */
   function retryConnect() {
     apiJson("/api/info").then(function (d) {
       if (d && d.ok) {
         clearDisconnected();
-        toast("عاد الاتصال. يُعاد التحميل…", "ok");
-        setTimeout(function () { location.reload(); }, 700);
+        ownerToken = "";
+        claim(false).then(function (ok) {
+          if (ok && dirty) return saveNow().then(function () { return !dirty; });
+          return ok;
+        }).then(function (ok) {
+          if (!ok) { toast("عاد المحرك لكن نافذة أخرى تملك الحفظ — أغلقها ثم أعد المحاولة.", "bad"); return; }
+          toast("عاد الاتصال وحُفظ كل شيء. يُعاد التحميل…", "ok");
+          setTimeout(function () { location.reload(); }, 700);
+        });
       } else showStillDown();
     }).catch(showStillDown);
   }
@@ -268,8 +284,11 @@ var App = (function () {
     toast("المحرك ما زال متوقفاً. أغلق النافذة وشغّل البرنامج من جديد.", "bad");
   }
 
-  window.addEventListener("beforeunload", function () {
+  window.addEventListener("beforeunload", function (e) {
     if (readOnly) return;
+    /* حفظ لم يكتمل: المتصفح يسأل قبل الإغلاق، فيكتمل الحفظ خلال ثوانٍ
+       بدل أن يضيع آخر تعديل (الحفظ عند الإغلاق محدود بـ64 كيلوبايت). */
+    if (dirty || saving) { e.preventDefault(); e.returnValue = "لم يكتمل حفظ آخر تعديل بعد."; }
     // fetch مع keepalive بدل sendBeacon — لأن sendBeacon لا يحمل ترويسات مخصّصة
     if (dirty) {
       try {
@@ -319,11 +338,40 @@ var App = (function () {
     }).catch(function () { return false; });
   }
 
+  /* ملكية الكتابة لعملية واحدة (الاستعادة) دون الخروج من وضع «للعرض فقط»:
+     الحفظ العادي يبقى موقوفاً، فلا تُكتب البيانات الفارغة فوق الملف التالف. */
+  function ensureWriteToken() {
+    if (ownerToken) return Promise.resolve(true);
+    return apiJson("/api/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: false })
+    }).then(function (res) {
+      if (res && res.ok && res.token) { ownerToken = res.token; return true; }
+      throw new Error("المنظومة مفتوحة في نافذة أخرى — أغلقها ثم أعد المحاولة.");
+    });
+  }
+
+  var reclaiming = false;
+  function reclaimAndSave() {
+    if (reclaiming) return;
+    reclaiming = true;
+    ownerToken = "";
+    claim(false).then(function (ok) {
+      reclaiming = false;
+      if (!ok) { lostOwnership(); return; }
+      if (dirty) saveNow();
+    });
+  }
+
   var hbTimer = null;
   function beat() {
     if (readOnly || !ownerToken) return;
     apiJson("/api/heartbeat", { method: "POST", body: "{}" })
-      .then(function (res) { if (res && res.notOwner) lostOwnership(); })
+      .then(function (res) {
+        if (res && res.notOwner && res.free) reclaimAndSave();      // المحرك أُعيد تشغيله
+        else if (res && res.notOwner) lostOwnership();
+      })
       .catch(function () { });
   }
   function startHeartbeat() {
@@ -1932,6 +1980,7 @@ var App = (function () {
       .then(function (r) { return r.json(); })
       .then(function (l) {
         // لا نقفل إلا عند رفض صريح — أي خلل في الرد يبقي البرنامج يعمل
+        if (l && l.fp) lic.fp = l.fp;              // بصمة هذا الجهاز — تُستعمل أيضاً لمعرفة جهاز المحل
         if (l && l.ok === true && l.active === false) {
           lic.active = false;
           lic.fp = l.fp || "";
@@ -1957,6 +2006,58 @@ var App = (function () {
   }
 
   var lic = { active: true, fp: "", until: "", hasFile: false };
+
+  /* ---------- جهاز المحل ----------
+     ملف النسخة يحمل إعدادات الإشعارات والربط. استعادته على جهاز آخر (تجربة،
+     جهاز ثانٍ، أو جهاز جديد قبل نقل المحل إليه) كانت تجعله يرسل إشعارات بيع
+     حقيقية لتلفون صاحب المحل، ويرفع مخزونه للتطبيق والموقع باسم الفرع فوق
+     مخزون المحل، وقد يسجّل طلبات التلفون عنده — حصل فعلاً أثناء المراجعة.
+     الآن: البيانات تعرف بصمة جهاز المحل؛ على جهاز آخر يتوقف الربط والإشعارات
+     ونسأل قبل تشغيلهما. */
+  var outHold = false;
+  function outboundOn() {
+    return !!((S.sync && S.sync.url) || (S.notify && S.notify.enabled && S.notify.topic));
+  }
+  function homeCheck() {
+    var fp = lic.fp || "", m = S.meta;
+    if (!fp) return;
+    if (!m.homeFp && !m.cloneCheck) {          // أول تشغيل بهذه النسخة على جهاز المحل
+      if (outboundOn()) { m.homeFp = fp; save(); }
+      return;
+    }
+    if (m.homeFp === fp && !m.cloneCheck) return;
+    if (!outboundOn()) { m.homeFp = fp; delete m.cloneCheck; save(); return; }
+    outHold = true;
+    if (m.notHome === fp) return;              // أُجيب «لا» على هذا الجهاز من قبل
+    modal({
+      title: "بيانات المحل على جهاز آخر",
+      size: "narrow",
+      body: '<p style="line-height:1.9;margin-top:0">هذه البيانات فيها <b>ربط مع التلفون والموقع</b> و<b>إشعارات المبيعات</b>، ' +
+        "وهي آتية من جهاز آخر. أوقفناهما هنا حتى تختار:</p>" +
+        '<ul style="line-height:1.9;margin:0;padding-inline-start:20px">' +
+        "<li><b>هذا جهاز المحل الآن</b> (نقلت المحل إليه): يعملان من هنا.</li>" +
+        "<li><b>جهاز ثانٍ أو تجربة</b>: يبقيان موقوفين هنا، فلا تصل إشعارات وهمية ولا يُرفع مخزون هذا الجهاز للتطبيق.</li></ul>",
+      cancelLabel: "جهاز ثانٍ أو تجربة",
+      onClose: function () { if (outHold && S.meta.notHome !== fp) { S.meta.notHome = fp; save(); } },
+      actions: [{ label: "هذا جهاز المحل الآن", kind: "primary", click: function (close) { claimHome(); close(); } }]
+    });
+  }
+  function claimHome() {
+    S.meta.homeFp = lic.fp; delete S.meta.cloneCheck; delete S.meta.notHome;
+    outHold = false;
+    save();
+    if (typeof Stock !== "undefined") Stock.startAuto();
+    toast("الربط والإشعارات تعمل الآن من هذا الجهاز.", "ok");
+    rerender();
+  }
+  function outboundHeld() { return outHold; }
+  function holdBanner() {
+    if (!outHold) return "";
+    return '<div class="row" style="gap:10px;margin-bottom:14px;padding:10px 12px;background:var(--amber-wash);border-radius:var(--r);flex-wrap:wrap">' +
+      "<b>الربط والإشعارات موقوفة على هذا الجهاز</b>" +
+      '<span class="muted small">البيانات آتية من جهاز المحل — حتى لا تصل إشعارات أو مخزون من جهاز ثانٍ.</span>' +
+      '<div class="spacer"></div><button class="btn sm" onclick="App.claimHome()">هذا جهاز المحل الآن</button></div>';
+  }
 
   function licScreen() {
     document.getElementById("view").innerHTML =
@@ -2080,6 +2181,8 @@ var App = (function () {
           else {
             route();
             if (readOnly) return;               // نافذة عرض: بلا مزامنة ولا إشعارات
+            homeCheck();
+            if (outHold) return;                // بيانات المحل على جهاز آخر: بلا ربط ولا إشعارات حتى يُسأل
             if (typeof Stock !== "undefined") Stock.startAuto();
             if (typeof Notify !== "undefined") {
               Notify.maybeDaily();
@@ -2097,7 +2200,8 @@ var App = (function () {
     save: save, saveNow: saveNow,
     uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, busy: busy, lazyMore: lazyMore, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm, match: match, rank: rank, nearLabel: nearLabel, fold: fold, exactCount: exactCount, sugHead: sugHead,
-    api: api, apiJson: apiJson, apiWrite: apiWrite,
+    api: api, apiJson: apiJson, apiWrite: apiWrite, ensureWriteToken: ensureWriteToken,
+    outboundHeld: outboundHeld, claimHome: claimHome, holdBanner: holdBanner, deviceFp: function () { return lic.fp; },
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
     retryConnect: retryConnect,
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,

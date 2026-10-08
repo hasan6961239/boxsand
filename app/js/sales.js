@@ -146,6 +146,7 @@ var Sales = (function () {
     paint();
     focusScan();
     if (App.num(it.qty) <= 0) App.toast("تنبيه: «" + App.itemName(it) + "» كميته صفر في المخزون.", "warn");
+    if (App.sellPrice(it, mode) <= 0) App.toast("«" + App.itemName(it) + "» سعره صفر — سيُباع مجاناً إن لم تكتب سعره.", "bad");
   }
 
   /* الوحدات التي تُباع بالكسور فعلاً — ما عداها كميات صحيحة.
@@ -467,8 +468,19 @@ var Sales = (function () {
   /* ---------- إتمام البيع ---------- */
 
   function complete() {
+    if (payModal) return;                    // نافذة الدفع مفتوحة: Enter ثانٍ لا يفتح أخرى
     if (!cart.length) { App.toast("الفاتورة فارغة.", "warn"); return; }
     if (method === "credit" && !customerId) { App.toast("اختر الزبون أولاً لتسجيل الدين.", "warn"); return; }
+
+    /* كتاب سعره صفر كان يُباع مجاناً بلا كلمة — في ملف المحل 39 كتاباً هكذا */
+    var free = cart.filter(function (l) { return App.num(l.price) <= 0; }).map(function (l) { return l.name; });
+    if (free.length && !complete.freeOk) {
+      App.confirm("سعر هذا الصنف صفر، وسيُباع مجاناً:\n\n" + free.join("\n") +
+        "\n\nإن لم يكن هدية: ألغِ واكتب سعره من «إدخال بضاعة ← عرض وتعديل».",
+        function () { complete.freeOk = true; try { complete(); } finally { complete.freeOk = false; } },
+        { yes: "بيعه مجاناً", danger: true, title: "صنف بلا سعر" });
+      return;
+    }
 
     var short = [];
     cart.forEach(function (l) {
@@ -484,6 +496,7 @@ var Sales = (function () {
 
   /* شاشة اختيار طريقة الدفع — تظهر بعد الضغط على إتمام البيع */
   function askPayment() {
+    if (payModal || !cart.length) return;
     var t = total();
     var box = document.createElement("div");
 
@@ -505,11 +518,7 @@ var Sales = (function () {
       box.innerHTML =
         '<div class="pay-amount">آجل — المطلوب <span class="num">' + App.money0(t) + "</span></div>" +
         '<div class="field" style="margin-bottom:12px"><label>الزبون</label>' +
-        '<select class="inp" id="payCust"><option value="">— اختر الزبون —</option>' +
-        S().customers.map(function (c) {
-          return '<option value="' + c.id + '">' + App.esc(c.name) +
-            (App.num(c.balance) ? " (عليه " + App.money0(c.balance) + ")" : "") + "</option>";
-        }).join("") + "</select>" +
+        '<select class="inp" id="payCust">' + custOptions() + "</select>" +
         '<button class="btn sm ghost" style="margin-top:6px" onclick="People.editCustomer(null,Sales.pickCust)">+ زبون جديد</button></div>' +
         '<div class="field"><label>المدفوع الآن (اختياري)</label>' +
         '<input class="inp num" id="payNow" type="number" min="0" step="0.25" value="0"></div>' +
@@ -522,7 +531,12 @@ var Sales = (function () {
       title: "طريقة الدفع",
       size: "narrow",
       body: box,
-      foot: false
+      foot: false,
+      // أُغلقت بـ✕ أو Esc أو بالضغط خارجها: لا تبقى «مفتوحة» في الحساب
+      onClose: function () {
+        payModal = null;
+        if (payKeys) { document.removeEventListener("keydown", payKeys); payKeys = null; }
+      }
     });
     payScreens = { pay: payScreen, credit: creditScreen };
     payScreen();
@@ -545,7 +559,7 @@ var Sales = (function () {
 
   function closePay() {
     if (payKeys) { document.removeEventListener("keydown", payKeys); payKeys = null; }
-    if (payModal) { payModal.close(); payModal = null; }
+    if (payModal) { var m = payModal; payModal = null; m.close(); }
   }
 
   function pick(m) {
@@ -565,9 +579,21 @@ var Sales = (function () {
 
   function backPay() { payScreens.pay(); }
 
+  function custOptions() {
+    return '<option value="">— اختر الزبون —</option>' +
+      S().customers.map(function (c) {
+        return '<option value="' + c.id + '">' + App.esc(c.name) +
+          (App.num(c.balance) ? " (عليه " + App.money0(c.balance) + ")" : "") + "</option>";
+      }).join("");
+  }
+
+  /* زبون أُضيف من شاشة الآجل: القائمة رُسمت قبله فلم يكن فيها، فيبقى
+     الاختيار فارغاً ويظن البائع أن الحفظ فشل فيضيفه مرة ثانية. */
   function pickCust(id) {
     var sel = document.getElementById("payCust");
-    if (sel) sel.value = id;
+    if (!sel) return;
+    sel.innerHTML = custOptions();
+    sel.value = id;
   }
 
   function confirmCredit() {
@@ -583,6 +609,7 @@ var Sales = (function () {
   }
 
   function finish() {
+    if (!cart.length) return;                // لا فاتورة فارغة أبداً
     var t = total();
     var beforeQty = (typeof Notify !== "undefined") ? Notify.snapshotQty() : {};
     S().counters.invoice++;
@@ -870,11 +897,17 @@ var Sales = (function () {
     var v = getInvoice(id);
     if (!v) return;
 
+    /* فاتورة عليها إرجاع: «أرجعها للمخزون» كان يعيد الكمية المباعة كلها،
+       والمُرجَع منها عاد للمخزون من قبل ⇦ نسخ وهمية. ويبقى الإرجاع معلّقاً
+       بلا فاتورة. الإرجاع يُحذف أولاً (يُخصم ما أُعيد)، ثم الفاتورة — كما
+       في التعديل. */
     var linked = S().invoices.filter(function (x) { return x.kind === "return" && x.refNo === v.no; });
-    var warn = linked.length
-      ? '<div class="row" style="margin-bottom:12px;padding:10px 12px;background:var(--amber-wash);border-radius:var(--r)">' +
-        "على هذه الفاتورة " + linked.length + " إرجاع مسجّل. احذفه أولاً إن أردت إلغاء كل شيء.</div>"
-      : "";
+    if (v.kind !== "return" && linked.length) {
+      App.toast("على هذه الفاتورة " + (linked.length === 1 ? "إرجاع مسجّل" : linked.length + " عمليات إرجاع") +
+        " (رقم " + linked.map(function (x) { return x.no; }).join("، ") + ") — احذفه أولاً ثم احذف الفاتورة.", "warn");
+      return;
+    }
+    var warn = "";
 
     var body = document.createElement("div");
     body.innerHTML = warn +
@@ -1117,11 +1150,7 @@ var Sales = (function () {
       });
     }
 
-    // إلغاء أثر الدين القديم
-    if (v.customerId) {
-      var oc = People.customer(v.customerId);
-      if (oc && App.num(v.due) > 0) oc.balance = App.r3(Math.max(App.num(oc.balance) - App.num(v.due), 0));
-    }
+    var oldCust = v.customerId || "", oldDue = App.num(v.due);
 
     var subtotal2 = App.r3(keep.reduce(function (a, l) { return a + App.num(l.qty) * App.num(l.price); }, 0));
     /* الخصم لا يتجاوز المجموع — كما في نقطة البيع. كان خصم 500 على فاتورة
@@ -1145,9 +1174,30 @@ var Sales = (function () {
     v.due = App.r3(Math.max(total2 - v.paid, 0));
     v.editedAt = App.nowStamp();
 
-    if (v.due > 0 && v.customerId) {
-      var nc = People.customer(v.customerId);
-      if (nc) nc.balance = App.r3(App.num(nc.balance) + v.due);
+    /* أثر الدين يُحسب فرقاً واحداً: (المستحق الجديد − القديم).
+       كان يُطرح القديم أولاً ويُقصّ عند الصفر ثم يُضاف الجديد كاملاً،
+       فزبون سدّد فاتورته (رصيده 0) ثم عُدّلت يعود مديناً بالمستحق الجديد. */
+    var over = 0;
+    if (oldCust && oldCust === v.customerId) {
+      var c1 = People.customer(oldCust);
+      if (c1) {
+        var nb = App.r3(App.num(c1.balance) + App.num(v.due) - oldDue);
+        if (nb < 0) { over = -nb; nb = 0; }
+        c1.balance = nb;
+      }
+    } else {
+      if (oldCust && oldDue > 0) {
+        var oc = People.customer(oldCust);
+        if (oc) {
+          var ob = App.r3(App.num(oc.balance) - oldDue);
+          if (ob < 0) { over = -ob; ob = 0; }
+          oc.balance = ob;
+        }
+      }
+      if (v.due > 0 && v.customerId) {
+        var nc = People.customer(v.customerId);
+        if (nc) nc.balance = App.r3(App.num(nc.balance) + v.due);
+      }
     }
 
     App.log("تعديل فاتورة", "رقم " + v.no + " صارت " + App.money0(total2));
@@ -1155,6 +1205,15 @@ var Sales = (function () {
     ed = null;
     App.rerender();
     App.toast("حُفظ تعديل الفاتورة رقم " + v.no + ".");
+    if (over > 0.009) {
+      App.modal({
+        title: "الزبون دفع أكثر من قيمة الفاتورة الآن",
+        size: "narrow",
+        body: '<p style="line-height:1.9;margin-top:0">صار رصيد الزبون صفراً، وبقي له <b class="num">' +
+          App.money(over) + "</b> دفعها سابقاً زيادةً على قيمة الفاتورة بعد التعديل.</p>" +
+          '<p class="muted small" style="line-height:1.8;margin:0">رجّعها له نقداً، أو اتركها رصيداً له بتسجيلها في ملاحظة الزبون.</p>'
+      });
+    }
     return true;
   }
 

@@ -554,11 +554,59 @@ namespace Qirtasiya
 
         // ---------- backups ----------
 
+        /* ملف بيانات سليم؟ (يتخطّى BOM إن وُجد) — للنسخ والاستعادة */
+        static bool FileLooksValid(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return false;
+                byte[] b = File.ReadAllBytes(path);
+                if (b.Length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF)
+                {
+                    byte[] c = new byte[b.Length - 3];
+                    Array.Copy(b, 3, c, 0, c.Length);
+                    b = c;
+                }
+                return LooksLikeJsonObject(b);
+            }
+            catch { return false; }
+        }
+
+        /* فحص سريع للقائمة: يقرأ أول الملف وآخره فقط (ملف أصفار أو مقطوع
+           يُكشف هكذا) — قراءة 30 نسخة كاملة كل مرة تُبطئ الشاشة مع الوقت. */
+        static bool QuickLooksValid(string path)
+        {
+            try
+            {
+                using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    if (fs.Length < 2) return false;
+                    int n = (int)Math.Min(64, fs.Length);
+                    byte[] head = new byte[n], tail = new byte[n];
+                    fs.Read(head, 0, n);
+                    fs.Seek(-n, SeekOrigin.End);
+                    fs.Read(tail, 0, n);
+                    int i = 0;
+                    if (n >= 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF) i = 3;
+                    while (i < n && head[i] <= 32 && head[i] != 0) i++;
+                    if (i >= n || head[i] != (byte)'{') return false;
+                    int j = n - 1;
+                    while (j >= 0 && tail[j] <= 32 && tail[j] != 0) j--;
+                    return j >= 0 && tail[j] == (byte)'}';
+                }
+            }
+            catch { return false; }
+        }
+
+        /* نسخة اليوم كانت تُنسخ من store.json دون فحصه: بعد انقطاع الكهرباء
+           يصير الملف أصفاراً، فتصير «أحدث نسخة» في شاشة الاستعادة نسخةً من
+           الملف التالف نفسه. الآن لا تُؤخذ نسخة من ملف تالف. */
         static void MakeDailyBackup()
         {
             try
             {
                 if (!File.Exists(StoreFile)) return;
+                if (!FileLooksValid(StoreFile)) { Log("ملف البيانات تالف — لم تُؤخذ نسخة اليوم منه"); return; }
                 string name = "backup-" + DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".json";
                 string target = Path.Combine(BackupDir, name);
                 if (!File.Exists(target)) { File.Copy(StoreFile, target); CopyOutside(name); }
@@ -824,6 +872,15 @@ namespace Qirtasiya
             }
         }
 
+        /* لا نافذة تملك الكتابة الآن (المحرك أُعيد تشغيله، أو ماتت النافذة المالكة).
+           النافذة الوحيدة الباقية تستعيد الملكية وتحفظ ما عندها، بدل أن تظن أن
+           «نافذة أخرى أخذت التحكّم» فيضيع ما بيع أثناء التوقف. */
+        static bool OwnerFree()
+        {
+            lock (OwnerLock)
+                return string.IsNullOrEmpty(OwnerToken) || DateTime.UtcNow - OwnerSeen > OwnerTtl;
+        }
+
         static string NewToken()
         {
             byte[] b = new byte[16];
@@ -929,7 +986,7 @@ namespace Qirtasiya
                 if (needOwner && !IsOwner(lines))
                 {
                     Send(s, 409, "Conflict", "application/json; charset=utf-8",
-                        Encoding.UTF8.GetBytes("{\"ok\":false,\"notOwner\":true}"));
+                        Encoding.UTF8.GetBytes(OwnerFree() ? "{\"ok\":false,\"notOwner\":true,\"free\":true}" : "{\"ok\":false,\"notOwner\":true}"));
                     return;
                 }
             }
@@ -968,7 +1025,7 @@ namespace Qirtasiya
                         return;
                     }
                 }
-                SendJson(s, "{\"ok\":false,\"notOwner\":true}");
+                SendJson(s, OwnerFree() ? "{\"ok\":false,\"notOwner\":true,\"free\":true}" : "{\"ok\":false,\"notOwner\":true}");
                 return;
             }
 
@@ -1112,7 +1169,14 @@ namespace Qirtasiya
                         try { if (File.Exists(PrevFile)) File.Copy(PrevFile, prev2, true); }
                         catch { }
                         string tmp = StoreFile + ".tmp";
-                        File.WriteAllBytes(tmp, body);
+                        /* WriteAllBytes يترك البيانات في ذاكرة ويندوز المؤقتة؛ انقطاع
+                           الكهرباء بعد الاستبدال وقبل تفريغها يترك ملفاً من الأصفار.
+                           Flush(true) يكتبها على القرص قبل أن يحلّ محل الملف القديم. */
+                        using (FileStream fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            fs.Write(body, 0, body.Length);
+                            fs.Flush(true);
+                        }
                         if (File.Exists(StoreFile)) File.Replace(tmp, StoreFile, PrevFile, true);
                         else File.Move(tmp, StoreFile);
                     }
@@ -1148,13 +1212,25 @@ namespace Qirtasiya
                     string[] files = Directory.GetFiles(BackupDir, "backup-*.json");
                     Array.Sort(files, StringComparer.Ordinal);
                     ReverseStrings(files);   // Array.Reverse<T> غير موجود في .NET Framework
-                    for (int i = 0; i < files.Length; i++)
+                    /* آخر حفظين سليمين قبل المشكلة (store.previous.json وما قبله)
+                       أحدث من أي نسخة يومية: تُعرض أولاً إن كان ملف البيانات تالفاً. */
+                    List<string> all = new List<string>();
+                    if (!QuickLooksValid(StoreFile))
                     {
-                        FileInfo fi = new FileInfo(files[i]);
+                        if (File.Exists(PrevFile)) all.Add(PrevFile);
+                        if (File.Exists(StoreFile + ".prev2")) all.Add(StoreFile + ".prev2");
+                    }
+                    all.AddRange(files);
+                    for (int i = 0; i < all.Count; i++)
+                    {
+                        FileInfo fi = new FileInfo(all[i]);
+                        bool prev = !fi.Name.StartsWith("backup-", StringComparison.Ordinal);
                         if (i > 0) sb.Append(",");
                         sb.Append("{\"name\":").Append(JsonStr(fi.Name));
                         sb.Append(",\"size\":").Append(fi.Length.ToString(CultureInfo.InvariantCulture));
                         sb.Append(",\"date\":").Append(JsonStr(fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)));
+                        sb.Append(",\"ok\":").Append(QuickLooksValid(all[i]) ? "true" : "false");
+                        if (prev) sb.Append(",\"last\":true");
                         sb.Append("}");
                     }
                 }
@@ -1171,11 +1247,20 @@ namespace Qirtasiya
                     string name = ExtractJsonValue(Encoding.UTF8.GetString(body), "name");
                     if (string.IsNullOrEmpty(name) || name.Contains("..") || name.Contains("\\") || name.Contains("/"))
                         throw new Exception("اسم ملف غير صالح");
-                    string src = Path.Combine(BackupDir, name);
+                    string src = (name == "store.previous.json" || name == "store.json.prev2")
+                        ? Path.Combine(DataDir, name)
+                        : Path.Combine(BackupDir, name);
                     if (!File.Exists(src)) throw new Exception("النسخة غير موجودة");
+                    if (!FileLooksValid(src)) throw new Exception("هذه النسخة نفسها تالفة — اختر نسخة أقدم من القائمة.");
                     lock (IoLock)
                     {
-                        MakeManualBackup();
+                        if (FileLooksValid(StoreFile)) MakeManualBackup();
+                        else if (File.Exists(StoreFile))
+                        {
+                            // الملف التالف يُحفظ جانباً للفحص، لا في قائمة النسخ
+                            try { File.Copy(StoreFile, Path.Combine(BackupDir, "damaged-" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".json"), true); }
+                            catch { }
+                        }
                         File.Copy(src, StoreFile, true);
                     }
                     SendJson(s, "{\"ok\":true}");

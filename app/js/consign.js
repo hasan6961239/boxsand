@@ -273,19 +273,36 @@ var Consign = (function () {
     if (!draft) return false;
     if (!draft.lines.length) { App.toast("أضف كتاباً واحداً على الأقل.", "warn"); return false; }
 
-    var oid = draft.ownerId;
-    if (!oid) {
-      if (!String(draft.name).trim()) { App.toast("اكتب اسم صاحب البضاعة.", "warn"); return false; }
-      oid = App.uid();
-      S().consignors.push({ id: oid, name: draft.name.trim(), phone: draft.phone || "", note: "", at: App.nowStamp() });
-    }
-
     var bad = false;
     draft.lines.forEach(function (l) {
       if (!String(l.title).trim()) bad = true;
       if (App.num(l.qty) <= 0) bad = true;
     });
     if (bad) { App.toast("تأكد أن لكل كتاب اسماً وعدداً صحيحاً.", "warn"); return false; }
+
+    /* كود مستعمل: كتاب صاحب البضاعة بنفس ISBN كتاب يبيعه المحل كان يُحفظ
+       صنفاً ثانياً بنفس الباركود، فيأخذ المسح دائماً نسخة المباع — كل بيع
+       يُحسب لصاحب البضاعة وبسعره، ونسخ المحل لا تُباع بالمسح أبداً. */
+    var seenCode = {}, clash = "";
+    draft.lines.forEach(function (l) {
+      var code = String(l.code || "").trim();
+      if (!code || clash) return;
+      var hit = Inv.byBarcode(code);
+      if (hit) clash = "الكود «" + code + "» مستعمل للصنف «" + App.itemName(hit.it) + "» في المحل.";
+      else if (seenCode[code.toUpperCase()]) clash = "الكود «" + code + "» مكرر في هذا الاستلام.";
+      seenCode[code.toUpperCase()] = 1;
+    });
+    if (clash) {
+      App.toast(clash + " اترك خانة الكود فارغة ليأخذ كوداً خاصاً بالمباع، أو اكتب كوداً آخر.", "warn");
+      return false;
+    }
+
+    var oid = draft.ownerId;
+    if (!oid) {
+      if (!String(draft.name).trim()) { App.toast("اكتب اسم صاحب البضاعة.", "warn"); return false; }
+      oid = App.uid();
+      S().consignors.push({ id: oid, name: draft.name.trim(), phone: draft.phone || "", note: "", at: App.nowStamp() });
+    }
 
     draft.lines.forEach(function (l) {
       var cid = App.uid();

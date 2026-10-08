@@ -205,6 +205,10 @@ var Stock = (function () {
 
   function sync(manual) {
     if (syncing) return Promise.resolve();
+    if (App.outboundHeld && App.outboundHeld()) {
+      if (manual) App.toast("الربط موقوف على هذا الجهاز لأن البيانات آتية من جهاز المحل — اضغط «هذا جهاز المحل الآن» إن كان كذلك.", "warn");
+      return Promise.resolve();
+    }
     if (!configured()) {
       if (manual) App.toast("اضبط الاتصال أولاً من زر «إعداد الربط».", "warn");
       return Promise.resolve();
@@ -291,6 +295,7 @@ var Stock = (function () {
   function startAuto() {
     if (autoTimer) clearInterval(autoTimer);
     if (!configured() || !S().sync.auto) return;
+    if (App.outboundHeld && App.outboundHeld()) return;
     var every = Math.max(2, App.num(S().sync.everyMin) || 10);
     sync(false);
     autoTimer = setInterval(function () { sync(false); }, every * 60000);
@@ -499,7 +504,7 @@ var Stock = (function () {
     var mineValue = mineItems.reduce(function (s, x) { return s + App.num(x.it.qty) * App.num(x.it.cost); }, 0);
     var pend = pendingCount();
 
-    var h = '<div class="row" style="margin-bottom:16px">' +
+    var h = (App.holdBanner ? App.holdBanner() : "") + '<div class="row" style="margin-bottom:16px">' +
       '<div class="search-wrap" style="max-width:520px"><span class="mag">⌕</span>' +
       '<input class="inp" id="findAll" placeholder="ابحث عن صنف في كل الفروع والمخازن…" value="' + App.esc(find) + '" ' +
       'oninput="Stock.setFind(this.value)"></div>' +
