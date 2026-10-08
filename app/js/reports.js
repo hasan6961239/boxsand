@@ -43,10 +43,19 @@ var Rep = (function () {
       if (to && p.date > to) return;
       debtPaid += App.num(p.amount); nPaid++;
     });
+    /* ما دُفع لأصحاب الكتب على المباع من الدرج يخرج من النقد — كان يبقى
+       «مفروضاً» في الصندوق فيظهر عند الإقفال عجز غير حقيقي بقيمته. */
+    var consOut = 0;
+    (S().consPayments || []).forEach(function (p) {
+      if (!p.fromDrawer) return;
+      if (from && p.date < from) return;
+      if (to && p.date > to) return;
+      consOut += App.num(p.amount);
+    });
     return {
       salesCash: App.r3(cash), upfront: App.r3(upfront), debtPaid: App.r3(debtPaid), nPaid: nPaid,
-      refundCredit: App.r3(refundCredit),
-      cash: App.r3(cash + upfront + debtPaid - refundCredit),
+      refundCredit: App.r3(refundCredit), consOut: App.r3(consOut),
+      cash: App.r3(cash + upfront + debtPaid - refundCredit - consOut),
       card: App.r3(card),
       due: App.r3(inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0))
     };
@@ -532,7 +541,8 @@ var Rep = (function () {
       '<div class="pb-s">' + cntBy("cash") + " فاتورة" +
         (tk.debtPaid ? " · تسديد ديون " + App.money0(tk.debtPaid) : "") +
         (tk.upfront ? " · مقدّم آجل " + App.money0(tk.upfront) : "") +
-        (tk.refundCredit ? " · رُدّ " + App.money0(tk.refundCredit) : "") + "</div></div>" +
+        (tk.refundCredit ? " · رُدّ " + App.money0(tk.refundCredit) : "") +
+        (tk.consOut ? " · دُفع لأصحاب المباع " + App.money0(tk.consOut) : "") + "</div></div>" +
       '<div class="paybox card"><div class="pb-t">' + App.esc(S().meta.cardName || "البطاقة المصرفية") + "</div>" +
       '<div class="pb-v num">' + App.money0(card2) + "</div>" +
       '<div class="pb-s">' + cntBy("card") + " فاتورة</div></div>" +
@@ -686,6 +696,7 @@ var Rep = (function () {
       '<div class="tot"><span>نقداً</span><span class="num">' + App.money0(cash) + "</span></div>" +
       '<div class="tot"><span>بطاقة مصرفية</span><span class="num">' + App.money0(card2) + "</span></div>" +
       (tk.debtPaid ? '<div class="tot"><span>منها تسديد ديون</span><span class="num">' + App.money0(tk.debtPaid) + "</span></div>" : "") +
+      (tk.consOut ? '<div class="tot"><span>دُفع لأصحاب المباع من الدرج</span><span class="num">−' + App.money0(tk.consOut) + "</span></div>" : "") +
       '<div class="tot"><span>آجل (لم يُقبض)</span><span class="num">' + App.money0(tk.due) + "</span></div>" +
       '<div class="tot g"><span>المقبوض فعلياً</span><span class="num">' + App.money0(cash + card2) + " " + App.esc(S().meta.currency) + "</span></div>" +
       "<hr>" +
@@ -722,12 +733,6 @@ var Rep = (function () {
       '<div class="hint">إن ظهرت رموز غريبة بدل العربية على الطابعة الحرارية، اترك الخيار على «صورة».</div>' +
       '<button class="btn" style="margin-top:8px" onclick="Rep.testReceipt()">معاينة وطباعة إيصال تجريبي</button></div>' +
       inp("footer", "عبارة أسفل الإيصال", m.footer, true) +
-      '<div class="field full"><label>شكل طباعة الإيصال</label>' +
-      '<select class="inp" onchange="Rep.setMeta(\'receiptImage\',this.value===\'img\')">' +
-      '<option value="img"' + (m.receiptImage !== false ? " selected" : "") + ">صورة — العربية مضمونة (مستحسن)</option>" +
-      '<option value="txt"' + (m.receiptImage === false ? " selected" : "") + ">نص عادي</option></select>" +
-      '<div class="hint">إن خرجت العربية رموزاً على الطابعة الحرارية، اختر «صورة».</div>' +
-      '<button class="btn" style="margin-top:8px" onclick="Sales.previewReceipt()">معاينة وطباعة تجريبية</button></div>' +
       inp("cardName", "اسم البطاقة على التقارير", m.cardName) +
       '<div class="field full"><label>لون المنظومة</label><div class="theme-row">' +
       App.THEMES.map(function (t2) {
@@ -1120,10 +1125,22 @@ var Rep = (function () {
     App.confirm("ستُنقل " + rows.length + " فاتورة من سنة " + year + " إلى ملف أرشيف مستقل.\n\n" +
       "تبقى محفوظة ويمكنك عرضها، لكنها تخرج من التقارير والبحث. تُؤخذ نسخة احتياطية أولاً.",
       function () {
+        /* أرشفة سنة سبق أرشفتها (فواتير ظهرت لها لاحقاً: تاريخ جهاز خطأ أو
+           استعادة نسخة) كانت تستبدل ملف الأرشيف فتختفي فواتيره الأولى. الآن
+           يُقرأ الأرشيف الموجود ويُدمج معه (بلا تكرار) قبل الكتابة. */
         App.api("/api/backup", { method: "POST" }).then(function () {
+          return App.api("/api/archive-read?year=" + encodeURIComponent(year))
+            .then(function (r) { return r.json(); }).catch(function () { return null; });
+        }).then(function (old) {
+          var merged = rows.slice();
+          if (Array.isArray(old)) {
+            var seen = {};
+            rows.forEach(function (v) { seen[v.id] = 1; });
+            old.forEach(function (v) { if (v && !seen[v.id]) merged.push(v); });
+          }
           return App.api("/api/archive", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ year: year, invoices: rows })
+            body: JSON.stringify({ year: year, invoices: merged })
           }).then(function (r) { return r.json(); });
         }).then(function (res) {
           if (!res || !res.ok) { App.toast((res && res.error) || "تعذّرت الأرشفة.", "bad"); return; }

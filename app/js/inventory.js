@@ -217,7 +217,7 @@ var Inv = (function () {
       { h: "الموقع", c: function (b) { return App.locChip(b); } },
       { h: "التصنيف", c: catBadge },
       { h: "الرمز", c: function (b) { return '<span class="num small">' + App.esc(b.barcode || b.code || "") + "</span>"; } },
-      { h: "الجملة", cls: "num", c: function (b) { return App.money0(b.cost); } },
+      App.canProfit() ? { h: "الجملة", cls: "num", c: function (b) { return App.money0(b.cost); } } : null,   // سعر الشراء يُخفى والأرباح مقفلة
       { h: "البيع", cls: "num", c: function (b) { return "<b>" + App.money0(b.price) + "</b>"; } },
     ].concat(qtyCols(), [
       { h: "الحالة", c: shelfBadge },
@@ -315,6 +315,16 @@ var Inv = (function () {
     var rate = App.num(pub.rate);
     if (rate <= 0 || rate >= 1) return 0;
     return Math.round(retail * (1 - rate) * 100) / 100;
+  }
+
+  /* نسبة الخصم تُكتب كسراً (0.25). من يكتب «25» يقصد 25% — كانت تُحفظ 25
+     (تظهر 2500%) فيصير سعر الجملة صفراً لكل كتب الدار ويُباع بسعر القطاعي.
+     الآن: 1–99 تُفهم نسبةً مئوية، و100 فما فوق تُرفض. يُرجع null عند الرفض. */
+  function normRate(raw) {
+    var r = App.num(raw);
+    if (r >= 100) { App.toast("نسبة الخصم يجب أن تكون أقل من 100% — اكتب مثلاً 0.25 أو 25.", "warn"); return null; }
+    if (r >= 1) { App.toast("فهمنا «" + r + "» على أنها خصم " + r + "% (أي " + (r / 100) + ").", "ok"); r = Math.round(r) === r ? r / 100 : Math.round(r * 100) / 10000; }
+    return Math.max(r, 0);
   }
 
   function pubHint(p) {
@@ -534,8 +544,10 @@ var Inv = (function () {
         { k: "rate", label: "خصم الجملة", type: "number", step: "0.01", min: 0, full: true, hint: "0.1 تعني خصم 10% — قطاعي 100 ← جملة 90" }
       ],
       onSave: function (v) {
+        var rt = normRate(v.rate);
+        if (rt === null) return false;
         v.id = App.uid();
-        v.rate = App.num(v.rate);
+        v.rate = rt;
         S().publishers.push(v);
         App.save();
         var sel = scope.querySelector("#f_publisher");
@@ -806,12 +818,18 @@ var Inv = (function () {
   }
 
   /* تطبيق سعر أو كمية على كل الصفوف دفعة واحدة */
+  /* «سعر للكل» كان يغيّر سعر الكتب المسجّلة مسبقاً أيضاً (المعاينة تقول عنها
+     «ستُضاف الكمية» فقط). الأسعار للكل تخص الكتب الجديدة؛ سعر الموجود
+     يُغيَّر من سطره إن أُريد. الكمية للكل تشمل الجميع (هي ما وصل فعلاً). */
   function bulkAll(k, v) {
+    var skipped = 0;
     bulkRows.forEach(function (r) {
       if (k === "qty" || k === "min") r[k] = Math.max(0, Math.round(App.num(v)));
+      else if (r.dupe) skipped++;
       else r[k] = Math.max(0, App.num(v));
     });
     bulkPaintReview();
+    if (skipped) App.toast("طُبّق على الكتب الجديدة فقط — " + skipped + " كتاب مسجّل مسبقاً بقي بسعره (غيّره من سطره إن أردت).", "warn");
   }
 
   function bulkReview() {
@@ -1127,7 +1145,7 @@ var Inv = (function () {
       { h: "التصنيف", c: catBadge },
       { h: "المكان", c: function (p) { return p.loc ? App.esc(p.loc) : '<span class="muted">—</span>'; } },
       { h: "الرمز", c: function (p) { return '<span class="num small">' + App.esc(p.barcode || p.code || "") + "</span>"; } },
-      { h: "الجملة", cls: "num", c: function (p) { return App.money0(p.cost); } },
+      App.canProfit() ? { h: "الجملة", cls: "num", c: function (p) { return App.money0(p.cost); } } : null,
       { h: "البيع", cls: "num", c: function (p) { return "<b>" + App.money0(p.price) + "</b>"; } },
     ].concat(qtyCols(), [
       { h: "الحالة", c: shelfBadge },
@@ -1699,7 +1717,7 @@ var Inv = (function () {
           }
         },
         { h: "الموقع", c: function (x) { return isB ? App.locChip(x) : App.esc(x.loc || "—"); } },
-        { h: "الشراء", cls: "num", c: function (x) { return App.money0(x.cost); } },
+        App.canProfit() ? { h: "الشراء", cls: "num", c: function (x) { return App.money0(x.cost); } } : null,
         { h: "البيع", cls: "num", c: function (x) { return "<b>" + App.money0(x.price) + "</b>"; } },
         { h: "الكمية", cls: "num", c: function (x) { return App.num(x.qty); } },
         {
@@ -1982,11 +2000,13 @@ var Inv = (function () {
       { h: "على الرفوف", t: "i", sum: true, c: function (x) { return App.shelfQty(x); } },
       { h: "في المخزن", t: "i", sum: true, c: function (x) { return App.storeQty(x); } },
       { h: "حد التنبيه", t: "i", c: function (x) { return App.num(x.min); } },
-      { h: "سعر الشراء", t: "n", c: function (x) { return App.num(x.cost); } },
+      /* والأرباح مقفلة: لا سعر شراء ولا ربح في الملف — كان أي موظف يعرف ربح
+         كل كتاب بضغطة «تصدير Excel» بلا رمز. */
+      App.canProfit() ? { h: "سعر الشراء", t: "n", c: function (x) { return App.num(x.cost); } } : null,
       { h: "سعر البيع قطاعي", t: "n", c: function (x) { return App.num(x.price); } },
       { h: "سعر البيع جملة", t: "n", c: function (x) { return App.num(x.priceW) || App.num(x.price); } },
-      { h: "ربح القطعة", t: "n", c: function (x) { return App.num(x.price) - App.num(x.cost); } },
-      { h: "قيمة المخزون", t: "n", sum: true, c: function (x) { return App.num(x.qty) * App.num(x.cost); } },
+      App.canProfit() ? { h: "ربح القطعة", t: "n", c: function (x) { return App.num(x.price) - App.num(x.cost); } } : null,
+      App.canProfit() ? { h: "قيمة المخزون", t: "n", sum: true, c: function (x) { return App.num(x.qty) * App.num(x.cost); } } : null,
       { h: "قيمته بيعاً", t: "n", sum: true, c: function (x) { return App.num(x.qty) * App.num(x.price); } },
       {
         h: "الحالة", c: function (x) {
@@ -1999,7 +2019,7 @@ var Inv = (function () {
 
     App.xls("البضاعة-" + (isB ? "الكتب" : "القرطاسية") + "-" + App.today(),
       isB ? "جرد الكتب" : "جرد القرطاسية",
-      cols, arr, S().meta.shopName || "");
+      cols.filter(function (c) { return c; }), arr, S().meta.shopName || "");
     App.toast("نُزّل جدول Excel — افتحه مباشرة ببرنامج Excel.");
   }
 
@@ -2225,7 +2245,7 @@ var Inv = (function () {
     pd: pd, purSuggest: purSuggest, purKey: purKey, purAdd: purAdd, purClearQ: purClearQ, purBlur: purBlur,
     purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase, purSetTo: purSetTo,
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
-    pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint,
+    pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint, normRate: normRate,
     newPublisher: newPublisher, newSupplier: newSupplier,
     smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes,
     bulkPaste: bulkPaste, parseBulk: parseBulk, copyBulkPrompt: copyBulkPrompt,

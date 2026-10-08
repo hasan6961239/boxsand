@@ -64,6 +64,15 @@ var Sales = (function () {
 
   /* ---------- البحث والإضافة ---------- */
 
+  /* قائمة النتائج كانت تبقى مفتوحة فوق السلة حتى يُضغط Esc — الضغط خارجها
+     (على السلة أو أي مكان) يغلقها، والضغط داخلها أو في خانة المسح لا. */
+  document.addEventListener("mousedown", function (e) {
+    var host = document.getElementById("posResults");
+    if (!host || !host.firstChild) return;
+    if (host.contains(e.target) || e.target.id === "scan") return;
+    host.innerHTML = ""; hi = -1;
+  });
+
   function suggest(q) {
     var host = document.getElementById("posResults");
     if (!host) return;
@@ -970,6 +979,7 @@ var Sales = (function () {
         };
       }),
       discount: App.num(v.discount),
+      mode: v.mode || "retail",
       method: v.method,
       customerId: v.customerId || "",
       paid: App.num(v.paid),
@@ -1060,6 +1070,9 @@ var Sales = (function () {
     if (!ed) return;
     if (i < 0) {
       if (k === "discount" || k === "paid") ed[k] = App.num(v);
+      /* التحويل إلى «آجل» يبدأ بمدفوع صفر: كان يبقى «المدفوع الآن» = كامل
+         المبلغ (من الفاتورة النقدية) فتُحفظ آجلة بلا دين على الزبون. */
+      else if (k === "method" && v === "credit" && ed.method !== "credit") { ed.method = v; ed.paid = 0; }
       else ed[k] = v;
     } else {
       if (!ed.lines[i]) return;
@@ -1102,7 +1115,8 @@ var Sales = (function () {
     if (ex) ex.qty = App.num(ex.qty) + 1;
     else ed.lines.push({
       type: type, id: id, name: App.itemName(it),
-      qty: 1, orig: 0, price: App.num(it.price), cost: App.num(it.cost), added: true
+      // فاتورة بيعت بالجملة: الصنف المضاف يأخذ سعر الجملة لا القطاعي
+      qty: 1, orig: 0, price: App.sellPrice(it, ed.mode === "wholesale" ? "wholesale" : "retail"), cost: App.num(it.cost), added: true
     });
     var sInp = document.getElementById("edSearch");
     if (sInp) sInp.value = "";

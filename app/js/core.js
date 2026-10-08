@@ -1121,6 +1121,7 @@ var App = (function () {
 
   function table(cols, rows, opts) {
     opts = opts || {};
+    cols = cols.filter(function (c) { return c; });   // عمود null = مخفي (مثل سعر الشراء والأرباح مقفلة)
     if (!rows.length) {
       /* اسم من مجموعة الأيقونات يُرسم شكلاً متجهاً؛ وأي شيء آخر يُطبع
          كما هو، فلا ينكسر نداء قديم. */

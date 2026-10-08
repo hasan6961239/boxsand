@@ -174,16 +174,26 @@ var People = (function () {
     S().invoices.forEach(function (v) {
       if (v.customerId !== id) return;
       if (v.kind === "return") {
-        rows.push({ date: v.date, at: v.at, t: "إرجاع فاتورة " + v.refNo, dr: 0, cr: Math.abs(v.total) });
+        /* ما أُنقص من الدين فقط يُحسب «له». ما رُدّ له نقداً استلمه بيده، فلا
+           يظهر رصيداً له في الكشف (كان الكشف يقول «له 30» وهو أخذها نقداً). */
+        var cut = v.debtCut !== undefined ? App.num(v.debtCut) : Math.abs(App.num(v.total));
+        var cash = v.debtCut !== undefined ? App.num(v.cashBack) : 0;
+        rows.push({ date: v.date, at: v.at, id: v.id, t: "إرجاع فاتورة " + v.refNo + (cash > 0.009 ? " (رُدّ له نقداً " + App.money0(cash) + ")" : ""), dr: 0, cr: cut });
       } else if (App.num(v.due) > 0 || v.method === "credit") {
-        rows.push({ date: v.date, at: v.at, t: "فاتورة رقم " + v.no, dr: App.num(v.due), cr: 0 });
+        rows.push({ date: v.date, at: v.at, id: v.id, t: "فاتورة رقم " + v.no, dr: App.num(v.due), cr: 0 });
       }
     });
     S().payments.forEach(function (p) {
       if (p.customerId !== id) return;
-      rows.push({ date: p.date, at: p.at, t: "تسديد" + (p.note ? " — " + p.note : ""), dr: 0, cr: App.num(p.amount) });
+      rows.push({ date: p.date, at: p.at, id: p.id, t: "تسديد" + (p.note ? " — " + p.note : ""), dr: 0, cr: App.num(p.amount) });
     });
-    rows.sort(function (a, b) { return String(a.at) < String(b.at) ? -1 : 1; });
+    /* الوقت محفوظ بالدقيقة؛ حركتان في نفس الدقيقة تُرتّبان بالمعرّف (يبدأ
+       بختم الوقت بالملّي ثانية) بدل ترتيب عشوائي يقلب الرصيد الجاري. */
+    rows.sort(function (a, b) {
+      var x = String(a.at || ""), y = String(b.at || "");
+      if (x !== y) return x < y ? -1 : 1;
+      return String(a.id || "") < String(b.id || "") ? -1 : 1;
+    });
     return rows;
   }
 
@@ -362,7 +372,9 @@ var People = (function () {
         { k: "note", label: "ملاحظة", type: "textarea", full: true }
       ],
       onSave: function (v) {
-        v.rate = App.num(v.rate);
+        var rt = Inv.normRate(v.rate);
+        if (rt === null) return false;
+        v.rate = rt;
         if (p2) { Object.keys(v).forEach(function (k) { p2[k] = v[k]; }); }
         else { v.id = App.uid(); S().publishers.push(v); }
         App.log("دار نشر", v.name);

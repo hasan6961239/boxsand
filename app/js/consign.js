@@ -454,9 +454,14 @@ var Consign = (function () {
     App.form({
       title: "تسديد لـ " + o.name,
       size: "narrow",
-      values: { amount: a.rest, date: App.today() },
+      values: { amount: a.rest, date: App.today(), drawer: "yes" },
       fields: [
         { k: "amount", label: "المبلغ المسدَّد", type: "money", min: 0, required: true, full: true, hint: "المستحق حالياً: " + App.money(a.rest) },
+        {
+          k: "drawer", label: "من أين دُفع؟", type: "select", full: true,
+          options: [{ v: "yes", t: "من درج المحل (يُخصم من النقد المفروض)" }, { v: "no", t: "من خارج الدرج" }],
+          hint: "ما يُدفع من الدرج يُطرح من «النقد المفروض» عند إقفال اليوم، فلا يظهر عجز غير حقيقي."
+        },
         { k: "date", label: "التاريخ", type: "date", full: true },
         { k: "note", label: "ملاحظة", full: true }
       ],
@@ -471,7 +476,8 @@ var Consign = (function () {
         }
         S().consPayments.unshift({
           id: App.uid(), ownerId: id, amount: amt,
-          date: v.date || App.today(), at: App.nowStamp(), note: v.note || ""
+          date: v.date || App.today(), at: App.nowStamp(), note: v.note || "",
+          fromDrawer: v.drawer !== "no"
         });
         App.log("تسديد على المباع", o.name + " " + App.money0(amt));
         App.saveNow(); App.rerender();
