@@ -200,6 +200,10 @@ var App = (function () {
   function saveNow() {
     if (readOnly) return Promise.resolve();
     fixStores();
+    /* البيع يحفظ بـsaveNow مباشرة دون المرور بـsave()، فكانت «dirty» تبقى
+       false: إن فشل الحفظ (المحرك متوقف) ظنّ «أعد المحاولة» أن لا شيء
+       معلّقاً وأعاد التحميل فضاعت الفاتورة. أي طلب حفظ = تغيير لم يُكتب بعد. */
+    dirty = true;
     if (saving) {
       dirty = true;
       if (saveTimer) clearTimeout(saveTimer);
