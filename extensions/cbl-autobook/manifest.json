@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "الصفوة - مساعد حجز CBL",
+  "version": "1.0",
+  "description": "يختار حساب مصرف الأمان ويفتح طلب حجز جديد ويعبّي تفاصيل الحجز في منصة CBL.",
+  "permissions": ["storage"],
+  "action": { "default_popup": "popup.html", "default_title": "مساعد حجز CBL" },
+  "content_scripts": [
+    {
+      "matches": ["https://fcms.cbl.gov.ly/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

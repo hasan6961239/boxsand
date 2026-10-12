@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 14px Tahoma, Arial, sans-serif; width: 300px; margin: 0; padding: 14px; color: #111; background: #fff; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  label { display: block; margin: 8px 0 3px; font-weight: 600; }
+  input[type=text] { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  button { width: 100%; margin-top: 10px; padding: 8px; border: 0; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; }
+  #save { background: #15803d; color: #fff; }
+  #reset { background: #e5e7eb; }
+  #msg { margin-top: 8px; color: #15803d; min-height: 1em; }
+  .note { margin-top: 10px; font-size: 12px; color: #555; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <h1>📡 مساعد حجز CBL</h1>
+  <div class="row"><input type="checkbox" id="abEnabled"><label for="abEnabled" style="margin:0">تشغيل تلقائي بعد الدخول</label></div>
+  <label for="abBank">المصرف</label><input type="text" id="abBank">
+  <label for="abRequestType">نوع الطلب</label><input type="text" id="abRequestType">
+  <label for="abDepositType">نوع الإيداع</label><input type="text" id="abDepositType">
+  <label for="abCity">المدينة</label><input type="text" id="abCity">
+  <label for="abAmount">القيمة بالدولار</label><input type="text" id="abAmount" inputmode="numeric">
+  <button id="save">حفظ</button>
+  <button id="reset">إعادة التشغيل للعميل الحالي</button>
+  <div id="msg"></div>
+  <div class="note">تعبّي الأداة تفاصيل الحجز فقط وتتوقف. مصدر الأموال، قسم "معلومات أخرى"، الموافقات، فحص Cloudflare وزر الإرسال تكمّلها أنت.</div>
+  <script src="popup.js"></script>
+</body>
+</html>
