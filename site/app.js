@@ -20,6 +20,20 @@ var UI = (function () {
   var busy = false;
   var PAGE = 40;
 
+  /* أين تعمل الواجهة: داخل تطبيق أندرويد (AndroidApp)، أو الموقع
+     مضافاً للشاشة الرئيسية فيفتح كتطبيق مستقل (الآيفون). في الحالتين
+     «تطبيق»: البيع والكاميرا وتعديل الصنف. وفي تبويب متصفح عادي يبقى
+     للعرض كما كان. */
+  var IOS = /iPad|iPhone|iPod/.test(navigator.userAgent || "") ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  function standalone() {
+    try {
+      return window.navigator.standalone === true ||
+        !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    } catch (e) { return false; }
+  }
+  function appMode() { return !!window.AndroidApp || standalone(); }
+
   /* ---------- الحالة ---------- */
 
   function blank() {
@@ -615,8 +629,8 @@ var UI = (function () {
     var r = el("btnRefresh"); if (r && !r.innerHTML) r.innerHTML = ico("refresh", 20);
     var g = el("btnSettings"); if (g && !g.innerHTML) g.innerHTML = ico("gear", 20);
     var x = el("qx"); if (x && !x.innerHTML) x.innerHTML = ico("x", 15);
-    /* داخل تطبيق أندرويد فقط: زر الكاميرا بجانب البحث */
-    if (window.AndroidApp && x && !el("qcam")) {
+    /* في التطبيق فقط (أندرويد أو الشاشة الرئيسية): زر الكاميرا بجانب البحث */
+    if (appMode() && x && !el("qcam")) {
       var cam = document.createElement("button");
       cam.id = "qcam"; cam.className = "search-cam";
       cam.setAttribute("data-act", "scan");
@@ -655,6 +669,10 @@ var UI = (function () {
       return;
     }
     gate.hidden = true; app.hidden = false;
+
+    /* في سفاري الآيفون: «أضفه للشاشة الرئيسية» حتى يُغلق */
+    var bar = el("iosBar");
+    if (bar) bar.hidden = !(IOS && !standalone() && !S.iosTipOff);
 
     paintHead();
     paintChrome();
@@ -1384,6 +1402,12 @@ var UI = (function () {
   function gateSubmit(e) {
     if (e) e.preventDefault();
     var u = el("gUrl"), k = el("gKey"), btn = el("gateBtn"), err = el("gateErr");
+    /* لصق رابط التهيئة كاملاً في خانة العنوان: يُفصل وحده */
+    var pasted = parseSetup(u.value);
+    if (pasted && pasted.url) {
+      u.value = pasted.url.trim();
+      if (pasted.key && !k.value.trim()) k.value = pasted.key.trim();
+    }
     var url = u.value.trim();
     if (!url) { showGateErr("اكتب عنوان الربط أولاً."); u.focus(); return; }
     if (!/^https?:\/\//i.test(url)) url = "https://" + url;
@@ -1450,14 +1474,19 @@ var UI = (function () {
     shelf: function (a, b2) { S.lib = a; S.shelf = b2; go("browse"); },
     room: function () { S.lib = "\u0001room"; S.shelf = ""; go("browse"); },
     copy: function (a) { copyText(a); },
-    scan: function () { if (window.AndroidApp) window.AndroidApp.scan(); }
+    /* أندرويد يمسح بكاميرته، والآيفون بكاميرا المتصفح (scan.js) */
+    scan: function () {
+      if (window.AndroidApp) window.AndroidApp.scan();
+      else if (window.WebScan) window.WebScan.open(onScan);
+    },
+    iosTipOff: function () { S.iosTipOff = true; save(); render(); }
   };
 
-  /* ---------- تطبيق أندرويد ----------
+  /* ---------- التطبيق (أندرويد والآيفون) ----------
      الكاميرا تمسح الباركود ثم تنادي UI.onScan بالرمز. صنف واحد يطابقه
      ⇦ تُفتح صفحته مباشرة؛ غير ذلك تظهر نتائج البحث. */
   function onScan(code) {
-    code = String(code || "").trim();
+    code = sameCode(String(code || "").trim());
     if (!code) return;
     if (X && X.onScan && X.onScan(code)) return;       // شاشة البيع تضيفه للسلة
     S.screen = "home"; S.filter = "";
@@ -1468,6 +1497,15 @@ var UI = (function () {
     var hits = search(items(), code).filter(function (g) { return String(g.b || "").trim() === code || g.code === code; });
     if (hits.length === 1) open(hits[0].key);
     else if (!search(items(), code).length) toast("لا يوجد صنف بالباركود " + code, "warn");
+  }
+
+  /* UPC-A (قرطاسية أمريكية غالباً) تقرؤه الكاميرا أحياناً 13 رقماً بصفر
+     في أوله وأحياناً 12. الصنف يُعرف بالشكل الذي سُجّل به في المنظومة. */
+  function sameCode(code) {
+    var alt = /^0\d{12}$/.test(code) ? code.slice(1) : (/^\d{12}$/.test(code) ? "0" + code : "");
+    if (!alt) return code;
+    var has = function (c) { return items().some(function (g) { return String(g.b || "").trim() === c; }); };
+    return (!has(code) && has(alt)) ? alt : code;
   }
 
   /* زر الرجوع في أندرويد: يغلق الصفحة المفتوحة، أو يرجع للرئيسية،
@@ -1530,9 +1568,11 @@ var UI = (function () {
      يُحفظ ما فيه ثم يُمسح من شريط العنوان فوراً، فلا يبقى معروضاً
      ولا يدخل سجلّ التصفّح. أأمن من كتابة كلمة السر في ملف منشور،
      لأن من لا يملك الرابط لا يرى شيئاً. */
-  function fromHash() {
-    var h = String(location.hash || "").replace(/^#/, "");
-    if (!h) return false;
+  /* ما بعد # في رابط التهيئة: u=العنوان&k=كلمة-السر */
+  function parseSetup(str) {
+    var h = String(str || ""), at = h.indexOf("#");
+    if (at < 0) return null;
+    h = h.slice(at + 1);
     var got = {}, any = false;
     h.split("&").forEach(function (part) {
       var i = part.indexOf("=");
@@ -1542,7 +1582,12 @@ var UI = (function () {
       if (k === "u" || k === "url") { got.url = v; any = true; }
       if (k === "k" || k === "key") { got.key = v; any = true; }
     });
-    if (!any) return false;
+    return any ? got : null;
+  }
+
+  function fromHash() {
+    var got = parseSetup(location.hash);
+    if (!got) return false;
     if (got.url) {
       var u = got.url.trim();
       if (u && !/^https?:\/\//i.test(u)) u = "https://" + u;
@@ -1569,6 +1614,15 @@ var UI = (function () {
     return true;
   }
 
+  /* يفتح بلا إنترنت: يحفظ ملفات الواجهة نفسها (لا بيانات المحل).
+     ليس داخل تطبيق أندرويد — ملفاته محفوظة داخل التطبيق أصلاً. */
+  function registerSW() {
+    if (window.AndroidApp || !("serviceWorker" in navigator) || !/^https?:$/.test(location.protocol)) return;
+    var reg = function () { navigator.serviceWorker.register("sw.js").catch(function () { }); };
+    if (document.readyState === "complete") reg();
+    else window.addEventListener("load", reg);
+  }
+
   function boot() {
     S = load();
     X = window.PhoneExt || null;
@@ -1579,7 +1633,7 @@ var UI = (function () {
         exactCount: exactCount, nearHead: nearHead,
         render: render, go: go, open: open, closeSheet: closeSheet, save: save, refresh: refresh,
         rowHtml: rowHtml, emptyBox: emptyBox, ageOf: ageOf, countUp: countUp, reduced: reduced,
-        configured: configured
+        configured: configured, app: appMode(), ios: IOS, android: !!window.AndroidApp
       });
       Object.keys(X.acts || {}).forEach(function (k) { ACTS[k] = X.acts[k]; });
     }
@@ -1590,6 +1644,12 @@ var UI = (function () {
     if (!viaHash && !configured()) { if (fromConfig()) save(); }
 
     document.addEventListener("click", onTap);
+
+    if (appMode()) document.body.classList.add("in-app");
+    if (IOS && standalone()) document.body.classList.add("ios-app");
+    var tip = el("gateIos");
+    if (tip) tip.hidden = !(IOS && !standalone());
+    registerSW();
 
     var f = el("gateForm");
     if (f) f.addEventListener("submit", gateSubmit);

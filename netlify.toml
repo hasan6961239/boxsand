@@ -15,14 +15,17 @@
   command = ""
 
 # الصفحة تتصل بالـWorker الخاص بصاحب المحل وحده.
+# الكاميرا للموقع نفسه فقط (مسح الباركود في الآيفون)، و'wasm-unsafe-eval'
+# يسمح بتشغيل قارئ الباركود المبنيّ WebAssembly من ملفات الموقع وحدها —
+# لا يسمح بأي سكربت سطري ولا eval.
 [[headers]]
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
     Referrer-Policy = "no-referrer"
-    Permissions-Policy = "geolocation=(), microphone=(), camera=(), interest-cohort=()"
-    Content-Security-Policy = "default-src 'self'; connect-src *; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(self), interest-cohort=()"
+    Content-Security-Policy = "default-src 'self'; connect-src *; img-src 'self' data:; style-src 'self'; script-src 'self' 'wasm-unsafe-eval'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 [[headers]]
   for = "/*.js"
@@ -33,3 +36,9 @@
   for = "/*.css"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# قارئ الباركود: نوعه الصحيح يجعل الآيفون يجهّزه أثناء التحميل
+[[headers]]
+  for = "/vendor/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"

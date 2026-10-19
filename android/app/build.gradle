@@ -51,6 +51,8 @@ android {
 def copySite = tasks.register("copySite", Copy) {
     from(rootProject.file("../site")) {
         exclude "netlify.toml", "README.md", "_headers"
+        // كاميرا المتصفح وحفظ الملفات للآيفون: التطبيق له كاميرته وملفاته داخله
+        exclude "vendor/**", "sw.js"
     }
     into "$buildDir/generated/siteAssets/site"
 }

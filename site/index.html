@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0E6E62">
+<!-- الآيفون: يُضاف للشاشة الرئيسية فيفتح كتطبيق، بلا شريط سفاري -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="مخزون المكتبة">
+<!-- الباركود والأسعار أرقام لا أرقام هواتف: لا يحوّلها سفاري روابط اتصال -->
+<meta name="format-detection" content="telephone=no">
 <meta name="description" content="بحث في مخزون المكتبة — الكتب والقرطاسية، بالاسم أو المؤلف أو الباركود.">
 <title>مخزون المكتبة</title>
 <link rel="manifest" href="manifest.json">
@@ -33,6 +40,14 @@
     <h1>مخزون المكتبة</h1>
     <p class="gate-sub">ابحث في بضاعتك من أي مكان: بالاسم، أو المؤلف، أو الباركود.
       اربطها مرة واحدة ببيانات الربط نفسها التي في البرنامج.</p>
+
+    <div class="ios-tip" id="gateIos" hidden>
+      <svg viewBox="0 0 24 24" class="ios-share" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M7 10H5v11h14V10h-2"
+        fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div><b>على الآيفون: أضفه للشاشة الرئيسية أولاً</b>
+        اضغط زر المشاركة أسفل سفاري، ثم «إضافة إلى الشاشة الرئيسية». افتحه بعدها من أيقونته
+        واربطه هناك، فيعمل كتطبيق: البيع والكاميرا، وبلا إنترنت.</div>
+    </div>
 
     <form id="gateForm" novalidate>
       <label class="fld">
@@ -97,6 +112,14 @@
 
   <footer id="foot"></footer>
 
+  <div id="iosBar" class="ios-bar" hidden>
+    <svg viewBox="0 0 24 24" class="ios-share" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M7 10H5v11h14V10h-2"
+      fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><b>أضفه للشاشة الرئيسية</b>زر المشاركة ثم «إضافة إلى الشاشة الرئيسية» — فيعمل كتطبيق، مع البيع والكاميرا.</div>
+    <button class="ios-x" data-act="iosTipOff" aria-label="إغلاق"><svg viewBox="0 0 24 24" aria-hidden="true"><path
+      d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  </div>
+
   <nav id="tabs">
     <button data-act="go" data-arg="home"   data-tab="home"></button>
     <button data-act="go" data-arg="browse" data-tab="browse"></button>
@@ -110,6 +133,7 @@
 
 <script src="config.js"></script>
 <script src="phone.js"></script>
+<script src="scan.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

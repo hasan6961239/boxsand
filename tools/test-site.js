@@ -4,7 +4,7 @@ const { chromium } = require('playwright-core');
 const http = require('http'), fs = require('fs'), path = require('path');
 const SITE = path.join(__dirname, '..', 'site');
 const EXE = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const MIME = {'.html':'text/html;charset=utf-8','.js':'text/javascript;charset=utf-8','.css':'text/css;charset=utf-8','.json':'application/json;charset=utf-8','.png':'image/png','.svg':'image/svg+xml'};
+const MIME = {'.html':'text/html;charset=utf-8','.js':'text/javascript;charset=utf-8','.css':'text/css;charset=utf-8','.json':'application/json;charset=utf-8','.png':'image/png','.svg':'image/svg+xml','.wasm':'application/wasm'};
 
 /* الترويسات من netlify.toml نفسه، لا مكتوبة هنا بيدنا.
    بدونها كان الاختبار يفحص الملفات لا الموقع المنشور: سياسة الأمان
@@ -515,6 +515,186 @@ const srv = http.createServer((q,s)=>{
       ok('السحب بالإصبع ينزل الصفحة في «' + scr + '»', y > 100, 'scrollY=' + y);
     }
     await cx.close();
+  }
+
+  // 27) الآيفون: الموقع مضافاً للشاشة الرئيسية. كاميرا مزيّفة تعرض لاصقة
+  //     باركود حقيقية (فيديو y4m)، فيمرّ المسح كله: الكاميرا ← القارئ ← الصنف.
+  {
+    const os = require('os');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ios-cam-'));
+    const gp = await b.newPage();
+    await gp.addScriptTag({ path: path.join(__dirname, '..', 'app', 'js', 'jsbarcode.js') });
+    const art = await gp.evaluate(() => {
+      const bar = (text, format, w) => { const c = document.createElement('canvas');
+        JsBarcode(c, text, { format, width: w, height: 90, displayValue: true, margin: 14 }); return c; };
+      /* إطار 640×480: غلاف كتاب وفي وسطه لاصقة المنظومة (CODE128) */
+      const W = 640, H = 480, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const g = cv.getContext('2d'); g.fillStyle = '#d9d4c7'; g.fillRect(0, 0, W, H);
+      const lab = bar('9789991234567', 'CODE128', 2), k = Math.min(1, (W * 0.7) / lab.width);
+      const lw = lab.width * k, lh = lab.height * k;
+      g.fillStyle = '#fff'; g.fillRect((W - lw) / 2 - 8, (H - lh) / 2 - 8, lw + 16, lh + 16);
+      g.drawImage(lab, (W - lw) / 2, (H - lh) / 2, lw, lh);
+      const d = g.getImageData(0, 0, W, H).data;
+      const Y = new Uint8Array(W * H), U = new Uint8Array(W * H / 4), V = new Uint8Array(W * H / 4);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; Y[y * W + x] = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]); }
+      for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) { const i = (y * W + x) * 4, j = (y / 2) * (W / 2) + x / 2;
+        U[j] = Math.round(-0.169 * d[i] - 0.331 * d[i + 1] + 0.5 * d[i + 2] + 128); V[j] = Math.round(0.5 * d[i] - 0.419 * d[i + 1] - 0.081 * d[i + 2] + 128); }
+      const b64 = a => { let s = ''; for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); };
+      const png = (t, f) => bar(t, f, 3).toDataURL('image/png').split(',')[1];
+      return { W, H, y: b64(Y), u: b64(U), v: b64(V), photo: png('55512345', 'CODE128'),
+        ean13: png('9789991234564', 'EAN13'), ean8: png('55512343', 'EAN8'), upca: png('036000291452', 'UPC') };
+    });
+    await gp.close();
+    const y4m = path.join(tmp, 'cam.y4m');
+    const fr = [Buffer.from('YUV4MPEG2 W' + art.W + ' H' + art.H + ' F10:1 Ip A1:1 C420jpeg\n')];
+    for (let i = 0; i < 10; i++) fr.push(Buffer.from('FRAME\n'), Buffer.from(art.y, 'base64'), Buffer.from(art.u, 'base64'), Buffer.from(art.v, 'base64'));
+    fs.writeFileSync(y4m, Buffer.concat(fr));
+    fs.writeFileSync(path.join(tmp, 'photo.png'), Buffer.from(art.photo, 'base64'));
+
+    const b2 = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox', '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + y4m] });
+    const IPHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1' };
+    const watch = (p, tag) => {
+      p.on('pageerror', e => errs.push(tag + ' PAGEERROR: ' + e.message));
+      p.on('console', m => { const t = m.text(); if (/Content Security Policy|Refused to/.test(t)) errs.push(tag + ' CSP: ' + t.slice(0, 140));
+        else if (m.type() === 'error' && !/favicon|404|Failed to load resource|ERR_INTERNET_DISCONNECTED/.test(t)) errs.push(tag + ' console: ' + t.slice(0, 140)); });
+    };
+    const SETUP = 'http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr';
+    const scanDone = p => p.waitForFunction(() => !document.querySelector('.scanner'), null, { timeout: 15000 }).then(() => true, () => false);
+
+    // أ) في سفاري نفسه: يُرشد للإضافة للشاشة الرئيسية، ويبقى للعرض
+    {
+      const sx = await b2.newContext(IPHONE);
+      const sp = await sx.newPage(); watch(sp, 'IOS-SAFARI');
+      await sp.goto('http://127.0.0.1:18800/'); await sp.waitForTimeout(700);
+      ok('آيفون (سفاري): شاشة الربط تقول «أضفه للشاشة الرئيسية أولاً»', await sp.isVisible('#gateIos'));
+      if (SHOT) await sp.screenshot({ path: SHOT + 'ios-safari-gate.png' });
+      await sp.goto(SETUP); await sp.waitForTimeout(1300);
+      ok('وبعد الربط: شريط «أضفه للشاشة الرئيسية» فوق الأزرار', await sp.isVisible('#iosBar'));
+      ok('وفي تبويب سفاري يبقى للعرض: لا بيع ولا كاميرا',
+        !(await sp.$('#tabs button[data-tab="sell"]')) && !(await sp.$('#qcam')));
+      if (SHOT) await sp.screenshot({ path: SHOT + 'ios-safari-home.png' });
+      await sp.click('#iosBar .ios-x'); await sp.waitForTimeout(300);
+      ok('وزر ✕ يُخفي الشريط', !(await sp.isVisible('#iosBar')));
+      await sp.reload(); await sp.waitForTimeout(1200);
+      ok('ولا يعود بعد إعادة الفتح', !(await sp.isVisible('#iosBar')));
+      await sx.close();
+    }
+
+    // ب) من الأيقونة على الشاشة الرئيسية (navigator.standalone)
+    const cx = await b2.newContext(Object.assign({ permissions: ['camera'] }, IPHONE));
+    await cx.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true, configurable: true });
+      window.__streams = [];
+      const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = c => gum(c).then(st => { window.__streams.push(st); return st; });
+    });
+    const ip = await cx.newPage(); watch(ip, 'IOS-APP');
+    await ip.goto('http://127.0.0.1:18800/'); await ip.waitForTimeout(800);
+    ok('آيفون (التطبيق): شاشة الربط بلا تنبيه «أضفه»', await ip.isVisible('#gate') && !(await ip.isVisible('#gateIos')));
+    ok('وشريط الحالة بلون التطبيق، ووضع التطبيق مفعّل',
+      await ip.evaluate(() => document.body.classList.contains('ios-app') && document.body.classList.contains('in-app')));
+    if (SHOT) await ip.screenshot({ path: SHOT + 'ios-app-gate.png' });
+    await ip.fill('#gUrl', SETUP);
+    await ip.click('#gateBtn'); await ip.waitForTimeout(1400);
+    ok('لصق رابط التهيئة كاملاً في خانة العنوان يربط وحده', await ip.isVisible('#app'));
+    const itabs = await ip.$$eval('#tabs button', e => e.map(x => x.getAttribute('data-tab')).join());
+    ok('خمسة تبويبات كتطبيق أندرويد تماماً (مع «بيع»)', itabs === 'dash,home,sell,room,more', itabs);
+    ok('ولا شريط «أضفه» داخل التطبيق', !(await ip.isVisible('#iosBar')));
+    if (SHOT) await ip.screenshot({ path: SHOT + 'ios-app-dash.png' });
+
+    await ip.evaluate(() => UI.go('home')); await ip.waitForTimeout(500);
+    ok('زر الكاميرا بجانب البحث', await ip.isVisible('#qcam'));
+    await ip.click('#qcam');
+    const opened = await ip.waitForSelector('.scanner', { timeout: 3000 }).then(() => true, () => false);
+    if (SHOT && opened) { await ip.waitForTimeout(300); await ip.screenshot({ path: SHOT + 'ios-scanner.png' }); }
+    const t0 = Date.now(), closed = await scanDone(ip), ms = Date.now() - t0;
+    ok('الكاميرا تُفتح وتقرأ لاصقة المنظومة (CODE128) وتُغلق وحدها', opened && closed, 'بعد ' + ms + 'ms');
+    await ip.waitForTimeout(800);
+    ok('وتفتح صفحة الكتاب مباشرة', await ip.isVisible('#sheet') && /أساسيات/.test(await ip.textContent('#sheet')));
+    ok('والرمز في خانة البحث', await ip.inputValue('#q') === '9789991234567');
+    ok('والكاميرا تنطفئ بعد المسح', await ip.evaluate(() => !WebScan.isOpen() && window.__streams.length > 0 &&
+      window.__streams.every(st => st.getTracks().every(t => t.readyState === 'ended'))));
+
+    await ip.evaluate(() => { UI.closeSheet(); UI.go('sell'); }); await ip.waitForTimeout(600);
+    for (let i = 0; i < 2; i++) {
+      await ip.click('.sell-search .search-cam');
+      await ip.waitForSelector('.scanner', { timeout: 3000 }).catch(() => {});
+      await scanDone(ip); await ip.waitForTimeout(400);
+    }
+    ok('في «بيع»: مسحتان بالكاميرا = الكتاب في السلة بكمية 2',
+      (await ip.$$eval('.cline', e => e.length)) === 1 && await ip.textContent('.cline .qty b') === '2');
+    await ip.evaluate(() => { UI.S.cart = []; UI.render(); });
+
+    const reads = await ip.evaluate(async imgs => {
+      const blob = b64 => new Blob([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], { type: 'image/png' });
+      const out = {};
+      for (const k of Object.keys(imgs)) out[k] = await WebScan.read(blob(imgs[k]));
+      return out;
+    }, { ean13: art.ean13, ean8: art.ean8, upca: art.upca });
+    ok('القارئ يقرأ ISBN (EAN-13) وEAN-8 وUPC-A', reads.ean13 === '9789991234564' && reads.ean8 === '55512343' &&
+      /^0?036000291452$/.test(reads.upca), JSON.stringify(reads));
+    /* UPC-A يُقرأ بصفر زائد أحياناً: الصنف المسجّل بـ12 رقماً يُلقى مع ذلك */
+    PAYLOAD.branches[0].items.push({ n: 'علبة ألوان خشبية', b: '036000291452', q: 3, p: 4, m: 1, t: 'stat', loc: 'رف B', u: 'علبة' });
+    await ip.evaluate(() => { UI.go('home'); UI.refresh(true); }); await ip.waitForTimeout(900);
+    await ip.evaluate(() => UI.onScan('0036000291452')); await ip.waitForTimeout(700);
+    ok('ورمز UPC بصفر زائد يفتح الصنف المسجّل بدونه', await ip.isVisible('#sheet') && /علبة ألوان/.test(await ip.textContent('#sheet')));
+    await ip.evaluate(() => UI.closeSheet()); await ip.waitForTimeout(300);
+    PAYLOAD.branches[0].items.pop();
+    await ip.evaluate(() => UI.refresh(true)); await ip.waitForTimeout(700);
+
+    await ip.evaluate(() => UI.go('settings')); await ip.waitForTimeout(500);
+    ok('الإعدادات: شرح إشعارات ntfy بدل أزرار أندرويد',
+      /ntfy/.test(await ip.textContent('.nf-ios')) && !(await ip.$('button[data-act="nfBattery"]')));
+    if (SHOT) await ip.screenshot({ path: SHOT + 'ios-app-settings.png', fullPage: true });
+    const ist = await ip.$$eval('[style]:not([style=""]):not(body)', e => e.map(x => x.tagName + '.' + x.className + ' ' + x.getAttribute('style')));
+    ok('ولا style سطري في وضع الآيفون', ist.length === 0, JSON.stringify(ist));
+
+    // بلا إنترنت: يفتح من الأيقونة ويعرض آخر لقطة، والقارئ محفوظ
+    const sw = await ip.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      const c = await caches.open('maktaba-app-1'), keys = await c.keys();
+      return { ctl: !!navigator.serviceWorker.controller, n: keys.length, wasm: keys.some(r => /\.wasm$/.test(r.url)),
+        data: keys.filter(r => /\/w\//.test(r.url)).length };
+    });
+    ok('ملفات التطبيق وقارئ الباركود محفوظة على الجهاز', sw.n >= 14 && sw.wasm, JSON.stringify(sw));
+    ok('ولا يُحفظ فيها شيء من بيانات خادم الربط', sw.data === 0, JSON.stringify(sw));
+    await cx.setOffline(true);
+    await ip.reload(); await ip.waitForTimeout(1800);
+    ok('بلا إنترنت: يفتح التطبيق ويعرض آخر لقطة', await ip.isVisible('#app') &&
+      (await ip.$$eval('#tabs button', e => e.length)) === 5 && /دار الحكمة/.test(await ip.textContent('#shopName')));
+    await ip.evaluate(() => UI.go('home')); await ip.waitForTimeout(400);
+    await ip.click('#qcam'); await ip.waitForSelector('.scanner', { timeout: 3000 }).catch(() => {});
+    ok('والمسح بالكاميرا يعمل بلا إنترنت أيضاً', await scanDone(ip) && await ip.inputValue('#q') === '9789991234567');
+    await cx.setOffline(false);
+    await cx.close();
+
+    // ج) الكاميرا ممنوعة: رسالة واضحة، وتصوير الباركود بدلها
+    {
+      const dx = await b2.newContext(IPHONE);
+      await dx.addInitScript(() => {
+        Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true, configurable: true });
+        navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('denied', 'NotAllowedError'));
+      });
+      const dp = await dx.newPage(); watch(dp, 'IOS-DENY');
+      await dp.goto(SETUP); await dp.waitForTimeout(1400);
+      await dp.evaluate(() => UI.go('home')); await dp.waitForTimeout(400);
+      await dp.click('#qcam'); await dp.waitForSelector('.scanner', { timeout: 3000 }).catch(() => {});
+      await dp.waitForTimeout(400);
+      ok('الكاميرا ممنوعة: يقول كيف تسمح بها', /ممنوعة/.test(await dp.textContent('.sc-msg')), await dp.textContent('.sc-msg'));
+      if (SHOT) await dp.screenshot({ path: SHOT + 'ios-scanner-denied.png' });
+      await dp.setInputFiles('.sc-file', path.join(tmp, 'photo.png'));
+      const gotIt = await scanDone(dp); await dp.waitForTimeout(700);
+      ok('وتصوير الباركود بدلها يقرأه ويفتح الصنف', gotIt && /قلم جاف/.test(await dp.textContent('#sheet')));
+      await dp.evaluate(() => { UI.closeSheet(); UI.go('home'); }); await dp.waitForTimeout(500);
+      await dp.click('#qcam'); await dp.waitForSelector('.scanner', { timeout: 3000 }).catch(() => {});
+      await dp.click('.scanner [data-sc="close"]'); await dp.waitForTimeout(300);
+      ok('وزر ✕ يُغلق الكاميرا', !(await dp.$('.scanner')) && await dp.evaluate(() => !WebScan.isOpen() && !document.body.classList.contains('scanning')));
+      await dx.close();
+    }
+    await b2.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 
   const plainCam = await pg.$('#qcam');

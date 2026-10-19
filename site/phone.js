@@ -3,7 +3,8 @@
    ------------------------------------------------------------
    تُضاف إلى الموقع (app.js) من غير أن تغيّر ما فيه:
      • اليوم      — مبيعات اليوم والشهر وآخر الفواتير (بلا أرباح)
-     • بيع        — داخل تطبيق أندرويد فقط: سلة، كاميرا، دفع
+     • بيع        — في التطبيق فقط (أندرويد، أو الآيفون من الشاشة
+                    الرئيسية): سلة، كاميرا، دفع
      • الخزين     — ما في غرفة الخزين
      • المزيد     — الرفوف، الزبائن والديون، التنبيهات والراكد…
      • الجرس      — إشعارات داخل التطبيق بحركة
@@ -12,7 +13,8 @@
    ============================================================ */
 window.PhoneExt = (function () {
   var A = null;                        // واجهة app.js
-  var inApp = !!window.AndroidApp;
+  var inApp = false;                   // تطبيق: أندرويد أو الشاشة الرئيسية — يُضبط في init
+  var android = false;                 // تطبيق أندرويد نفسه: إشعاراته من الخلفية
   var pushing = false, pushAgain = false;
 
   function S() { return A.S; }
@@ -21,6 +23,8 @@ window.PhoneExt = (function () {
   /* ---------- البداية ---------- */
   function init(api) {
     A = api;
+    inApp = !!api.app;
+    android = !!api.android;
     Object.assign(A.icons, {
       chart: "M4 20V10m6 10V4m6 16v-7m4 7H2",
       cart: "M3 4h2l2.4 11h10.2L20 7H6.2M9 20a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z",
@@ -841,26 +845,36 @@ window.PhoneExt = (function () {
     var sw = Object.keys(A.accents).map(function (k) {
       return '<button class="sw sw-' + k + (s.accent === k ? " on" : "") + '" data-act="accent" data-arg="' + k + '" aria-label="' + k + '"></button>';
     }).join("");
-    var nfBtns = inApp ? '<div id="nfState" class="nf-state"></div><div class="nf-btns">' +
+    var nfBtns = android ? '<div id="nfState" class="nf-state"></div><div class="nf-btns">' +
       '<button class="btn" data-act="nfAsk">' + ico("bell", 16) + " السماح بالإشعارات</button>" +
       '<button class="btn" data-act="nfTest">' + ico("check", 16) + " إشعار تجريبي</button>" +
       '<button class="btn" data-act="nfCheck">' + ico("refresh", 16) + " افحص الآن</button>" +
       '<button class="btn" data-act="nfBattery">' + ico("clock", 16) + " السماح بالعمل في الخلفية</button></div>" +
-      '<p class="sub">بعض التلفونات (شاومي، سامسونج، أوبو…) توقف التطبيقات في الخلفية لتوفير البطارية فتتأخّر الإشعارات. «السماح بالعمل في الخلفية» يمنع ذلك.</p>' : "";
+      '<p class="sub">بعض التلفونات (شاومي، سامسونج، أوبو…) توقف التطبيقات في الخلفية لتوفير البطارية فتتأخّر الإشعارات. «السماح بالعمل في الخلفية» يمنع ذلك.</p>' : ntfyHtml();
     return '<div class="card"><h2>' + ico("palette", 18) + ' لون التطبيق</h2><p class="sub">نفس ألوان المنظومة على الكمبيوتر. الوضع الليلي من الزر أعلى الشاشة.</p>' +
       '<div class="swatches">' + sw + "</div></div>" +
       '<div class="card"><h2>هذا التلفون</h2>' +
       '<label class="fld"><span>اسمه في المنظومة (يظهر على فواتيره)</span>' +
       '<input class="inp" id="sPhone" maxlength="40" value="' + esc(s.phone.name || "") + '"></label>' +
       "<h2>الإشعارات</h2>" +
-      '<p class="sub">' + (inApp ? "تصل حتى والتطبيق مغلق (يفحص كل ربع ساعة تقريباً)، وتظهر في الجرس أعلى الشاشة."
-        : "تظهر في الجرس أعلى الصفحة.") + "</p>" +
+      '<p class="sub">' + (android ? "تصل حتى والتطبيق مغلق (يفحص كل ربع ساعة تقريباً)، وتظهر في الجرس أعلى الشاشة."
+        : "تظهر في الجرس أعلى الشاشة كلما فتحت التطبيق.") + "</p>" +
       chk("stock", "نفد أو قارب على النفاد", "صنف وصل حد التنبيه أو نفد") +
       chk("restock", "املأ الرفوف", "نفد من الرفوف وله نسخ في غرفة الخزين") +
       chk("daily", "ملخّص آخر اليوم", "مبيعات اليوم بعد الساعة 8 مساءً") +
       chk("sync", "المنظومة توقّفت عن التحديث", "لم يصل خبر من الكمبيوتر منذ 3 ساعات") +
       nfBtns + "</div>";
   }
+  /* الآيفون لا يسمح لتطبيق من المتصفح أن يفحص وهو مغلق. إشعارات
+     المنظومة نفسها (ntfy) تصله من تطبيق ntfy المجاني — بلا أي تغيير. */
+  function ntfyHtml() {
+    return '<div class="nf-ios">' + ico("bell", 18) + "<div><b>لتصلك الإشعارات والتطبيق مسكّر</b>" +
+      "<ol><li>ثبّت تطبيق <b>ntfy</b> المجاني من " + (A.ios ? "App Store" : "متجر التطبيقات") + ".</li>" +
+      "<li>اضغط <b>+</b> واكتب <b>اسم القناة</b> نفسه الموجود في المنظومة على الكمبيوتر (صفحة «الإشعارات»).</li>" +
+      "<li>اسمح له بالإشعارات.</li></ol>" +
+      "<span>تصلك منه إشعارات المنظومة: البيع والديون والتسديد ونفاد الأصناف.</span></div></div>";
+  }
+
   function saveSettings() {
     var s = S(), p = el("sPhone");
     if (p) s.phone.name = p.value.trim().slice(0, 40) || "تلفون";
