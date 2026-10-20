@@ -1,0 +1,124 @@
+/* Reset, app shell, page transitions. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  background: var(--bg);
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'tnum' 1;
+  transition: background-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+button:disabled { cursor: default; opacity: 0.5; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+img, svg { display: block; }
+h1, h2, h3, h4, p { margin: 0; }
+a { color: var(--accent); text-decoration: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+::selection { background: var(--accent-soft); }
+
+.money, .num { font-variant-numeric: tabular-nums; unicode-bidi: isolate; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ------------------------------------------------------------------ shell */
+
+#app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+#view {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  will-change: transform, opacity;
+}
+
+.page-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding: 0 var(--pad) calc(var(--tabbar-h) + var(--safe-b) + 28px);
+}
+
+.page.no-tabbar .page-scroll { padding-bottom: calc(var(--safe-b) + 28px); }
+
+/* page transitions (RTL: forward pages enter from the left) */
+.page.enter-push { animation: push-in var(--dur-3) var(--ease) both; }
+.page.leave-push { animation: push-out var(--dur-3) var(--ease) both; }
+.page.enter-pop { animation: pop-in var(--dur-3) var(--ease) both; }
+.page.leave-pop { animation: pop-out var(--dur-3) var(--ease) both; z-index: 2; }
+.page.enter-fade { animation: fade-in var(--dur-2) var(--ease) both; }
+.page.leave-fade { animation: fade-out var(--dur-1) var(--ease) both; }
+
+@keyframes push-in { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes push-out { from { transform: none; opacity: 1; } to { transform: translateX(28%); opacity: 0.6; } }
+@keyframes pop-in { from { transform: translateX(28%); opacity: 0.6; } to { transform: none; opacity: 1; } }
+@keyframes pop-out { from { transform: none; } to { transform: translateX(-100%); } }
+@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* staggered entrance for blocks inside a page */
+.enter { animation: rise var(--dur-3) var(--ease) both; animation-delay: var(--d, 0ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+.page.is-static .enter { animation: none; }
+[data-motion='off'] .enter, [data-motion='reduced'] .enter { animation: none; }
+
+[data-motion='off'] .page { animation: none !important; }
+
+/* ------------------------------------------------------------------ boot */
+
+#boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  z-index: 100;
+  transition: opacity var(--dur-3) var(--ease), visibility var(--dur-3);
+}
+#boot.hide { opacity: 0; visibility: hidden; }
+.boot-logo {
+  width: 84px;
+  height: 84px;
+  border-radius: 26px;
+  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  box-shadow: var(--shadow-accent);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  animation: boot-pulse 1.4s var(--ease) infinite;
+}
+@keyframes boot-pulse { 50% { transform: scale(0.94); } }

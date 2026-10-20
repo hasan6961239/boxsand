@@ -1,0 +1,117 @@
+/* Design tokens — soft & flat. Accent colors are injected by core/theme.js. */
+
+:root {
+  --accent: #10B981;
+  --accent-2: #059669;
+  --accent-rgb: 16 185 129;
+  --accent-ink: #fff;
+  --accent-soft: rgb(var(--accent-rgb) / 0.12);
+  --accent-softer: rgb(var(--accent-rgb) / 0.07);
+  --accent-line: rgb(var(--accent-rgb) / 0.28);
+
+  --font: 'Plex', 'IBM Plex Sans Arabic', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
+
+  --r-xl: 28px;
+  --r-lg: 22px;
+  --r-md: 16px;
+  --r-sm: 12px;
+  --r-xs: 8px;
+
+  --gap: 16px;
+  --pad: 16px;
+  --tabbar-h: 64px;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-1: 160ms;
+  --dur-2: 280ms;
+  --dur-3: 440ms;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --kb: 0px;
+
+  color-scheme: light;
+  --bg: #F3F6F5;
+  --bg-2: #E9EFED;
+  --surface: #FFFFFF;
+  --surface-2: #F6F8F7;
+  --surface-3: #EDF2F0;
+  --text: #0E1915;
+  --text-2: #4D5C56;
+  --text-3: #8A9892;
+  --line: rgb(14 25 21 / 0.07);
+  --line-2: rgb(14 25 21 / 0.12);
+  --shadow-1: 0 1px 2px rgb(14 25 21 / 0.04), 0 4px 14px rgb(14 25 21 / 0.04);
+  --shadow-2: 0 12px 34px -12px rgb(14 25 21 / 0.22);
+  --shadow-accent: 0 14px 30px -12px rgb(var(--accent-rgb) / 0.55);
+  --scrim: rgb(8 14 12 / 0.38);
+
+  --pos: #12A150;
+  --pos-soft: rgb(18 161 80 / 0.11);
+  --neg: #E5484D;
+  --neg-soft: rgb(229 72 77 / 0.1);
+  --warn: #D97706;
+  --warn-soft: rgb(217 119 6 / 0.12);
+  --info: #3B7BF6;
+  --info-soft: rgb(59 123 246 / 0.1);
+  --muted: #64748B;
+  --muted-soft: rgb(100 116 139 / 0.12);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0A0E0D;
+  --bg-2: #0F1513;
+  --surface: #131A18;
+  --surface-2: #19211F;
+  --surface-3: #212B28;
+  --text: #EAF2EE;
+  --text-2: #A3B1AB;
+  --text-3: #6E7C76;
+  --line: rgb(255 255 255 / 0.06);
+  --line-2: rgb(255 255 255 / 0.1);
+  --shadow-1: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 6px 18px rgb(0 0 0 / 0.25);
+  --shadow-2: 0 18px 40px -14px rgb(0 0 0 / 0.7);
+  --shadow-accent: 0 14px 34px -14px rgb(var(--accent-rgb) / 0.6);
+  --scrim: rgb(0 0 0 / 0.55);
+  --accent-soft: rgb(var(--accent-rgb) / 0.16);
+  --accent-softer: rgb(var(--accent-rgb) / 0.09);
+
+  --pos: #34D399;
+  --pos-soft: rgb(52 211 153 / 0.13);
+  --neg: #FF6B6E;
+  --neg-soft: rgb(255 107 110 / 0.13);
+  --warn: #FBBF24;
+  --warn-soft: rgb(251 191 36 / 0.13);
+  --info: #6EA2FF;
+  --info-soft: rgb(110 162 255 / 0.13);
+  --muted: #94A3B8;
+  --muted-soft: rgb(148 163 184 / 0.14);
+}
+
+[data-motion='reduced'] {
+  --dur-1: 90ms;
+  --dur-2: 140ms;
+  --dur-3: 180ms;
+}
+
+[data-motion='off'] {
+  --dur-1: 0ms;
+  --dur-2: 0ms;
+  --dur-3: 0ms;
+}
+
+html[data-size='s'] { font-size: 15px; }
+html[data-size='m'] { font-size: 16px; }
+html[data-size='l'] { font-size: 17.5px; }
+
+/* tone helpers: color + soft background for any element */
+.tone-accent { --tone: var(--accent); --tone-soft: var(--accent-soft); }
+.tone-pos { --tone: var(--pos); --tone-soft: var(--pos-soft); }
+.tone-neg { --tone: var(--neg); --tone-soft: var(--neg-soft); }
+.tone-warn { --tone: var(--warn); --tone-soft: var(--warn-soft); }
+.tone-info { --tone: var(--info); --tone-soft: var(--info-soft); }
+.tone-muted { --tone: var(--muted); --tone-soft: var(--muted-soft); }
+.tone-default { --tone: var(--text); --tone-soft: var(--surface-3); }

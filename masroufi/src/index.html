@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+  <title>مصروفي</title>
+  <meta name="description" content="مصاريفي، ديوني، ومرتباتي في مكان واحد">
+  <meta name="theme-color" content="#F3F6F5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0A0E0D" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="مصروفي">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <!--SPLASH-->
+  <link rel="preload" href="assets/fonts/plex-arabic-400-arabic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/plex-arabic-700-arabic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="app.css?v=__VERSION__">
+  <script>/*THEME*/try{var l=JSON.parse(localStorage.getItem('look')||'null'),r=document.documentElement,d=l?l.dark:matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=d?'dark':'light';if(l){r.style.setProperty('--accent',l.a);r.style.setProperty('--accent-2',l.b);r.style.setProperty('--accent-rgb',l.rgb);r.dataset.motion=l.motion;r.dataset.size=l.size}}catch(e){}</script>
+  <script type="module" src="app.js?v=__VERSION__"></script>
+</head>
+<body>
+  <div id="app">
+    <main id="view"></main>
+  </div>
+  <div id="overlays"></div>
+  <div id="boot" aria-hidden="true">
+    <div class="boot-logo">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg>
+    </div>
+  </div>
+  <noscript><p style="padding:24px;text-align:center">التطبيق يحتاج JavaScript.</p></noscript>
+</body>
+</html>
