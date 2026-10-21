@@ -75,8 +75,7 @@ function renderState(s, compact) {
         await push.enable();
         toast('تمام! الإشعارات شغالة 🔔', { tone: 'pos' });
       } catch (err) {
-        const m = String(err && err.message);
-        toast(m === 'denied' ? 'رفضت الإذن — تقدر تفعّله من إعدادات الآيفون' : m === 'server' ? 'السيرفر مش جاهز' : 'ما تفعّلتش الإشعارات', { tone: 'warn' });
+        toast(push.errorText(err), { tone: String(err && err.message) === 'retry' ? 'default' : 'warn', duration: 5000 });
       }
       rerender();
     }),

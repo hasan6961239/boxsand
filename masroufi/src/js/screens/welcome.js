@@ -145,8 +145,8 @@ function stepView(key) {
                 try {
                   await push.enable();
                   toast('تمام! الإشعارات شغالة 🔔', { tone: 'pos' });
-                } catch {
-                  toast('ما تفعّلتش — تقدر تفعّلها من الإعدادات', { tone: 'warn' });
+                } catch (err) {
+                  toast(push.errorText(err), { tone: String(err && err.message) === 'retry' ? 'default' : 'warn', duration: 5000 });
                 }
               }),
             })

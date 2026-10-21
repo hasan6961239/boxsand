@@ -45,21 +45,59 @@ export async function state() {
   return { reason: 'ok', subscribed: Boolean(sub) && (await db.getMeta('pushOk', false)) };
 }
 
-/** Must be called from a tap (iOS requires a user gesture for the permission prompt). */
+// Everything enable() needs is loaded before the tap. iOS only lets
+// pushManager.subscribe() run while the tap's user activation is fresh, and a
+// network round trip in between (fetching the server key) is enough to lose it.
+let prep = null;
+let swReg = null;
+let storedKey = null;
+
+export function prepare() {
+  if (!prep && supported()) {
+    prep = Promise.all([
+      serverConfig(),
+      navigator.serviceWorker.ready.then((r) => { swReg = r; }),
+      db.getMeta('pushKey', null).then((k) => { storedKey = k; }),
+    ]).catch(() => {});
+  }
+  return prep || Promise.resolve();
+}
+
+/**
+ * Must be called straight from a tap. Throws Error with message:
+ * 'denied' | 'dismissed' | 'server' | 'account' | 'retry' (not ready yet — tap again) | other.
+ */
 export async function enable() {
-  const perm = await Notification.requestPermission();
-  if (perm !== 'granted') throw new Error(perm === 'denied' ? 'denied' : 'dismissed');
-  const cfg = await serverConfig();
-  if (!cfg.vapidPublicKey) throw new Error('server');
-  const reg = await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
+  if (permission() === 'denied') throw new Error('denied');
+  if (!config || !swReg) {
+    await prepare();
+    if (!config || !config.vapidPublicKey) throw new Error('server');
+    throw new Error('retry');
+  }
+  const key = config.vapidPublicKey;
+  if (!key) throw new Error('server');
+  let sub = await swReg.pushManager.getSubscription();
   // A subscription made with an older server key can't receive our pushes.
-  if (sub && (await db.getMeta('pushKey', null)) !== cfg.vapidPublicKey) {
-    await sub.unsubscribe();
+  if (sub && storedKey !== key) {
+    await sub.unsubscribe().catch(() => {});
     sub = null;
   }
-  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(cfg.vapidPublicKey) });
-  await db.setMeta('pushKey', cfg.vapidPublicKey);
+  if (!sub) {
+    try {
+      // On iPhone this call itself shows the permission prompt
+      sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+    } catch (e) {
+      if (permission() === 'denied') throw new Error('denied');
+      if (permission() === 'default') {
+        // browsers that want the explicit prompt first: ask, then the next tap subscribes
+        const perm = await Notification.requestPermission();
+        throw new Error(perm === 'granted' ? 'retry' : perm === 'denied' ? 'denied' : 'dismissed');
+      }
+      throw e;
+    }
+  }
+  storedKey = key;
+  await db.setMeta('pushKey', key);
   await auth.ensureFresh();
   const r = await fetch('/api/push/subscribe', {
     method: 'POST',
@@ -67,9 +105,21 @@ export async function enable() {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ subscription: sub.toJSON(), device: await deviceId(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ua: navigator.userAgent.slice(0, 160) }),
   });
+  if (r.status === 401) throw new Error('account');
   if (!r.ok) throw new Error('server');
   await db.setMeta('pushOk', true);
   return true;
+}
+
+/** Arabic explanation for an enable() failure. */
+export function errorText(e) {
+  const m = String((e && e.message) || e);
+  if (m === 'denied') return 'الإشعارات مرفوضة. فعّلها من إعدادات الآيفون ← الإشعارات ← مصروفي.';
+  if (m === 'dismissed') return 'ما اخترتش «السماح». جرّب تاني.';
+  if (m === 'retry') return 'تمام، اضغط الزر مرة ثانية.';
+  if (m === 'account') return 'لازم تسجّل دخول أولاً.';
+  if (m === 'server') return 'السيرفر مش جاهز للإشعارات. جرّب بعد شوية.';
+  return `ما تفعّلتش (${(e && e.name) || ''} ${m})`.trim();
 }
 
 export async function disable() {
@@ -117,3 +167,6 @@ export function setBadge(n) {
     else if (navigator.clearAppBadge) navigator.clearAppBadge();
   } catch { /* unsupported */ }
 }
+
+// start loading the key and the service worker as soon as the app opens
+prepare();
