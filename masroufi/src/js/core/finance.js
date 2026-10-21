@@ -6,7 +6,7 @@
 // with tombstoned records already removed. Amounts are integer milli-dinars.
 
 import {
-  sum, groupBy, diffDays, addDays, addMonths, monthKey, dayInMonth, fmtMoney, fmtDate, fmtMonth,
+  sum, groupBy, diffDays, addDays, addMonths, monthKey, dayInMonth, fmtMoney, fmtDate, fmtMonth, MILLI,
 } from './util.js';
 import { FALLBACK_CATEGORY } from './defaults.js';
 
@@ -40,6 +40,9 @@ export function payEffect(p, debt) {
 
 // Money put into a savings goal leaves the spendable balance (and comes back on withdrawal).
 export const gtxEffect = (g) => -g.amount;
+
+// Spending guidance is shown in whole dinars ("49 د.ل في اليوم", not 49.283).
+const floorDinar = (m) => Math.floor(m / MILLI) * MILLI;
 
 const counts = (date, s) => !s.openingDate || !date || date >= s.openingDate;
 
@@ -325,8 +328,8 @@ export function insights(data, p, s, today) {
   const prev = spendByCategory(data, prevP);
   const prevMap = new Map(prev.list.map((e) => [e.cat.id, e.amount]));
   const elapsed = Math.max(1, Math.min(p.days, diffDays(p.start, today) + 1));
-  if (cur.total && inPeriod(today, p)) {
-    const projected = Math.round((cur.total / elapsed) * p.days);
+  if (cur.total && inPeriod(today, p) && elapsed >= 5) {
+    const projected = Math.round((cur.total / elapsed) * p.days / MILLI) * MILLI;
     out.push({ icon: 'trending-up', tone: 'info', text: `بهالمعدل حتصرف تقريباً ${fmtMoney(projected)} في هالشهر.` });
   }
   if (cur.list[0]) out.push({ icon: 'chart-pie', tone: 'accent', text: `أكثر بند صرفت عليه: ${cur.list[0].cat.emoji} ${cur.list[0].cat.name} (${Math.round(cur.list[0].pct)}%).` });
@@ -373,7 +376,7 @@ export function budgetStatus(data, p, today) {
     total,
     cats,
     daysLeft,
-    daily: total && daysLeft > 0 ? Math.max(0, Math.floor(total.left / daysLeft)) : null,
+    daily: total && daysLeft > 0 ? Math.max(0, floorDinar(total.left / daysLeft)) : null,
     spent: spend.total,
   };
 }
@@ -396,7 +399,7 @@ export function dailyAllowance(data, today) {
   const off = officeStatus(data, today);
   const bal = balance(data);
   const days = off && off.daysLeft > 0 ? off.daysLeft : null;
-  return { balance: bal, days, perDay: days ? Math.max(0, Math.floor(bal / days)) : null };
+  return { balance: bal, days, perDay: days ? Math.max(0, floorDinar(bal / days)) : null };
 }
 
 /* ------------------------------------------------------------ goals */
@@ -407,7 +410,7 @@ export function goalInfo(goal, gtxs = [], today) {
   let monthly = null;
   if (goal.due && remaining > 0) {
     const months = Math.max(1, Math.ceil(diffDays(today, goal.due) / 30.44));
-    monthly = Math.ceil(remaining / months);
+    monthly = Math.ceil(remaining / months / MILLI) * MILLI; // whole dinars
   }
   return { goal, saved, remaining, pct: goal.target ? Math.min(100, (saved / goal.target) * 100) : 0, done: saved >= goal.target && goal.target > 0, monthly, list: gtxs.slice().sort((a, b) => (a.date < b.date ? 1 : -1)) };
 }

@@ -1,0 +1,27 @@
+/* Budget */
+
+.budget { display: flex; flex-direction: column; gap: 14px; padding-top: 6px; }
+.bud-period { display: inline-flex; align-items: center; gap: 6px; align-self: center; padding: 6px 14px; border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-1); color: var(--text-2); font-size: 0.86rem; font-weight: 600; }
+.bud-total-card { display: flex; flex-direction: column; gap: 14px; }
+.bud-total { display: flex; align-items: center; gap: 18px; }
+.bud-total .ring-label b { font-size: 1.25rem; }
+.bud-total-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bud-total-info small { color: var(--text-3); font-size: 0.85rem; }
+.bud-total-info > b { font-size: 1.7rem; font-weight: 700; line-height: 1.25; }
+.bud-total-info > b.tone-neg { color: var(--neg); }
+.bud-daily { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: var(--r-md); background: var(--tone-soft); font-size: 0.92rem; }
+.bud-daily > .ic { color: var(--tone); flex-shrink: 0; }
+.bud-daily b { color: var(--tone); }
+.bud-actions { display: flex; justify-content: flex-end; }
+.bud-nototal { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--text-2); font-size: 0.92rem; }
+
+.bud-cats { display: flex; flex-direction: column; gap: 10px; }
+.bud-cat { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1); text-align: start; }
+.bud-cat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.bud-cat-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bud-cat-top b { font-size: 0.97rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bud-cat-pct { font-weight: 700; font-size: 0.9rem; color: var(--text-2); }
+.bud-cat-pct.tone-warn, .bud-cat-pct.tone-neg { color: var(--tone); }
+.bud-cat-sub { font-size: 0.8rem; color: var(--text-3); }
+.bud-suggest { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.bud-suggest .chips { justify-content: center; }

@@ -1,0 +1,39 @@
+/* Savings goals */
+
+.goals { display: flex; flex-direction: column; gap: 14px; padding-top: 6px; }
+.tone-goal { --tone: var(--c, var(--accent)); --tone-soft: color-mix(in srgb, var(--c, var(--accent)) 15%, transparent); }
+
+.goals-sum { display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: var(--r-lg); background: linear-gradient(140deg, var(--accent-soft), transparent 80%), var(--surface); box-shadow: var(--shadow-1); }
+.goals-sum-ic { width: 52px; height: 52px; border-radius: 18px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); flex-shrink: 0; box-shadow: var(--shadow-accent); }
+.goals-sum > div { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.goals-sum > div + div { flex: 0 0 auto; text-align: center; }
+.goals-sum small { color: var(--text-3); font-size: 0.8rem; }
+.goals-sum b { font-size: 1.25rem; }
+
+.goals-list { display: flex; flex-direction: column; gap: 10px; }
+.goals-list.is-archived { opacity: 0.7; }
+.goal-card { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1); text-align: start; }
+.goal-card .ring-label b { font-size: 1.5rem; }
+.goal-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.goal-card-top { display: flex; align-items: center; gap: 8px; }
+.goal-card-top b { font-size: 1.02rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.goal-card-amt .money { font-weight: 700; }
+.goal-card-amt small { color: var(--text-3); }
+.goal-card-sub { color: var(--text-3); font-size: 0.8rem; }
+.goal-card-pct { font-weight: 700; color: var(--c); font-size: 0.95rem; }
+
+.goal-hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 16px 18px; border-radius: var(--r-xl); background: linear-gradient(170deg, color-mix(in srgb, var(--c) 14%, transparent), transparent 70%), var(--surface); box-shadow: var(--shadow-1); text-align: center; }
+.goal-hero .ring { margin-bottom: 8px; }
+.goal-hero .ring-label b { font-size: 1.9rem; }
+.goal-hero .ring-label small { font-size: 1.6rem; color: inherit; margin-top: 2px; }
+.goal-hero-amt { font-size: 1.8rem; font-weight: 700; }
+.goal-hero .tag { margin-top: 4px; }
+.goal-hero-stats { display: flex; gap: 8px; width: 100%; margin-top: 12px; }
+.goal-hero-stats > div { flex: 1; background: var(--surface-2); border-radius: var(--r-sm); padding: 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+.goal-hero-stats small { color: var(--text-3); font-size: 0.74rem; }
+.goal-hero-stats b { font-size: 0.95rem; }
+.goal-hero-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; margin-top: 14px; }
+.goal-target { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px 16px; border-radius: var(--r-md); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); text-align: start; }
+.goal-target small { color: var(--text-2); font-size: 0.84rem; font-weight: 600; flex: 1; }
+.goal-target b { font-size: 1.1rem; }
+.goal-target .ic { color: var(--text-3); }

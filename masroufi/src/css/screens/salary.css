@@ -1,0 +1,44 @@
+/* Salaries page + record-salary sheet (shares .sal-lines etc. from home.css) */
+
+.salary { display: flex; flex-direction: column; padding-top: 6px; }
+.sal-cur-card { padding: 18px 16px 16px; }
+.sal-cur-top { display: flex; align-items: center; gap: 16px; }
+.sal-cur-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sal-cur-title { font-size: 1.2rem; font-weight: 700; line-height: 1.35; }
+.sal-cur-card .note-box { margin-top: 12px; }
+.sal-hint { display: flex; gap: 8px; align-items: flex-start; color: var(--text-2); font-size: 0.86rem; padding: 0 6px; }
+.sal-hint .ic { flex-shrink: 0; margin-top: 3px; color: var(--accent); }
+.sal-kpis .kpi b { font-size: 1rem; }
+.sal-sub { border-top: 1px solid var(--line); padding-top: 6px; }
+.sal-sub > span:first-child { font-weight: 600; color: var(--text) !important; }
+
+/* past cycles (accordion rows inside .list-inset) */
+.sal-past { position: relative; }
+.sal-past + .sal-past::before { content: ''; position: absolute; top: 0; inset-inline-start: 68px; inset-inline-end: 0; height: 1px; background: var(--line); }
+.sal-past-head { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 14px; text-align: start; }
+.sal-past-head:hover { background: var(--surface-2); }
+.sal-past-body { padding: 0 14px 14px; animation: rise var(--dur-2) var(--ease) both; }
+.sal-past-body .sal-lines { margin-top: 0; }
+.sal-past-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+/* state salary */
+.state-card { display: flex; flex-direction: column; gap: 14px; }
+.state-head { display: flex; align-items: center; gap: 12px; }
+.state-head-text { display: flex; flex-direction: column; min-width: 0; }
+.state-head-text b { font-size: 1.05rem; }
+.state-head-text small { font-size: 0.84rem; }
+.state-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.state-stats > div { background: var(--surface-2); border-radius: var(--r-sm); padding: 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.state-stats small { font-size: 0.72rem; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.state-stats b { font-size: 0.95rem; }
+
+/* record sheet */
+.salsheet-body { display: flex; flex-direction: column; gap: 14px; }
+.salsheet-hero { text-align: center; padding: 4px 0 2px; }
+.salsheet-hero small { color: var(--text-3); font-size: 0.85rem; }
+.salsheet-net-num { font-size: 2.4rem; font-weight: 700; color: var(--pos); line-height: 1.25; animation: pop var(--dur-3) var(--spring) both; }
+.salsheet-gross { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; }
+.salsheet-gross .link-btn { font-size: 0.82rem; }
+.salsheet-body .sal-lines { margin-top: 0; }
+.salsheet-foot { display: flex; gap: 10px; width: 100%; align-items: center; }
+.salsheet-foot .btn-icon { width: 52px; height: 52px; border-radius: 16px; flex-shrink: 0; }

@@ -297,6 +297,7 @@ button.row:hover { background: var(--surface-2); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chips.is-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 calc(var(--pad) * -1); padding: 2px var(--pad); }
 .chips.is-scroll::-webkit-scrollbar { display: none; }
+.chips.is-scroll .chip.on { box-shadow: none; } /* a drop shadow would be clipped by the scroller */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -463,7 +464,7 @@ html.has-sheet .tabbar { pointer-events: none; }
   box-shadow: 0 -1px 0 var(--line);
   transition: transform var(--dur-3) var(--ease);
 }
-.tabbar.is-hidden { transform: translateY(110%); }
+.tabbar.is-hidden { transform: translateY(calc(100% + 40px)); } /* +40px: the FAB sticks out above the bar */
 .tab {
   height: 100%;
   display: flex;

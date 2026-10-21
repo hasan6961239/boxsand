@@ -1,0 +1,20 @@
+/* More tab */
+
+.more { display: flex; flex-direction: column; gap: 16px; padding-top: 4px; }
+.worth { padding: 18px; border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--shadow-1); position: relative; overflow: hidden; }
+.worth::before { content: ''; position: absolute; width: 180px; height: 180px; border-radius: 50%; background: var(--accent-soft); top: -90px; inset-inline-end: -60px; }
+.worth-top { position: relative; display: flex; flex-direction: column; }
+.worth-top small { color: var(--text-3); font-size: 0.85rem; }
+.worth-top b { font-size: 1.9rem; font-weight: 700; line-height: 1.3; }
+.worth-parts { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.worth-parts > div { background: var(--surface-2); border-radius: var(--r-sm); padding: 9px 12px; display: flex; flex-direction: column; }
+.worth-parts small { color: var(--text-3); font-size: 0.75rem; }
+.worth-parts .money { font-weight: 700; font-size: 0.98rem; }
+.worth-note { position: relative; color: var(--text-3); font-size: 0.72rem; margin-top: 10px; text-align: center; }
+
+.more-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.more-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1); text-align: start; min-height: 118px; }
+.more-tile-ic { width: 44px; height: 44px; border-radius: 15px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 15%, transparent); color: var(--c); margin-bottom: 8px; transition: transform var(--dur-2) var(--spring); }
+.more-tile:active .more-tile-ic { transform: scale(0.9) rotate(-6deg); }
+.more-tile b { font-size: 0.98rem; }
+.more-tile small { color: var(--text-3); font-size: 0.78rem; }

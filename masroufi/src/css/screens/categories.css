@@ -1,0 +1,14 @@
+/* Categories */
+
+.cats { display: flex; flex-direction: column; gap: 14px; padding-top: 6px; }
+.cat-list { display: flex; flex-direction: column; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-1); overflow: hidden; }
+.cat-row { display: flex; align-items: center; position: relative; padding-inline-end: 6px; }
+.cat-row + .cat-row::before { content: ''; position: absolute; top: 0; inset-inline-start: 68px; inset-inline-end: 0; height: 1px; background: var(--line); }
+.cat-row.is-archived { opacity: 0.6; }
+.cat-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 62px; text-align: start; }
+.cat-row-move { display: flex; flex-direction: column; }
+.cat-row-move .btn-icon { width: 34px; height: 28px; border-radius: 10px; color: var(--text-3); }
+.cats-arch-title { display: flex; align-items: center; gap: 4px; padding: 0 6px; }
+.cat-preview { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 4px 0 6px; }
+.cat-preview .cat-tile-emoji { width: 64px; height: 64px; border-radius: 22px; font-size: 2rem; }
+.cat-preview b { font-size: 1.05rem; }

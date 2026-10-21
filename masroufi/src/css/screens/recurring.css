@@ -1,0 +1,16 @@
+/* Fixed monthly expenses */
+
+.recurring { display: flex; flex-direction: column; gap: 14px; padding-top: 6px; }
+.rule-sum { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1); }
+.rule-sum > .ic { color: var(--accent); flex-shrink: 0; }
+.rule-sum > div { flex: 1; display: flex; flex-direction: column; }
+.rule-sum small { color: var(--text-3); font-size: 0.8rem; }
+.rule-sum b { font-size: 1.2rem; }
+.rules { display: flex; flex-direction: column; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-1); overflow: hidden; }
+.rule { display: flex; align-items: center; gap: 4px; padding-inline-end: 12px; position: relative; transition: opacity var(--dur-2); }
+.rule + .rule::before { content: ''; position: absolute; top: 0; inset-inline-start: 68px; inset-inline-end: 0; height: 1px; background: var(--line); }
+.rule.is-off { opacity: 0.55; }
+.rule-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 66px; text-align: start; }
+.rule-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.rule-day { height: 40px; border-radius: 12px; background: var(--surface-2); font-weight: 600; font-size: 0.95rem; transition: background-color var(--dur-2), color var(--dur-2), transform var(--dur-1); }
+.rule-day.on { background: var(--accent); color: var(--accent-ink); transform: scale(1.05); }

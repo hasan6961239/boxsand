@@ -1,0 +1,8 @@
+# مصروفي — Netlify site (this folder is the site's base directory).
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

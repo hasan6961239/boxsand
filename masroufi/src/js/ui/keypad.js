@@ -15,7 +15,8 @@ export function amountPad({ value = 0, onChange, tone = 'neg', quick = [5, 10, 2
   const display = h('div.amount-display', { class: `tone-${tone}` },
     h('div.amount-line', num, h('span.amount-cur', CURRENCY)));
 
-  function render(bump) {
+  // fire = false for the initial paint: callers wire onChange to elements they create after the pad
+  function render(bump, fire = true) {
     const m = toMilli(text || '0');
     if (!text) num.textContent = '0';
     else {
@@ -28,7 +29,7 @@ export function amountPad({ value = 0, onChange, tone = 'neg', quick = [5, 10, 2
       void num.offsetWidth;
       num.classList.add('bump');
     }
-    onChange && onChange(Number.isNaN(m) ? 0 : m);
+    if (fire && onChange) onChange(Number.isNaN(m) ? 0 : m);
   }
 
   function press(k) {
@@ -86,7 +87,7 @@ export function amountPad({ value = 0, onChange, tone = 'neg', quick = [5, 10, 2
     document.addEventListener('keydown', onKey);
   }
 
-  render(false);
+  render(false, false);
   return {
     display,
     pad,
