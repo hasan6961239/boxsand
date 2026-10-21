@@ -2,7 +2,7 @@
 // income, backup/export, about.
 
 import { h, icon } from '../ui/dom.js';
-import { layout, header, section, card, list, row, toggle, segmented, button, sheet, field, input, toast, confirm, busy, stagger, avatar, haptic, moneyEl, empty } from '../ui/kit.js';
+import { layout, header, section, card, list, row, toggle, segmented, button, sheet, field, input, toast, confirm, busy, stagger, avatar, haptic, moneyEl, empty, progress } from '../ui/kit.js';
 import { amountPad } from '../ui/keypad.js';
 import { dateOverlay } from '../ui/pickers.js';
 import * as store from '../core/store.js';
@@ -16,12 +16,14 @@ import { balance, category } from '../core/finance.js';
 import { openAdjustSheet } from './txn-sheet.js';
 import { pushCard } from './notifications.js';
 import { openLogin, openSignup, openNewPassword } from './account-sheets.js';
+import * as ai from '../core/assistant.js';
 
 const SECTIONS = {
   appearance: { title: 'المظهر', render: appearance },
   notifications: { title: 'الإشعارات', render: notifications },
   account: { title: 'الحساب والمزامنة', render: account },
   income: { title: 'المرتبات والرصيد', render: income },
+  assistant: { title: 'المساعد', render: assistantSection },
   data: { title: 'النسخ الاحتياطي', render: dataSection },
   about: { title: 'عن التطبيق', render: about },
 };
@@ -107,6 +109,7 @@ export default {
         navRow('bell', 'warn', 'الإشعارات', s.notif.daily.on ? `تذكير يومي ${fmtTime(s.notif.daily.time)}` : 'التذكير اليومي مقفول', '/settings/notifications'),
         navRow('briefcase', 'pos', 'المرتبات والرصيد', `${fmtMoney(s.office.amount)} يوم ${fmtPlain(s.office.day)}`, '/settings/income'),
         navRow('tags', 'accent', 'البنود', `${fmtPlain(data.cat.filter((c) => !c.archived).length)} بند`, '/categories'),
+        navRow('sparkles', 'accent', 'المساعد', AI_MODELS[(s.ai || {}).model || 'opus'].name, '/settings/assistant'),
       ]),
       group('البيانات', [
         navRow(u ? 'cloud' : 'cloud-off', u ? 'pos' : 'muted', 'الحساب والمزامنة', u ? 'متصل' : 'بدون حساب', '/settings/account'),
@@ -168,6 +171,56 @@ function appearance(s) {
       value: look.digits,
       onChange: (v) => later(() => set({ look: { digits: v } })),
     })),
+  ];
+}
+
+/* ------------------------------------------------------------ assistant */
+
+const AI_MODELS = {
+  opus: { name: 'Claude Opus — الأذكى', sub: 'أدق واحد في الفهم والأسئلة · حوالي 6 سنت للمرة' },
+  sonnet: { name: 'Claude Sonnet — متوسط', sub: 'ذكي وأسرع · حوالي 3 سنت للمرة' },
+  haiku: { name: 'Claude Haiku — اقتصادي', sub: 'أرخص بكثير وسريع، يفوته تفصيل أحياناً · أقل من ربع سنت' },
+};
+
+function assistantSection(s) {
+  const cfg = { model: 'opus', cap: 0.8, ...(s.ai || {}) };
+  const usageBox = h('div.set-ai-usage', h('small.faint', 'نجيبوا في الاستهلاك…'));
+  const paintUsage = (u) => {
+    if (!u) {
+      usageBox.replaceChildren(h('small.faint', 'سجّل دخول عشان تشوف الاستهلاك.'));
+      return;
+    }
+    const pct = u.cap ? Math.min(100, (u.spent / u.cap) * 100) : 0;
+    usageBox.replaceChildren(
+      h('div.set-ai-usage-top', h('span', 'استهلاك هالشهر'), h('b', `${u.spent.toFixed(2)}$ من ${Number(u.cap).toFixed(2)}$`)),
+      progress(pct, { tone: pct >= 90 ? 'neg' : pct >= 70 ? 'warn' : 'accent' }),
+      h('small.faint', `تقريباً ${fmtPlain(Math.round(u.spent * 180))} نقطة من رصيد Netlify`));
+  };
+  ai.refreshUsage().then(paintUsage);
+  return [
+    card(h('div.set-ai-intro',
+      h('span.set-ai-ic', icon('sparkles', { size: 22 })),
+      h('p', 'المساعد يخدم بالذكاء الاصطناعي عن طريق Netlify، ويستهلك من رصيدك المجاني فيه (300 نقطة في الشهر، والدولار ≈ 180 نقطة، وكل تحديث للموقع ياكل 15). لو الرصيد خلص الموقع يوقف لين الشهر الجاي، عشان هكي فيه حد شهري للمساعد.'))),
+    section('مستوى الذكاء', list(Object.entries(AI_MODELS).map(([k, m]) => row({
+      lead: { icon: k === 'opus' ? 'sparkles' : k === 'sonnet' ? 'zap' : 'coins', tone: k === cfg.model ? 'accent' : 'muted' },
+      title: m.name,
+      sub: m.sub,
+      end: k === cfg.model ? icon('check', { size: 20, stroke: 2.6 }) : null,
+      onClick: () => { haptic(6); set({ ai: { model: k } }); toast('يبدا من المحادثة الجاية', { tone: 'pos' }); },
+    })))),
+    section('الحد الشهري', h('div.stack',
+      segmented({
+        options: [0.5, 0.8, 1.2, 1.5].map((v) => ({ value: v, label: `${v}$` })),
+        value: [0.5, 0.8, 1.2, 1.5].includes(cfg.cap) ? cfg.cap : 0.8,
+        onChange: (v) => later(() => set({ ai: { cap: v } })),
+      }),
+      usageBox)),
+    group(null, [
+      row({ lead: { icon: 'trash-2', tone: 'neg' }, title: 'امسح المحادثة', sub: 'اللي تسجّل في التطبيق يبقى زي ما هو', onClick: async () => {
+        const ok = await confirm({ title: 'تمسح المحادثة؟', ok: 'امسح', danger: true, icon: 'trash-2' });
+        if (ok) { ai.reset(); toast('انمسحت'); }
+      } }),
+    ]),
   ];
 }
 

@@ -25,6 +25,7 @@ import recurring from './screens/recurring.js';
 import categories from './screens/categories.js';
 import settings, { settingsSection } from './screens/settings.js';
 import notifications from './screens/notifications.js';
+import assistant from './screens/assistant.js';
 import welcome from './screens/welcome.js';
 import { openTxnSheet } from './screens/txn-sheet.js';
 import { openNewPassword } from './screens/account-sheets.js';
@@ -45,6 +46,7 @@ const routes = [
   { path: '/settings', screen: settings, depth: 1, tab: 'more' },
   { path: '/settings/:section', screen: settingsSection, depth: 2, tab: 'more' },
   { path: '/notifications', screen: notifications, depth: 1, tab: 'home' },
+  { path: '/assistant', screen: assistant, depth: 1, tab: 'home' },
   { path: '/welcome', screen: welcome, depth: 0, tab: null },
   { path: '/add', action: (_, q) => openTxnSheet({ type: q.type || 'expense' }) },
   { path: '/add/:type', action: (p) => openTxnSheet({ type: p.type }) },

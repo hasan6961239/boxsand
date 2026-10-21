@@ -79,6 +79,7 @@ export function defaultSettings(todayStr) {
       recurring: true,
     },
     look: { mode: 'auto', accent: 'emerald', motion: 'full', digits: 'latin', size: 'm' },
+    ai: { model: 'opus', cap: 0.8 }, // assistant: model tier and monthly spending cap in USD
     tz: 'Africa/Tripoli',
     onboarded: false,
   };

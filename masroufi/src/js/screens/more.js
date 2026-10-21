@@ -20,7 +20,10 @@ function tiles(data, t) {
     h('span.more-tile-ic', icon(ic, { size: 22 })),
     h('b', title),
     h('small', stat));
+  const aiTile = tile('/assistant', 'sparkles', '#10B981', 'المساعد', 'اكتب أو تكلّم، ويسجّلها عليك');
+  aiTile.classList.add('is-wide');
   return h('div.more-grid',
+    aiTile,
     tile('/reports', 'chart-pie', '#8B5CF6', 'التقارير', `صرفت ${fmtMoney(tot.expense)}`),
     tile('/budget', 'target', '#F97316', 'الميزانية', b.total ? `استعملت ${fmtPlain(Math.round(b.total.pct))}%` : 'حدّد ميزانية'),
     tile('/salary', 'briefcase', '#10B981', 'المرتبات', off ? (off.isToday ? 'اليوم! 🎉' : off.late ? 'المرتب متأخر' : `المرتب ${fmtIn(off.daysLeft)}`) : 'مرتب الدولة'),

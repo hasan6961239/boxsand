@@ -120,7 +120,7 @@ async function build() {
     `  Content-Security-Policy: ${csp}`,
     '  X-Content-Type-Options: nosniff',
     '  Referrer-Policy: same-origin',
-    '  Permissions-Policy: camera=(), microphone=(), geolocation=()',
+    '  Permissions-Policy: camera=(), microphone=(self), geolocation=()',
     '/sw.js',
     '  Cache-Control: no-cache',
     '/index.html',

@@ -74,6 +74,13 @@ function quickActions() {
     qa('دين', 'handshake', 'info', () => openDebtSheet({})));
 }
 
+function assistantCard() {
+  return h('button.ai-home.tap.ripple', { type: 'button', onclick: () => { haptic(); go('/assistant'); } },
+    h('span.ai-home-ic', icon('sparkles', { size: 22 })),
+    h('span.ai-home-text', h('b', 'المساعد'), h('small', 'قوله شو صار، ويحسبها ويسجّلها عليك')),
+    h('span.ai-home-mic', icon('mic', { size: 20 })));
+}
+
 function salaryCard(data, t) {
   const off = officeStatus(data, t);
   if (!off) return null;
@@ -205,6 +212,7 @@ export default {
     const blocks = h('div.home',
       heroCard(data, t),
       quickActions(),
+      section(null, assistantCard()),
       sal ? section(null, sal) : null,
       attentionBlock(data, t),
       budgetBlock(data, t),

@@ -129,6 +129,7 @@ Routes are in `main.js`. Cross-module exports (owner → function):
 | `welcome.js` | default (`noTabbar: true`; intro → account choice → onboarding wizard) |
 | `account-sheets.js` | `openLogin()`, `openSignup()`, `openForgot()`, `openNewPassword()` |
 | `txn-sheet.js` | `openTxnSheet({type, id, preset})`, `openTxnDetail(id)`, `openAdjustSheet()` |
+| `assistant.js` | default (route `/assistant`, `live: false`, `noTabbar: true`) |
 
 ## Style rules
 
@@ -155,3 +156,13 @@ Routes are in `main.js`. Cross-module exports (owner → function):
 - `POST /api/push/subscribe` `{subscription, device, tz, ua}`, `POST /api/push/unsubscribe` `{endpoint}`, `POST /api/push/test`.
 - Scheduled `notify` (every 15 min): for each user with subscriptions, `pushDue()` in the user's zone, send with VAPID, dedupe per key, drop dead endpoints.
 - Identity `userValidate`: only the owner may sign up (first account, or `ALLOWED_EMAILS`).
+- `POST /api/assistant` `{v, model, cap, messages}` → NDJSON stream (`text` deltas, `tool`, `done {v, message, usage}`, `error`). One Claude turn through the Netlify AI Gateway (no API key: the gateway injects it). `GET /api/assistant/usage?cap=` → `{spent, cap, month}`.
+- `POST /api/transcribe` `{audio: base64 WAV, hints, cap}` → `{text}` — Gemini speech-to-text for the mic button.
+
+## Assistant
+
+- `netlify/lib/assistant.mjs`: fixed `SYSTEM` prompt and `TOOLS` (`ask_user`, `propose_actions`, `query_data`, `calculate`), models (`opus`/`sonnet`/`haiku` → Claude 5.5 ids), prices and a **monthly USD cap** kept in Blobs (`ai-usage`, key `YYYY-MM`): the gateway spends the team's Netlify credits and a Free team pauses when they run out. Editing `SYSTEM`/`TOOLS` changes `PROMPT_VERSION`; stored conversations then start fresh (thinking blocks are bound to the exact prefix).
+- `core/assistant.js`: the conversation lives on the device (`db` meta `assistant`), append-only, sent back verbatim. Tools run on the device: `calculate` (`core/calc.js`, no eval) and `query_data` answer at once; `ask_user` and `propose_actions` wait for the owner. A saved/cancelled proposal is reported with the owner's next message (no extra model turn).
+- `core/ai-data.js` (pure, tested): `snapshot()` (first message `<app_data>`), `runQuery()`, `planActions()` → records + effects computed with `finance.js`. The model never does the bookkeeping maths the owner sees.
+- `core/recorder.js`: mic → 16 kHz mono WAV (Web Audio, works the same on every iPhone). `Permissions-Policy` allows `microphone=(self)`.
+- Settings `ai: {model, cap}` (Settings → المساعد).
