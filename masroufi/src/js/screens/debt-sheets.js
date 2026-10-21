@@ -4,7 +4,7 @@
 import { h } from '../ui/dom.js';
 import { sheet, segmented, button, iconButton, toast, confirm, field, input, chips, toggle, haptic, confetti } from '../ui/kit.js';
 import { amountPad } from '../ui/keypad.js';
-import { dateChips, colorPicker } from '../ui/pickers.js';
+import { dateChips, colorPicker, dateOverlay } from '../ui/pickers.js';
 import * as store from '../core/store.js';
 import { today, addDays, fmtMoney, fmtDate, intlPhone, latinDigits } from '../core/util.js';
 import { debtInfo, paysByDebt } from '../core/finance.js';
@@ -123,16 +123,14 @@ export function openDebtSheet({ dir = 'in', person, id } = {}) {
 
     const dueSel = dueOptions();
     const customDue = st.due && !dueSel.some((o) => o.value === st.due);
-    const dueField = h('div.stack-sm',
-      chips({
-        scroll: true,
-        options: [...dueSel, { value: '__pick', label: customDue ? fmtDate(st.due) : 'تاريخ…', icon: 'calendar' }],
-        value: customDue ? '__pick' : st.due,
-        onChange: (v) => {
-          if (v === '__pick') { pickDue(); return; }
-          st.due = v;
-        },
-      }));
+    const dueChips = chips({
+      scroll: true,
+      options: [...dueSel, { value: '__pick', label: customDue ? fmtDate(st.due) : 'تاريخ…', icon: 'calendar' }],
+      value: customDue ? '__pick' : st.due,
+      onChange: (v) => { if (v !== '__pick') st.due = v; },
+    });
+    dateOverlay(dueChips.lastElementChild, { value: st.due || addDays(st.date, 14), min: st.date, onChange: (v) => { st.due = v; render(); } });
+    const dueField = h('div.stack-sm', dueChips);
 
     body.replaceChildren(
       dirSeg || h('p.debt-dirnote', { class: st.dir === 'in' ? 'tone-pos' : 'tone-neg' }, st.dir === 'in' ? 'دين ليك عند حد' : 'دين عليك لحد'),
@@ -142,14 +140,6 @@ export function openDebtSheet({ dir = 'in', person, id } = {}) {
       h('div.toggle-row', h('div', h('b', DIR[st.dir].cash), h('small', DIR[st.dir].cashHint)), toggle({ checked: st.cash, label: DIR[st.dir].cash, onChange: (v) => { st.cash = v; } })),
       field('ملاحظة', input({ value: st.note, placeholder: 'اختياري — مثلاً: سلفة للسيارة', maxlength: 120, onInput: (v) => { st.note = v; } })),
       err);
-  }
-
-  function pickDue() {
-    const native = h('input', { type: 'date', min: st.date, value: st.due || addDays(st.date, 14), style: { position: 'fixed', opacity: 0, pointerEvents: 'none', bottom: 0 } });
-    document.body.appendChild(native);
-    native.addEventListener('change', () => { if (native.value) { st.due = native.value; render(); } native.remove(); });
-    native.addEventListener('blur', () => setTimeout(() => native.remove(), 500));
-    try { native.showPicker(); } catch { native.focus(); native.click(); }
   }
 
   function submit() {

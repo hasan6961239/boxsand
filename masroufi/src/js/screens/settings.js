@@ -4,6 +4,7 @@
 import { h, icon } from '../ui/dom.js';
 import { layout, header, section, card, list, row, toggle, segmented, button, sheet, field, input, toast, confirm, busy, stagger, avatar, haptic, moneyEl, empty } from '../ui/kit.js';
 import { amountPad } from '../ui/keypad.js';
+import { dateOverlay } from '../ui/pickers.js';
 import * as store from '../core/store.js';
 import * as auth from '../core/auth.js';
 import * as sync from '../core/sync.js';
@@ -304,16 +305,11 @@ function income(s) {
     ]),
     group('الرصيد الافتتاحي', [
       row({ lead: { icon: 'wallet', tone: 'accent' }, title: 'المبلغ اللي كان معاك', end: moneyEl(s.opening), chevron: true, onClick: () => amountSheet({ title: 'الرصيد الافتتاحي', sub: 'كم كان معاك لما بديت تستعمل التطبيق.', value: s.opening, onSave: (v) => set({ opening: v }) }) }),
-      row({
-        lead: { icon: 'calendar-days', tone: 'muted' }, title: 'من تاريخ', end: h('b', fmtDate(s.openingDate)), chevron: true,
-        onClick: () => {
-          const native = h('input', { type: 'date', value: s.openingDate, max: today(), style: { position: 'fixed', opacity: 0, bottom: 0 } });
-          document.body.appendChild(native);
-          native.addEventListener('change', () => { if (native.value) set({ openingDate: native.value }); native.remove(); });
-          native.addEventListener('blur', () => setTimeout(() => native.remove(), 500));
-          try { native.showPicker(); } catch { native.focus(); }
-        },
-      }),
+      (() => {
+        const r = row({ lead: { icon: 'calendar-days', tone: 'muted' }, title: 'من تاريخ', end: h('b', fmtDate(s.openingDate)), chevron: true });
+        dateOverlay(r, { value: s.openingDate, max: today(), onChange: (v) => set({ openingDate: v }) });
+        return r;
+      })(),
     ]),
     h('p.sal-hint', icon('info', { size: 16 }), 'الحركات اللي قبل تاريخ الرصيد الافتتاحي تنحفظ في السجل بس ما تأثرش على رصيدك.'),
   ];

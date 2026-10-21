@@ -57,40 +57,50 @@ export function categoryGrid({ kind = 'expense', value, onChange, extra = [], on
   return el;
 }
 
+/**
+ * Lay an invisible native date input over `target`, so the user's own tap
+ * lands on the input — the only way iOS reliably opens its date wheel.
+ * Desktop browsers get showPicker() on click.
+ */
+export function dateOverlay(target, { value, min, max, onChange } = {}) {
+  const inp = h('input.date-overlay', { type: 'date', value: value || '', min, max, 'aria-label': 'اختار تاريخ' });
+  inp.addEventListener('click', () => { try { inp.showPicker(); } catch { /* iOS opens it natively */ } });
+  inp.addEventListener('change', () => { if (inp.value) onChange && onChange(inp.value); });
+  target.classList.add('has-date-overlay');
+  target.appendChild(inp);
+  return inp;
+}
+
 /** Date chips: اليوم / أمس / قبل أمس / pick… — onChange('YYYY-MM-DD'). */
 export function dateChips({ value = today(), onChange, future = false } = {}) {
   const t = today();
-  const native = h('input.date-native', { type: 'date', value, max: future ? undefined : t, 'aria-label': 'اختار تاريخ' });
   const presets = [{ value: t, label: 'اليوم' }, { value: addDays(t, -1), label: 'أمس' }, { value: addDays(t, -2), label: 'قبل أمس' }];
   if (future) presets.splice(1, 2, { value: addDays(t, 1), label: 'بكرة' });
   let cur = value;
-  const otherLabel = () => (presets.some((p) => p.value === cur) ? 'تاريخ آخر' : fmtDate(cur, 'short'));
+  const isPreset = () => presets.some((p) => p.value === cur);
+  const otherLabel = () => (isPreset() ? 'تاريخ آخر' : fmtDate(cur, 'short'));
   const group = chips({
     options: [...presets, { value: '__pick', label: otherLabel(), icon: 'calendar' }],
-    value: presets.some((p) => p.value === cur) ? cur : '__pick',
+    value: isPreset() ? cur : '__pick',
     scroll: true,
     onChange: (v) => {
-      if (v === '__pick') {
-        try { native.showPicker(); } catch { native.focus(); native.click(); }
-        return;
-      }
+      if (v === '__pick') return; // the overlaid input handles it
       cur = v;
+      native.value = v;
       onChange && onChange(v);
       relabel();
     },
   });
   const relabel = () => {
-    const last = group.lastElementChild;
-    last.lastChild.textContent = otherLabel();
-    group.setValue(presets.some((p) => p.value === cur) ? cur : '__pick');
+    group.lastElementChild.childNodes.forEach((n) => { if (n.nodeType === 3) n.textContent = otherLabel(); });
+    group.setValue(isPreset() ? cur : '__pick');
   };
-  native.addEventListener('change', () => {
-    if (!native.value) return;
-    cur = native.value;
-    onChange && onChange(cur);
-    relabel();
+  const native = dateOverlay(group.lastElementChild, {
+    value: cur,
+    max: future ? undefined : t,
+    onChange: (v) => { cur = v; onChange && onChange(v); relabel(); },
   });
-  return h('div.date-chips', group, native);
+  return h('div.date-chips', group);
 }
 
 export function emojiPicker({ value, onChange } = {}) {

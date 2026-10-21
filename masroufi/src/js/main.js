@@ -128,6 +128,12 @@ async function boot() {
   buildTabbar();
   automation.start();
 
+  // An email link (confirm account / reset password) carries its token in the
+  // hash: let the account layer consume it before routing rewrites the hash.
+  const emailLink = /(confirmation|recovery|invite|email_change)_token=|access_token=/.test(location.hash);
+  const authReady = auth.init();
+  if (emailLink) await authReady;
+
   if (!store.settings().onboarded && !location.hash.startsWith('#/welcome')) {
     history.replaceState(null, '', '#/welcome');
   }
@@ -140,17 +146,17 @@ async function boot() {
   registerSW();
   db.persist();
 
-  // Account + sync in the background
-  const { handled } = await auth.init();
-  await sync.start();
-  if (handled === 'recovery') openNewPassword();
-  else if (handled === 'confirmation') toast('تم تأكيد الإيميل وتسجيل دخولك ✨', { tone: 'pos' });
-  else if (handled === 'error') toast('الرابط منتهي أو مستعمل قبل', { tone: 'warn' });
-
   // after a login on a fresh device the synced settings may say we're onboarded already
   on('change', () => {
     if (router.currentPath() === '/welcome' && store.settings().onboarded && auth.current()) router.go('/', { replace: true });
   });
+
+  // Account + sync in the background
+  const { handled } = await authReady;
+  await sync.start();
+  if (handled === 'recovery') openNewPassword();
+  else if (handled === 'confirmation') toast('تم تأكيد الإيميل وتسجيل دخولك ✨', { tone: 'pos' });
+  else if (handled === 'error') toast('الرابط منتهي أو مستعمل قبل', { tone: 'warn' });
 }
 
 boot().catch((e) => {
