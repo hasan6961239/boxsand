@@ -39,7 +39,7 @@ export function openBudgetSheet({ cat } = {}) {
   const avg = averageSpend(cat);
   const save = button({ label: existing ? 'حفظ' : 'حدّد الميزانية', size: 'lg', block: true, onClick: () => submit() });
   save.disabled = !value;
-  const pad = amountPad({ value, tone: 'accent', quick: [], onChange: (m) => { value = m; save.disabled = !m; } });
+  const pad = amountPad({ value, tone: 'accent', quick: [], autofocus: true, onChange: (m) => { value = m; save.disabled = !m; } });
   const suggestions = [...new Set([nice(avg), nice(avg * 0.9), nice(avg * 1.1)].filter((x) => x > 0))].sort((a, b) => a - b);
 
   const api = sheet({

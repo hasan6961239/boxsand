@@ -196,7 +196,7 @@ export function openSalarySheet(cycleKey, { id } = {}) {
 
   const editGross = () => {
     let val = st.gross;
-    const pad = amountPad({ value: val, tone: 'pos', quick: [], onChange: (m) => { val = m; } });
+    const pad = amountPad({ value: val, tone: 'pos', quick: [], autofocus: true, onChange: (m) => { val = m; } });
     sheet({
       title: 'مبلغ المرتب',
       sub: 'لو فيه زيادة أو خصم أو مكافأة هالشهر عدّل المبلغ قبل الخصم.',

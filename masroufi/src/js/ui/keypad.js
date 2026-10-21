@@ -1,102 +1,83 @@
-// Big amount entry: a live display plus an on-screen number pad (no system
-// keyboard popping up and covering the form). Works with a hardware keyboard too.
+// Big amount entry typed with the phone's own number keyboard (inputmode
+// decimal), so there's never a second keyboard competing for the screen.
 //
 //   const pad = amountPad({ value: 0, onChange: (milli) => … });
-//   sheetBody.append(pad.display, …, pad.pad);
+//   sheetBody.append(pad.display, …, pad.pad);   // pad.pad: optional quick-add chips (or null)
 //   pad.get() → milli, pad.set(milli)
+//
+// A new (empty) amount is marked data-autofocus; kit.sheet() focuses it in
+// the same tap that opened the sheet, which is what lets iOS show the keyboard.
 
-import { h, icon } from './dom.js';
+import { h } from './dom.js';
 import { haptic } from './kit.js';
-import { milliToInput, toMilli, fmtNumber, CURRENCY } from '../core/util.js';
+import { milliToInput, toMilli, latinDigits, CURRENCY } from '../core/util.js';
 
-export function amountPad({ value = 0, onChange, tone = 'neg', quick = [5, 10, 20, 50, 100], autoKeys = true } = {}) {
-  let text = value ? milliToInput(Math.abs(value)) : '';
-  const num = h('span.amount-num');
-  const display = h('div.amount-display', { class: `tone-${tone}` },
-    h('div.amount-line', num, h('span.amount-cur', CURRENCY)));
+/** Keep only a valid amount while typing: digits, one decimal point, ≤3 decimals, ≤8 integer digits. */
+function cleanAmount(raw) {
+  let s = latinDigits(raw).replace(/[٫,،]/g, '.').replace(/[^\d.]/g, '');
+  const dot = s.indexOf('.');
+  if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '');
+  let [i = '', f] = s.split('.');
+  i = i.replace(/^0+(?=\d)/, '').slice(0, 8);
+  return f === undefined ? i : `${i || '0'}.${f.slice(0, 3)}`;
+}
 
-  // fire = false for the initial paint: callers wire onChange to elements they create after the pad
-  function render(bump, fire = true) {
-    const m = toMilli(text || '0');
-    if (!text) num.textContent = '0';
-    else {
-      const [i, f] = text.split('.');
-      num.textContent = fmtNumber(Number(i || 0) * 1000, { decimals: 0 }) + (text.includes('.') ? '.' + (f || '') : '');
-    }
-    display.classList.toggle('is-empty', !text);
-    if (bump) {
-      num.classList.remove('bump');
-      void num.offsetWidth;
-      num.classList.add('bump');
-    }
-    if (fire && onChange) onChange(Number.isNaN(m) ? 0 : m);
-  }
+export function amountPad({ value = 0, onChange, tone = 'neg', quick = [], autofocus } = {}) {
+  const focusIt = autofocus ?? !value;
+  const inp = h('input.amount-input', {
+    type: 'text',
+    inputmode: 'decimal',
+    enterkeyhint: 'done',
+    autocomplete: 'off',
+    dir: 'ltr',
+    placeholder: '0',
+    'aria-label': 'المبلغ',
+    value: value ? milliToInput(Math.abs(value)) : '',
+    'data-autofocus': focusIt ? '' : undefined,
+  });
+  const display = h('label.amount-display', { class: `tone-${tone}` },
+    h('div.amount-line', inp, h('span.amount-cur', CURRENCY)));
 
-  function press(k) {
-    haptic(6);
-    if (k === 'del') text = text.slice(0, -1);
-    else if (k === 'clear') text = '';
-    else if (k === '.') {
-      if (!text.includes('.')) text = (text || '0') + '.';
-    } else {
-      const [i, f] = text.split('.');
-      if (text.includes('.')) {
-        if ((f || '').length >= 3) return;
-      } else if ((i || '').length >= 8) return;
-      text = text === '0' ? k : text + k;
-    }
-    render(true);
-  }
+  const size = () => {
+    // grow the field with its content so the currency stays next to the number
+    inp.style.width = `${Math.max(1, (inp.value || '0').length) + 0.6}ch`;
+    display.classList.toggle('is-empty', !inp.value);
+  };
 
-  const key = (k, label) => h('button.key.tap', { type: 'button', 'aria-label': label, onclick: () => press(k) }, label);
+  const current = () => {
+    const m = toMilli(inp.value || '0');
+    return Number.isNaN(m) ? 0 : m;
+  };
 
-  const pad = h('div.keypad.no-drag',
-    quick && quick.length ? h('div.keypad-quick', quick.map((q) => h('button.chip.chip-sm.tap', {
-      type: 'button',
-      onclick: () => {
-        haptic(6);
-        const cur = toMilli(text || '0') || 0;
-        text = milliToInput(cur + q * 1000);
-        render(true);
-      },
-    }, '+' + q))) : null,
-    h('div.keypad-grid', { dir: 'ltr' },
-      ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => key(d, d)),
-      key('.', '.'), key('0', '0'), h('button.key.key-del.tap', { type: 'button', 'aria-label': 'مسح', onclick: () => press('del') }, icon('delete', { size: 24 }))));
+  inp.addEventListener('input', () => {
+    const c = cleanAmount(inp.value);
+    if (c !== inp.value) inp.value = c;
+    size();
+    onChange && onChange(current());
+  });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') inp.blur();
+  });
+  size();
 
-  // long-press on the delete key clears everything
-  const del = pad.querySelector('.key-del');
-  let lt;
-  del.addEventListener('pointerdown', () => { lt = setTimeout(() => press('clear'), 550); });
-  ['pointerup', 'pointerleave', 'pointercancel'].forEach((e) => del.addEventListener(e, () => clearTimeout(lt)));
+  const pad = quick && quick.length ? h('div.keypad-quick', quick.map((q) => h('button.chip.chip-sm.tap', {
+    type: 'button',
+    onclick: () => {
+      haptic(6);
+      inp.value = milliToInput(current() + q * 1000);
+      size();
+      onChange && onChange(current());
+    },
+  }, '+' + q))) : null;
 
-  let onKey = null;
-  if (autoKeys) {
-    onKey = (e) => {
-      if (!pad.isConnected) {
-        document.removeEventListener('keydown', onKey);
-        return;
-      }
-      if (e.target.closest && e.target.closest('input, textarea')) return;
-      if (/^[0-9]$/.test(e.key)) press(e.key);
-      else if (e.key === '.' || e.key === ',') press('.');
-      else if (e.key === 'Backspace') press('del');
-      else return;
-      e.preventDefault();
-    };
-    document.addEventListener('keydown', onKey);
-  }
-
-  render(false, false);
   return {
     display,
     pad,
-    get: () => {
-      const m = toMilli(text || '0');
-      return Number.isNaN(m) ? 0 : m;
-    },
-    set: (m) => { text = m ? milliToInput(Math.abs(m)) : ''; render(false); },
-    setTone: (t) => { display.className = `amount-display tone-${t}` + (text ? '' : ' is-empty'); },
-    destroy: () => onKey && document.removeEventListener('keydown', onKey),
+    input: inp,
+    get: current,
+    set: (m) => { inp.value = m ? milliToInput(Math.abs(m)) : ''; size(); onChange && onChange(current()); },
+    setTone: (t) => { display.className = `amount-display tone-${t}` + (inp.value ? '' : ' is-empty'); },
+    focus: () => inp.focus({ preventScroll: true }),
+    destroy: () => {},
   };
 }

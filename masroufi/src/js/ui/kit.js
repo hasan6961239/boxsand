@@ -333,6 +333,10 @@ export function sheet({ title, sub, body, footer, full = false, cls = '', dismis
   dragToDismiss(panel, head, bodyEl, () => api.dismiss(), () => dismissible);
 
   layer().appendChild(root);
+  // Focus synchronously, still inside the tap that opened the sheet — iOS only
+  // raises the keyboard for a focus that happens during a user gesture.
+  const af = panel.querySelector('[data-autofocus]');
+  if (af) af.focus({ preventScroll: true });
   openSheets.push(api);
   document.documentElement.classList.add('has-sheet');
   requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('open')));
@@ -344,7 +348,7 @@ function dragToDismiss(panel, handle, scroller, dismiss, allowed) {
   const down = (e) => {
     if (!allowed() || e.button > 0) return;
     fromBody = !handle.contains(e.target);
-    if (fromBody && (scroller.scrollTop > 0 || e.target.closest('input, textarea, select, .keypad, .no-drag'))) return;
+    if (fromBody && (scroller.scrollTop > 0 || e.target.closest('input, textarea, select, .no-drag'))) return;
     startY = e.clientY; dy = 0; dragging = true; t0 = performance.now();
   };
   const move = (e) => {

@@ -35,7 +35,7 @@ export function openGoalSheet({ id } = {}) {
 
   function editTarget() {
     let v = st.target;
-    const pad = amountPad({ value: v, tone: 'accent', quick: [], onChange: (m) => { v = m; } });
+    const pad = amountPad({ value: v, tone: 'accent', quick: [], autofocus: true, onChange: (m) => { v = m; } });
     sheet({
       title: 'كم تبي تجمع؟',
       body: () => h('div.stack', pad.display, pad.pad),

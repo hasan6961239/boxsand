@@ -1,8 +1,8 @@
 /* Styles for shared pieces: pickers, activity rows, detail sheet, add sheet. */
 
 /* privacy mode: blur money everywhere */
-html.privacy .money, html.privacy .amount-num { filter: blur(9px); transition: filter var(--dur-2); }
-html.privacy .sheet .amount-num, html.privacy .sheet .money { filter: none; }
+html.privacy .money { filter: blur(9px); transition: filter var(--dur-2); }
+html.privacy .sheet .money { filter: none; }
 
 /* ---------------------------------------------------------------- category grid */
 
@@ -72,12 +72,6 @@ html.privacy .sheet .amount-num, html.privacy .sheet .money { filter: none; }
 .txn-form .field + .field { margin-top: 0; }
 .txn-foot { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .txn-sheet .sheet-foot { padding-top: 8px; }
-.txn-sheet .keypad-grid { gap: 6px; }
-.txn-sheet .key { height: 50px; }
-@media (max-height: 700px) {
-  .txn-sheet .key { height: 42px; font-size: 1.3rem; }
-  .txn-sheet .amount-num { font-size: 2.2rem; }
-}
 
 /* ---------------------------------------------------------------- detail sheet */
 

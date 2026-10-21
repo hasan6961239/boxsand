@@ -40,7 +40,7 @@ const set = (patch) => store.setSettings(patch);
 
 function amountSheet({ title, sub, value, onSave }) {
   let v = value;
-  const pad = amountPad({ value, tone: 'accent', quick: [], onChange: (m) => { v = m; } });
+  const pad = amountPad({ value, tone: 'accent', quick: [], autofocus: true, onChange: (m) => { v = m; } });
   sheet({
     title,
     sub,

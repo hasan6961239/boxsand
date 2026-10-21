@@ -172,7 +172,7 @@ function editStateAmount() {
 
 function amountSheet(title, value, onSave) {
   let v = value;
-  const p = amountPad({ value, tone: 'accent', quick: [], onChange: (m) => { v = m; } });
+  const p = amountPad({ value, tone: 'accent', quick: [], autofocus: true, onChange: (m) => { v = m; } });
   sheet({
     title,
     body: () => h('div.stack', p.display, p.pad),
