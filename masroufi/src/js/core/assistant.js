@@ -394,8 +394,22 @@ async function wavPiece(pcm, rate, depth = 0) {
   }
 }
 
+/** Loudest 50 ms of the recording (RMS) — near zero means nobody spoke. */
+function peakLevel(pcm, rate) {
+  const win = Math.floor(rate * 0.05);
+  let peak = 0;
+  for (let p = 0; p + win <= pcm.length; p += win) {
+    let s = 0;
+    for (let i = p; i < p + win; i++) s += pcm[i] * pcm[i];
+    peak = Math.max(peak, Math.sqrt(s / win));
+  }
+  return peak;
+}
+
 /** Speech → text for a recording from core/recorder.js. */
 export async function transcribe(rec) {
+  // don't send silence: speech-to-text tends to invent words for it
+  if (peakLevel(rec.pcm, rec.rate) < 0.01) return '';
   await auth.ensureFresh();
   if (rec.compressed && rec.compressed.base64.length <= COMPRESSED_MAX) {
     try {

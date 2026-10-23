@@ -8,7 +8,7 @@
 // (the compressed recording isn't accepted — the app falls back to WAV).
 
 import type { Config } from '@netlify/functions';
-import { GoogleGenAI, ApiError } from '@google/genai';
+import { GoogleGenAI, ApiError, ThinkingLevel } from '@google/genai';
 import { json, currentUser, readJson, diagAllowed } from '../lib/http.mjs';
 import { capOf, getUsage, addUsage, geminiCost } from '../lib/assistant.mjs';
 
@@ -22,15 +22,26 @@ const LABELS: Record<string, string[]> = {
   'audio/ogg': ['audio/ogg'],
 };
 
+// The transcript goes straight into the owner's message box, so inventing
+// words is worse than returning nothing (Gemini otherwise "hears" sentences in
+// noise or tones).
+const SYSTEM = [
+  'You are a speech-to-text engine for Libyan Arabic. Output only the words actually spoken in the audio, verbatim, in Arabic script, in the dialect as spoken — no translation, correction, summary or additions.',
+  'Write numbers and amounts with Western digits (100, 2.5, 1250) and keep currency words as spoken.',
+  `If the audio has no clearly audible human speech (silence, noise, music, tones), or you cannot make out the words, output exactly ${'[]'} and nothing else. Never guess or invent words.`,
+].join('\n');
+const NOTHING = '[]';
+
 function prompt(hints: string[]) {
   return [
-    'اكتب نص هذا التسجيل الصوتي حرفياً كما قيل باللهجة الليبية، بدون ترجمة ولا تصحيح ولا تلخيص ولا إضافة.',
-    'اكتب الأرقام والمبالغ بالأرقام الإنجليزية (مثلاً 100 و 2.5 و 1250)، وخلّي كلمات العملة زي ما انقالت.',
-    'لو التسجيل فاضي أو ما فيهش كلام مفهوم رجّع نص فاضي.',
-    hints.length ? `أسماء وكلمات ممكن تنذكر (اكتبها بنفس هالإملاء لو انقالت): ${hints.join('، ')}` : '',
-    'رجّع النص فقط.',
+    'Transcribe this recording.',
+    hints.length ? `Names and words that may be said (spell them like this if you hear them): ${hints.join('، ')}` : '',
   ].filter(Boolean).join('\n');
 }
+
+// keep thinking to a minimum: transcription doesn't need it, and it made a
+// 10-second clip take longer than the function's time limit
+const thinkingFor = (model: string) => (model.startsWith('gemini-2.') ? { thinkingBudget: 0 } : { thinkingLevel: ThinkingLevel.MINIMAL });
 
 const tooBig = (e: any) => /input_tokens_exceeded|request size exceeds/i.test(String(e && e.message));
 
@@ -58,27 +69,39 @@ export default async (req: Request) => {
   const before = await getUsage();
   if (before.spent >= cap) return json({ error: 'cap', spent: before.spent, cap }, 402);
 
-  const ai = new GoogleGenAI({});
+  const ai = new GoogleGenAI({ httpOptions: { timeout: 24_000 } });
   let lastErr: any = null;
   let refused = false;
   for (const model of STT_MODELS) {
     for (const mimeType of labels) {
       try {
-        const r = await ai.models.generateContent({
+        const run = (thinking: object | null) => ai.models.generateContent({
           model,
           contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: audio } }, { text: prompt(hints) }] }],
-          config: { temperature: 0, maxOutputTokens: 4096 },
+          config: { systemInstruction: SYSTEM, temperature: 0, maxOutputTokens: 2048, ...(thinking ? { thinkingConfig: thinking } : {}) },
         });
+        let r;
+        try {
+          r = await run(thinkingFor(model));
+        } catch (e: any) {
+          // a model that doesn't take this thinking setting: ask again with its default
+          if (e instanceof ApiError && e.status === 400 && /think/i.test(String(e.message))) r = await run(null);
+          else throw e;
+        }
         const after = await addUsage(geminiCost(model, r.usageMetadata));
-        const text = (r.text || '').trim().replace(/^["«]|["»]$/g, '');
+        let text = (r.text || '').trim().replace(/^["«]|["»]$/g, '');
+        if (text === NOTHING || /^\[\s*\]$/.test(text)) text = '';
         return json({ text, model, mimeType, usage: { spent: after.spent, cap, month: after.month } });
       } catch (e: any) {
         lastErr = e;
         console.error('[transcribe]', model, mimeType, e && e.message);
         if (tooBig(e)) return json({ error: 'too-big' }, 413);
-        // a 400 here is about the audio itself: try the next label; anything else: next model
+        // a 400 is about the audio itself: try the next label. An unknown model:
+        // try the next one. Anything else (timeout, outage): stop — the function
+        // has a time limit and the app shows a retry.
         if (e instanceof ApiError && e.status === 400) refused = true;
-        else break;
+        else if (e instanceof ApiError && e.status === 404) break;
+        else return json({ error: 'server', message: String((e && e.message) || e).slice(0, 300) }, 502);
       }
     }
     if (refused) return json({ error: 'format' }, 415);
