@@ -150,16 +150,14 @@
 
 /* ---------------------------------------------------------------- composer */
 
+/* A plain background on purpose: on iPhone a backdrop-filter here was drawn
+   on top of the bar's own buttons, leaving only a blurred green glow. */
 .ai-composer {
-  position: relative;
-  z-index: 3;
+  flex-shrink: 0;
   padding: 8px var(--pad) calc(max(var(--safe-b), 10px) + 4px);
   margin-bottom: var(--kb, 0px);
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  -webkit-backdrop-filter: saturate(1.6) blur(18px);
-  backdrop-filter: saturate(1.6) blur(18px);
+  background: var(--bg);
   border-top: 1px solid var(--line);
-  transition: margin-bottom 0.12s linear;
 }
 .ai-row { display: flex; align-items: flex-end; gap: 8px; }
 .ai-input {

@@ -379,10 +379,24 @@ async function transcribeOne(base64, mime) {
   return j.text || '';
 }
 
-// Requests through the AI gateway must stay small, so long recordings go as
-// several short WAV pieces (cut at pauses), halved again if still refused.
-const COMPRESSED_MAX = 360 * 1024; // base64 chars
+// Requests through the AI gateway must stay small, so recordings go as short
+// WAV pieces (cut at pauses), halved again if the gateway still refuses one.
 const PIECE_SEC = 10;
+const PARALLEL = 4;
+
+/** Like Promise.all(list.map(fn)), at most `n` at a time, results in order. */
+async function mapLimit(list, n, fn) {
+  const out = new Array(list.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      const i = next++;
+      out[i] = await fn(list[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, list.length) }, worker));
+  return out;
+}
 
 async function wavPiece(pcm, rate, depth = 0) {
   try {
@@ -411,15 +425,8 @@ export async function transcribe(rec) {
   // don't send silence: speech-to-text tends to invent words for it
   if (peakLevel(rec.pcm, rec.rate) < 0.01) return '';
   await auth.ensureFresh();
-  if (rec.compressed && rec.compressed.base64.length <= COMPRESSED_MAX) {
-    try {
-      return await transcribeOne(rec.compressed.base64, rec.compressed.mime);
-    } catch (e) {
-      if (e.code !== 'format' && e.code !== 'too-big') throw e;
-    }
-  }
   const pieces = splitAtPauses(rec.pcm, rec.rate, PIECE_SEC);
-  return (await Promise.all(pieces.map((p) => wavPiece(p, rec.rate)))).filter(Boolean).join(' ');
+  return (await mapLimit(pieces, PARALLEL, (p) => wavPiece(p, rec.rate))).filter(Boolean).join(' ');
 }
 
 export async function refreshUsage() {
