@@ -236,3 +236,10 @@
 .ai-home-text b { display: block; font-size: 0.98rem; }
 .ai-home-text small { color: var(--text-3); font-size: 0.82rem; }
 .ai-home-mic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex-shrink: 0; }
+
+/* not signed in: say so plainly instead of greying out the controls */
+.ai-locked { display: none; align-items: center; gap: 10px; padding: 6px 4px; }
+.ai-composer.is-locked .ai-locked { display: flex; }
+.ai-composer.is-locked .ai-row, .ai-composer.is-locked .ai-hint, .ai-composer.is-locked .ai-rec { display: none !important; }
+.ai-locked-ic { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: var(--warn-soft); color: var(--warn); flex-shrink: 0; }
+.ai-locked-text { flex: 1; font-size: 0.92rem; font-weight: 600; }

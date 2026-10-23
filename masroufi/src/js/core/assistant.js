@@ -18,6 +18,7 @@ import { today } from './util.js';
 import { evaluate } from './calc.js';
 import { snapshot, hints, runQuery, planActions, appliedResult } from './ai-data.js';
 import { checkBudgets } from './automation.js';
+import { splitAtPauses, wavBase64 } from './recorder.js';
 
 const KEY = 'assistant';
 const MAX_AUTO_ROUNDS = 8;
@@ -357,19 +358,18 @@ export function undo(id) {
 
 /* ------------------------------------------------------------ voice & usage */
 
-export async function transcribe(base64) {
-  await auth.ensureFresh();
+async function transcribeOne(base64, mime) {
   const res = await fetch('/api/transcribe', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ audio: base64, hints: hints(store.data()), cap: settings().cap }),
+    body: JSON.stringify({ audio: base64, mime, hints: hints(store.data()), cap: settings().cap }),
   });
   let j = {};
   try { j = await res.json(); } catch { /* not json */ }
   if (!res.ok) {
     const e = new Error(j.error || `http ${res.status}`);
-    e.code = j.error || (res.status === 401 ? 'unauthorized' : 'server');
+    e.code = j.error || (res.status === 401 ? 'unauthorized' : res.status === 413 ? 'too-big' : 'server');
     throw e;
   }
   if (j.usage) {
@@ -377,6 +377,35 @@ export async function transcribe(base64) {
     notify();
   }
   return j.text || '';
+}
+
+// Requests through the AI gateway must stay small, so long recordings go as
+// several short WAV pieces (cut at pauses), halved again if still refused.
+const COMPRESSED_MAX = 360 * 1024; // base64 chars
+const PIECE_SEC = 10;
+
+async function wavPiece(pcm, rate, depth = 0) {
+  try {
+    return await transcribeOne(await wavBase64(pcm, rate), 'audio/wav');
+  } catch (e) {
+    if (e.code !== 'too-big' || depth >= 3 || pcm.length < rate * 3) throw e;
+    const halves = splitAtPauses(pcm, rate, pcm.length / rate / 2 + 0.5);
+    return (await Promise.all(halves.map((p) => wavPiece(p, rate, depth + 1)))).filter(Boolean).join(' ');
+  }
+}
+
+/** Speech → text for a recording from core/recorder.js. */
+export async function transcribe(rec) {
+  await auth.ensureFresh();
+  if (rec.compressed && rec.compressed.base64.length <= COMPRESSED_MAX) {
+    try {
+      return await transcribeOne(rec.compressed.base64, rec.compressed.mime);
+    } catch (e) {
+      if (e.code !== 'format' && e.code !== 'too-big') throw e;
+    }
+  }
+  const pieces = splitAtPauses(rec.pcm, rec.rate, PIECE_SEC);
+  return (await Promise.all(pieces.map((p) => wavPiece(p, rec.rate)))).filter(Boolean).join(' ');
 }
 
 export async function refreshUsage() {

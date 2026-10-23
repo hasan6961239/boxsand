@@ -24,7 +24,30 @@ function set(u) {
   const next = normalize(u);
   const changed = (next && next.id) !== (user && user.id);
   user = next;
+  if (next) restoreCookies(); // keep the session cookies persistent (see below)
   if (changed) emit('auth', user);
+}
+
+/**
+ * The identity library keeps the access token in a session cookie (nf_jwt)
+ * and, when it finds the saved login without that cookie, deletes the login.
+ * iOS drops session cookies every time a home-screen app is closed, so the
+ * owner was logged out on every cold start. Put the cookies back from the
+ * saved session (and make them last); an expired token is refreshed right after.
+ */
+const COOKIE_DAYS = 60;
+function writeCookies(access, refresh) {
+  const opts = `; path=/; secure; samesite=lax; max-age=${COOKIE_DAYS * 86400}`;
+  document.cookie = `nf_jwt=${encodeURIComponent(access)}${opts}`;
+  if (refresh) document.cookie = `nf_refresh=${encodeURIComponent(refresh)}${opts}`;
+}
+
+export function restoreCookies() {
+  try {
+    const raw = localStorage.getItem('gotrue.user');
+    const token = raw && JSON.parse(raw).token;
+    if (token && token.access_token) writeCookies(token.access_token, token.refresh_token);
+  } catch { /* no saved session */ }
 }
 
 /**
@@ -34,6 +57,7 @@ function set(u) {
  */
 export async function init() {
   let handled = null;
+  restoreCookies();
   available = await probe();
   if (available !== false) {
     try {
@@ -58,6 +82,12 @@ export async function init() {
       try {
         onAuthChange((evt, u) => set(evt === 'logout' ? null : u));
       } catch { /* identity unavailable */ }
+    }
+    if (user) {
+      // the restored token may have expired while the app was closed
+      ensureFresh().then(() => {
+        if (!localStorage.getItem('gotrue.user')) set(null); // refresh token no longer valid
+      }).catch(() => {});
     }
   }
   return { handled };
@@ -135,7 +165,7 @@ export function errorText(e) {
   const msg = String((e && (e.message || e.error_description || e.msg)) || '').toLowerCase();
   const status = e && e.status;
   if (e instanceof MissingIdentityError || status === 404) return 'نظام الحسابات مش مفعّل في الموقع لسه. فعّله من لوحة Netlify (الخطوة مشروحة في الإعدادات).';
-  if (msg.includes('invalid') && msg.includes('grant')) return 'الإيميل أو كلمة السر غلط.';
+  if (msg.includes('invalid') && msg.includes('grant')) return 'الإيميل أو كلمة السر غلط. لو نسيت كلمة السر اضغط «نسيت كلمة السر؟» وتوصلك رسالة تغيّرها منها.';
   if (msg.includes('email not confirmed') || msg.includes('not confirmed')) return 'لازم تأكد الإيميل أولاً — شوف الرسالة اللي وصلتك.';
   if (msg.includes('already') && msg.includes('registered')) return 'الإيميل هذا عنده حساب. سجّل دخول بدل إنشاء حساب.';
   if (msg.includes('password') && (msg.includes('short') || msg.includes('length') || msg.includes('characters'))) return 'كلمة السر قصيرة. خليها 6 حروف أو أكثر.';

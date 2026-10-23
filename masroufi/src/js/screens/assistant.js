@@ -9,6 +9,8 @@ import * as auth from '../core/auth.js';
 import { canRecord, startRecording } from '../core/recorder.js';
 import { fmtMoney, fmtDate, fmtNumber, today } from '../core/util.js';
 import { go } from '../core/router.js';
+import { on } from '../core/bus.js';
+import { openLogin } from './account-sheets.js';
 
 const MODEL_NAMES = { opus: 'Claude Opus', sonnet: 'Claude Sonnet', haiku: 'Claude Haiku' };
 const EXAMPLES = [
@@ -182,6 +184,14 @@ function itemNode(item) {
 
 /* ------------------------------------------------------------ thread rendering */
 
+// logging in or out changes the intro and unlocks the composer
+on('auth', () => {
+  if (!ctx) return;
+  const intro0 = ctx.thread.querySelector('.ai-intro');
+  if (intro0) intro0.remove();
+  paint(ai.state());
+});
+
 const sigOf = (item) => `${item.k}|${item.status || ''}|${item.done ? 1 : 0}|${item.answers ? item.answers.join('|') : ''}`;
 
 function intro() {
@@ -191,7 +201,7 @@ function intro() {
     h('p', 'قولي شو صار معاك وأنا نرتبهولك: مصاريف، ديون، مرتبات، أو أي حسبة. لو في حاجة مش واضحة نسألك، وما نسجّل شي إلا بموافقتك.'),
     signedIn()
       ? h('div.ai-examples', EXAMPLES.map((ex) => h('button.ai-example.tap', { type: 'button', onclick: () => { haptic(); ai.send(ex); } }, ex)))
-      : h('div.ai-login', h('p', 'المساعد يحتاج تكون مسجّل دخول لحسابك.'), button({ label: 'سجّل دخول', icon: 'log-in', onClick: () => go('/settings/account') })));
+      : h('div.ai-login', h('p', 'المساعد يحتاج تكون مسجّل دخول لحسابك.'), button({ label: 'سجّل دخول', icon: 'log-in', onClick: () => openLogin() })));
 }
 
 function paint(st) {
@@ -291,6 +301,7 @@ function paintComposer() {
   const ok = signedIn();
   const hasText = Boolean(ctx.input.value.trim());
   const rec = ctx.rec;
+  ctx.composer.classList.toggle('is-locked', !ok);
   ctx.composer.classList.toggle('is-recording', Boolean(rec && !rec.transcribing));
   ctx.composer.classList.toggle('is-transcribing', Boolean(rec && rec.transcribing));
   ctx.input.disabled = !ok || Boolean(rec);
@@ -344,9 +355,9 @@ async function stopMic(keep) {
   ctx.rec.transcribing = true;
   paintComposer();
   try {
-    const { base64, ms } = await handle.stop();
-    if (ms < 600) throw Object.assign(new Error('short'), { code: 'short' });
-    const text = await ai.transcribe(base64);
+    const out = await handle.stop();
+    if (out.ms < 600) throw Object.assign(new Error('short'), { code: 'short' });
+    const text = await ai.transcribe(out);
     if (!ctx) return;
     if (!text) throw Object.assign(new Error('empty'), { code: 'empty' });
     const cur = ctx.input.value.trim();
@@ -392,7 +403,11 @@ function composer() {
     h('button.ai-round.is-done.tap', { type: 'button', 'aria-label': 'خلّصت', onclick: () => stopMic(true) }, icon('check', { size: 22, stroke: 2.6 })));
   const hint = h('div.ai-hint', icon('pencil', { size: 14 }), 'راجع النص وصلّحه لو لزم، وبعدين ابعثه');
   hint.hidden = true;
-  const el = h('div.ai-composer', hint, recBar, h('div.ai-row', micBtn, sendBtn, input));
+  const locked = h('div.ai-locked',
+    h('span.ai-locked-ic', icon('lock', { size: 18 })),
+    h('span.ai-locked-text', 'المساعد يحتاج تسجيل دخول لحسابك'),
+    button({ label: 'سجّل دخول', size: 'sm', onClick: () => openLogin() }));
+  const el = h('div.ai-composer', locked, hint, recBar, h('div.ai-row', micBtn, sendBtn, input));
   return { el, input, sendBtn, micBtn, levelBars, recTime, hint };
 }
 

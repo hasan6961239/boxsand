@@ -12,13 +12,13 @@
 
 import type { Config } from '@netlify/functions';
 import Anthropic from '@anthropic-ai/sdk';
-import { json, currentUser, readJson } from '../lib/http.mjs';
+import { json, currentUser, readJson, diagAllowed } from '../lib/http.mjs';
 import { SYSTEM, TOOLS, MODELS, PROMPT_VERSION, claudeCost, capOf, getUsage, addUsage, checkMessages } from '../lib/assistant.mjs';
 
 const MAX_BODY = 600 * 1024;
 
 export default async (req: Request) => {
-  const user = await currentUser();
+  const user = diagAllowed(req) ? { id: 'diag' } : await currentUser();
   if (!user) return json({ error: 'unauthorized' }, 401);
 
   const url = new URL(req.url);

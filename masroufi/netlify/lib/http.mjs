@@ -18,6 +18,18 @@ export async function currentUser() {
   return user && user.id ? user : null;
 }
 
+/**
+ * One-off live check of the AI endpoints without an account login: a long
+ * random key in the DIAG_KEY env var, sent as `x-diag`, accepted only until
+ * the date below (after that this is dead code). Spending still counts
+ * against the monthly cap.
+ */
+const DIAG_UNTIL = Date.parse('2026-10-25T00:00:00Z');
+export function diagAllowed(req) {
+  const key = process.env.DIAG_KEY || '';
+  return key.length >= 32 && Date.now() < DIAG_UNTIL && req.headers.get('x-diag') === key;
+}
+
 export async function readJson(req, maxBytes) {
   const text = await req.text();
   if (text.length > maxBytes) {

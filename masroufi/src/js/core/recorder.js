@@ -1,15 +1,28 @@
-// Microphone recording to a small mono 16 kHz WAV (what speech-to-text needs).
-// Uses Web Audio rather than MediaRecorder so the format is the same on every
-// iPhone. Must be started from a tap: iOS only allows audio in a user gesture.
+// Microphone recording for the assistant. Must be started from a tap: iOS only
+// allows audio in a user gesture.
 //
-//   const rec = await startRecording({ onLevel: (0..1) => …, maxMs });
-//   const { base64, ms } = await rec.stop();   // or rec.cancel()
+//   const rec = await startRecording({ onLevel: (0..1) => …, onLimit, maxMs });
+//   const out = await rec.stop();   // or rec.cancel()
+//   out = { compressed: { base64, mime } | null, pcm: Float32Array, rate, ms }
+//
+// Two copies are kept while recording:
+// - a compressed one from MediaRecorder (AAC on iPhone, Opus elsewhere) — small,
+//   so a long message fits in one speech-to-text request;
+// - the raw samples, so that if the compressed one is refused or too big we can
+//   still send plain 16 kHz WAV cut into short pieces at pauses (splitAtPauses,
+//   wavBase64) — each request through the AI gateway must stay small.
 
 const RATE = 16000;
+const MIMES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
 
 export const canRecord = () => Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext));
 
-export async function startRecording({ onLevel, onLimit, maxMs = 120000 } = {}) {
+function pickMime() {
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return null;
+  return MIMES.find((m) => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || null;
+}
+
+export async function startRecording({ onLevel, onLimit, maxMs = 100000 } = {}) {
   // create and resume the context synchronously inside the tap, before any await
   const Ctx = window.AudioContext || window.webkitAudioContext;
   const ctx = new Ctx();
@@ -25,6 +38,21 @@ export async function startRecording({ onLevel, onLimit, maxMs = 120000 } = {}) 
   }
   await resumed;
 
+  // compressed copy
+  let mr = null;
+  const parts = [];
+  const mime = pickMime();
+  if (mime) {
+    try {
+      mr = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 32000 });
+      mr.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
+      mr.start(1000);
+    } catch {
+      mr = null;
+    }
+  }
+
+  // raw copy + level meter
   const src = ctx.createMediaStreamSource(stream);
   const proc = ctx.createScriptProcessor(4096, 1, 1);
   const mute = ctx.createGain();
@@ -33,7 +61,6 @@ export async function startRecording({ onLevel, onLimit, maxMs = 120000 } = {}) 
   let length = 0;
   const started = performance.now();
   let done = false;
-  let limitTimer = null;
 
   proc.onaudioprocess = (e) => {
     if (done) return;
@@ -49,26 +76,40 @@ export async function startRecording({ onLevel, onLimit, maxMs = 120000 } = {}) 
   src.connect(proc);
   proc.connect(mute);
   mute.connect(ctx.destination);
-  limitTimer = setTimeout(() => onLimit && onLimit(), maxMs);
+  const limitTimer = setTimeout(() => onLimit && onLimit(), maxMs);
 
   function teardown() {
     done = true;
     clearTimeout(limitTimer);
     try { src.disconnect(); proc.disconnect(); mute.disconnect(); } catch { /* already */ }
+    if (mr && mr.state !== 'inactive') try { mr.stop(); } catch { /* already */ }
     stream.getTracks().forEach((t) => t.stop());
     ctx.close().catch(() => {});
   }
+
+  const stopRecorder = () => new Promise((resolve) => {
+    if (!mr || mr.state === 'inactive') return resolve();
+    mr.onstop = () => resolve();
+    try { mr.stop(); } catch { resolve(); }
+    setTimeout(resolve, 1500); // never hang on a recorder that doesn't fire onstop
+  });
 
   return {
     get ms() { return performance.now() - started; },
     async stop() {
       const rate = ctx.sampleRate;
+      await stopRecorder();
       teardown();
       const all = new Float32Array(length);
       let o = 0;
       for (const c of chunks) { all.set(c, o); o += c.length; }
-      const wav = encodeWav(downsample(all, rate, RATE), RATE);
-      return { base64: await toBase64(wav), ms: (length / rate) * 1000 };
+      const pcm = downsample(all, rate, RATE);
+      let compressed = null;
+      if (parts.length) {
+        const blob = new Blob(parts, { type: parts[0].type || mime });
+        compressed = { base64: await toBase64(blob), mime: (blob.type || mime).split(';')[0] };
+      }
+      return { compressed, pcm, rate: RATE, ms: (length / rate) * 1000 };
     },
     cancel: teardown,
   };
@@ -88,6 +129,32 @@ function downsample(buf, from, to) {
   }
   return out;
 }
+
+/** Cut into pieces of at most `maxSec`, each ending at the quietest moment of its last few seconds. */
+export function splitAtPauses(pcm, rate, maxSec) {
+  const max = Math.floor(maxSec * rate);
+  if (pcm.length <= max) return [pcm];
+  const win = Math.floor(rate * 0.25);
+  const out = [];
+  let start = 0;
+  while (pcm.length - start > max) {
+    const from = start + Math.floor(max * 0.6);
+    const to = start + max - win;
+    let best = to;
+    let bestE = Infinity;
+    for (let p = from; p <= to; p += Math.floor(win / 2)) {
+      let e = 0;
+      for (let i = p; i < p + win; i++) e += pcm[i] * pcm[i];
+      if (e < bestE) { bestE = e; best = p + Math.floor(win / 2); }
+    }
+    out.push(pcm.subarray(start, best));
+    start = best;
+  }
+  out.push(pcm.subarray(start));
+  return out;
+}
+
+export const wavBase64 = (samples, rate) => toBase64(encodeWav(samples, rate));
 
 function encodeWav(samples, rate) {
   const buf = new ArrayBuffer(44 + samples.length * 2);
