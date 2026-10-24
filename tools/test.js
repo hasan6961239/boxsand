@@ -881,6 +881,36 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       /license\.txt/.test(licTxt) && /data/.test(licTxt), licTxt.slice(0, 90));
   }
 
+  console.log('\n== 14ج4. جهاز غير مفعّل: شاشة التفعيل وحدها بلا «نافذة أخرى» ==');
+  {
+    /* بلّغ عنه صاحب المحل من جهاز تجربة: فوق شاشة التفعيل شريط «المنظومة
+       مفتوحة في نافذة أخرى» وزر «تحكّم» لا يعمل. السبب: النواة ترفض
+       /api/claim بـunlicensed قبل التفعيل، وكان الإقلاع يقرأ الرفض «نافذة أخرى».
+       الردود هنا بنفس ترتيب Route في Program.cs. */
+    const up = await b.newPage({ viewport: { width: 1440, height: 900 } });
+    up.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
+    const writes = [];
+    await up.route('**/api/**', route => {
+      const p = new globalThis.URL(route.request().url()).pathname;
+      if (p === '/api/license') return route.fulfill({ status: 200, contentType: 'application/json',
+        body: '{"ok":true,"active":false,"hasFile":false,"fp":"TEST-FP","until":""}' });
+      if (['/api/info', '/api/preset', '/api/activate', '/api/quit'].includes(p)) return route.continue();
+      if (route.request().method() === 'POST') writes.push(p);
+      return route.fulfill({ status: 403, contentType: 'application/json', body: '{"ok":false,"error":"unlicensed"}' });
+    });
+    await up.goto(URL, { waitUntil: 'domcontentloaded' });
+    await up.waitForFunction(() => window.App && App.S, null, { timeout: 30000 });
+    await sleep(1500);
+    const st = await up.evaluate(() => ({
+      bar: (document.getElementById('blockBar') || {}).textContent || '',
+      lic: !!document.querySelector('.lic-wrap')
+    }));
+    check('غير المفعّل يرى شاشة التفعيل', st.lic, JSON.stringify(st));
+    check('ولا يظهر له شريط «نافذة أخرى»', !/نافذة أخرى/.test(st.bar), st.bar);
+    check('ولا يطلب الملكية ولا يحفظ', writes.length === 0, writes.join('، '));
+    await up.close();
+  }
+
   console.log('\n== 14ج7. الباركود يُقرأ فعلاً: أعمدة على نقاط كاملة ==');
   {
     /* شكا صاحب المحل أن القارئ لا يقرأ اللاصقات. السبب ليس صغر

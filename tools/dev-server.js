@@ -52,6 +52,13 @@ http.createServer((req, res) => {
       if (origin && origin !== 'http://' + want) return json(res, { ok: false, error: 'forbidden' }, 403);
       if (req.headers['x-qirtasiya'] !== '1') return json(res, { ok: false, error: 'forbidden' }, 403);
 
+      /* محاكاة جهاز غير مفعّل: QI_DENY=unlicensed. بنفس ترتيب Route في النواة —
+         قبل الملكية و/api/claim — وإلا ما ظهر ما يراه الزبون فعلاً. */
+      if (process.env.QI_DENY === 'unlicensed' &&
+          !['/api/license', '/api/info', '/api/activate', '/api/preset', '/api/quit'].includes(p)) {
+        return json(res, { ok: false, error: 'unlicensed' }, 403);
+      }
+
       const needOwner = ['/api/save', '/api/restore', '/api/backup', '/api/backup-dir',
         '/api/uninstall', '/api/profit-code', '/api/archive'].includes(p);
       if (needOwner && !isOwner(req)) return json(res, { ok: false, notOwner: true }, 409);
@@ -131,11 +138,6 @@ http.createServer((req, res) => {
       const src = path.join(BACKUPS, name);
       if (!fs.existsSync(src)) return json(res, { ok: false, error: 'النسخة غير موجودة' });
       fs.copyFileSync(src, STORE); return json(res, { ok: true });
-    }
-    /* محاكاة رفض الخادم للاختبار: QI_DENY=unlicensed أو notowner */
-    if (process.env.QI_DENY === 'unlicensed' && p.startsWith('/api/') &&
-        !['/api/license','/api/info','/api/activate','/api/preset','/api/quit'].includes(p)) {
-      return json(res, { ok: false, error: 'unlicensed' }, 403);
     }
     if (p === '/api/license') return json(res, {
       ok: true, active: process.env.QI_DENY !== 'unlicensed',

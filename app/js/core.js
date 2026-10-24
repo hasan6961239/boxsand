@@ -2205,7 +2205,8 @@ var App = (function () {
       host.id = "blockBar";
       document.body.insertBefore(host, document.body.firstChild);
     }
-    if (!readOnly) { host.className = ""; host.innerHTML = ""; return; }
+    // غير المفعّل تظهر له شاشة التفعيل وحدها — لا «نافذة أخرى» ولا «تحكّم»
+    if (!readOnly || !lic.active) { host.className = ""; host.innerHTML = ""; return; }
     host.className = "block-bar";
     var isCorrupt = blockReason.indexOf("تالف") >= 0;
     host.innerHTML =
@@ -2234,8 +2235,15 @@ var App = (function () {
         }
       });
 
-      // ملف تالف: لا نطلب الملكية ولا نكتب شيئاً
-      var claimed = readOnly ? Promise.resolve(false) : claim(false);
+      /* الترخيص قبل الملكية: النواة ترفض /api/claim بـ«unlicensed» على جهاز
+         غير مفعّل، وكان هذا الرفض يُقرأ «نافذة أخرى» فيظهر شريط «للعرض فقط»
+         فوق شاشة التفعيل وزر «تحكّم» لا يعمل. غير المفعّل لا يطلب الملكية ولا
+         يكتب (النواة ترفض الحفظ أصلاً) حتى يُفعَّل ويُعاد التحميل.
+         وملف تالف: لا نطلب الملكية ولا نكتب شيئاً. */
+      var claimed = checkLicense().then(function () {
+        if (!lic.active) { readOnly = true; return false; }
+        return readOnly ? false : claim(false);
+      });
 
       claimed.then(function (ok) {
         if (!ok && !readOnly) {
@@ -2252,7 +2260,7 @@ var App = (function () {
           });
         }
 
-        return checkLicense().then(applyPreset).then(function () {
+        return applyPreset().then(function () {
           if (!lic.active) { route(); return; }
           if (!S.meta.setupDone && !readOnly) { route(); Rep.firstRun(); }
           else {
