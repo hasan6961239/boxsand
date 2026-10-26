@@ -888,7 +888,9 @@ var Inv = (function () {
         h: "الباركود", c: function (r, i) {
           // 13 رقم ISBN يحتاج هذا العرض كاملاً وإلا بدا مقصوصاً
           var cl = bulkBcClash(i);
-          return '<input class="inp num" style="width:152px' + (cl ? ';border-color:var(--stamp)' : '') + '" value="' + App.esc(r.barcode) +
+          /* 13 رقماً بأي خط: ch عرض الرقم في الخط الفعلي، و26 للحشو والإطار.
+             مع Consolas (ويندوز) يبقى 152 كما كان. */
+          return '<input class="inp num" style="width:max(152px,calc(13ch + 26px))' + (cl ? ';border-color:var(--stamp)' : '') + '" value="' + App.esc(r.barcode) +
             '" placeholder="امسحه" onchange="Inv.bulkSet(' + i + ',\'barcode\',this.value)">' +
             (cl ? '<div class="sub" style="color:var(--stamp)">' + App.esc(cl) + "</div>" : "");
         }
