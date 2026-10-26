@@ -91,7 +91,7 @@ namespace Qirtasiya.Data
                     if (l.Qty <= 0 || l.Price < 0 || l.OwnerPrice < 0) throw Err("الكمية والأسعار غير صحيحة.");
                     string code = (l.Code ?? "").Trim();
                     if (code.Length == 0) continue;
-                    string other = db.Text("SELECT title FROM items WHERE (barcode = ? OR code = ? COLLATE NOCASE) AND active = 1", code, code);
+                    string other = db.Text("SELECT title FROM items WHERE ((barcode = ? AND barcode <> '' AND active = 1) OR (code = ? AND active = 1))", code, code);
                     if (other != null) throw Err("الكود «" + code + "» مستعمل للصنف «" + other + "» في المحل.");
                     if (seen.ContainsKey(code)) throw Err("الكود «" + code + "» مكرر في هذا الاستلام.");
                     seen[code] = true;

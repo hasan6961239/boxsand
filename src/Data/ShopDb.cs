@@ -341,6 +341,9 @@ namespace Qirtasiya.Data
                 foreach (object[] r in db.Rows(
                     "SELECT v.no FROM invoices v WHERE NOT EXISTS (SELECT 1 FROM invoice_lines l WHERE l.invoice_id = v.id)"))
                     bad.Add("فاتورة " + r[0] + " بلا أسطر");
+                long orphan = db.Long("SELECT (SELECT COUNT(*) FROM stock_moves WHERE op_id NOT IN (SELECT id FROM ops)) + " +
+                    "(SELECT COUNT(*) FROM customer_moves WHERE op_id NOT IN (SELECT id FROM ops))", 0);
+                if (orphan > 0) bad.Add(orphan + " حركة بلا أمر في سجل العمليات");
                 long maxNo = db.Long("SELECT MAX(no) FROM invoices", 0);
                 long ctr = db.Long("SELECT value FROM counters WHERE name = 'invoice'", 0);
                 if (ctr < maxNo) bad.Add("عدّاد الفواتير " + ctr + " أقل من آخر فاتورة " + maxNo);

@@ -73,7 +73,8 @@ namespace Qirtasiya.Data
         {
             lock (gate)
             {
-                List<object[]> rows = db.Rows("SELECT " + ItemCols + " FROM items WHERE barcode = ? AND active = 1", (barcode ?? "").Trim());
+                /* «barcode <> ''» حرفياً في الاستعلام: بدونه لا يستعمل SQLite الفهرس الجزئي */
+                List<object[]> rows = db.Rows("SELECT " + ItemCols + " FROM items WHERE barcode = ? AND barcode <> '' AND active = 1", (barcode ?? "").Trim());
                 return rows.Count == 0 ? null : ReadItem(rows[0]);
             }
         }
@@ -220,7 +221,7 @@ namespace Qirtasiya.Data
             d.Barcode = (d.Barcode ?? "").Trim();
             if (d.Barcode.Length > 0)
             {
-                string other = db.Text("SELECT title FROM items WHERE barcode = ? AND active = 1 AND id <> ?", d.Barcode, selfId);
+                string other = db.Text("SELECT title FROM items WHERE barcode = ? AND barcode <> '' AND active = 1 AND id <> ?", d.Barcode, selfId);
                 if (other != null) throw Err("هذا الباركود مستعمل في: " + other);
             }
             if (db.Long("SELECT COUNT(*) FROM places WHERE id = ? AND active = 1", 0, d.HomePlaceId) == 0)

@@ -107,7 +107,8 @@ static class Bench
             d.Receive(0, "", "", ls, 1);
         });
         List<long> inStore = Ids(d, "SELECT item_id FROM item_stock WHERE place_id = (SELECT id FROM places WHERE kind = 'store' LIMIT 1) AND qty >= 2");
-        Ops(d, r, "move", 100, delegate
+        /* مصراتة بلا مخزن: لا نقل يُقاس */
+        if (inStore.Count > 0) Ops(d, r, "move", 100, delegate
         {
             d.MoveStock(inStore[r.Next(inStore.Count)], store, shelves[r.Next(shelves.Count)], 1, 1);
         });
@@ -143,7 +144,7 @@ static class Bench
             "SELECT 'v', no, at, total, due FROM invoices WHERE customer_id = ? AND deleted_at = '' UNION ALL " +
             "SELECT 'p', id, at, amount, 0 FROM payments WHERE customer_id = ? ORDER BY 3 DESC LIMIT 100", cu, cu);
         string bc = d.Read<string>(delegate (Sqlite c) { return c.Text("SELECT barcode FROM items WHERE barcode <> '' LIMIT 1 OFFSET 500"); });
-        Query(d, "lookup_barcode", "SELECT id, title, price FROM items WHERE barcode = ? AND active = 1", bc);
+        Query(d, "lookup_barcode", "SELECT id, title, price FROM items WHERE barcode = ? AND barcode <> '' AND active = 1", bc);
         Query(d, "item_page",
             "SELECT p.name, s.qty FROM item_stock s JOIN places p ON p.id = s.place_id WHERE s.item_id = ?", items[777]);
 
@@ -159,7 +160,8 @@ static class Bench
 
         Console.WriteLine(Json.Write(Out));
         if (jsonOut != null) File.WriteAllText(jsonOut, Json.Write(Out));
-        try { Directory.Delete(dir, true); } catch { }
+        if (Array.IndexOf(args, "--keep") >= 0) Console.WriteLine("  القاعدة باقية: " + db);
+        else { try { Directory.Delete(dir, true); } catch { } }
         return bad.Count == 0 ? 0 : 1;
     }
 

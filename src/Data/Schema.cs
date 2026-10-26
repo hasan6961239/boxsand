@@ -138,7 +138,7 @@ CREATE TABLE categories(
 CREATE TABLE items(
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL CHECK(kind IN ('book','stat')),
-  code TEXT NOT NULL UNIQUE,
+  code TEXT NOT NULL UNIQUE COLLATE NOCASE,
   title TEXT NOT NULL,
   author TEXT NOT NULL DEFAULT '',
   brand TEXT NOT NULL DEFAULT '',
@@ -178,9 +178,11 @@ CREATE TABLE item_stock(
 CREATE INDEX item_stock_place ON item_stock(place_id);
 
 -- كل حركة كمية بسببها. مجموع الحركات لكل صنف ومكان = الكمية.
+-- op_id بلا مفتاح خارجي: صف الأمر في ops يُكتب آخر المعاملة، والمفتاح المؤجَّل
+-- كلّف 6 أجزاء من الألف لكل بيعة على 100 ألف كتاب. الفحص الكامل يتأكد منه.
 CREATE TABLE stock_moves(
   id INTEGER PRIMARY KEY,
-  op_id INTEGER NOT NULL REFERENCES ops(id) DEFERRABLE INITIALLY DEFERRED,
+  op_id INTEGER NOT NULL,
   at TEXT NOT NULL,
   item_id INTEGER NOT NULL REFERENCES items(id),
   place_id INTEGER NOT NULL REFERENCES places(id),
@@ -208,7 +210,7 @@ CREATE TABLE customers(
 -- كل تغيّر في دين الزبون بسببه. مجموعها = balance.
 CREATE TABLE customer_moves(
   id INTEGER PRIMARY KEY,
-  op_id INTEGER NOT NULL REFERENCES ops(id) DEFERRABLE INITIALLY DEFERRED,
+  op_id INTEGER NOT NULL,
   at TEXT NOT NULL,
   customer_id INTEGER NOT NULL REFERENCES customers(id),
   delta INTEGER NOT NULL,
