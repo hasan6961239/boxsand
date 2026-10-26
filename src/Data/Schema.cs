@@ -43,6 +43,8 @@ namespace Qirtasiya.Data
         {
             List<Migration> m = new List<Migration>();
             m.Add(new Migration(1, "الجداول الأولى", V1, SeedV1));
+            m.Add(new Migration(2, "تاريخ طباعة اللاصقة (من 3.x)",
+                "ALTER TABLE items ADD COLUMN label_printed TEXT NOT NULL DEFAULT '';", null));
             return m;
         }
 

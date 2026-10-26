@@ -30,7 +30,7 @@ namespace Qirtasiya.Data
     {
         public long Id, HomePlaceId, SupplierId, Price, PriceW, Cost, Min, SoldTotal;
         public string Kind, Code, Title, Author, Brand, Publisher, Barcode, Cat, CatFull, Unit, LocNote, Note,
-            LastSold, CreatedAt, UpdatedAt, OldId;
+            LastSold, CreatedAt, UpdatedAt, OldId, LabelPrinted;
         public bool Active;
 
         public string KindName { get { return Kind == "book" ? "كتاب" : "صنف"; } }
@@ -39,7 +39,7 @@ namespace Qirtasiya.Data
     public sealed partial class ShopDb
     {
         const string ItemCols = "id, kind, code, title, author, brand, publisher, barcode, cat, cat_full, unit, loc_note, " +
-            "home_place_id, IFNULL(supplier_id, 0), price, price_w, cost, min_qty, note, last_sold, sold_total, active, created_at, updated_at, old_id";
+            "home_place_id, IFNULL(supplier_id, 0), price, price_w, cost, min_qty, note, last_sold, sold_total, active, created_at, updated_at, old_id, label_printed";
 
         static ItemRow ReadItem(object[] r)
         {
@@ -50,7 +50,7 @@ namespace Qirtasiya.Data
             it.HomePlaceId = (long)r[12]; it.SupplierId = (long)r[13]; it.Price = (long)r[14]; it.PriceW = (long)r[15];
             it.Cost = (long)r[16]; it.Min = (long)r[17]; it.Note = (string)r[18]; it.LastSold = (string)r[19];
             it.SoldTotal = (long)r[20]; it.Active = (long)r[21] != 0; it.CreatedAt = (string)r[22];
-            it.UpdatedAt = (string)r[23]; it.OldId = (string)r[24];
+            it.UpdatedAt = (string)r[23]; it.OldId = (string)r[24]; it.LabelPrinted = (string)r[25];
             return it;
         }
 

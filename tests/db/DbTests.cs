@@ -26,6 +26,7 @@ static class DbTests
         if (mode == "crash") return Crash.Parent(args);
         if (mode == "crash-child") return Crash.Child(args);
         if (mode == "bench") return Bench.Run(args);
+        if (mode == "import") return ImportTests.Cli(args);
 
         Root = Path.Combine(Path.GetTempPath(), "qdbtest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
         Directory.CreateDirectory(Root);
@@ -48,6 +49,7 @@ static class DbTests
         Section("كاملة أو لا شيء", Atomic);
         Section("سجل التغييرات كامل", ReplayEqual);
         Section("الفحص الكامل والنسخة", CheckAndBackup);
+        Section("نقل بيانات 3.x", delegate { ImportTests.Run(Ok); });
 
         Console.WriteLine();
         Console.WriteLine("==================================================");
@@ -210,7 +212,8 @@ static class DbTests
         OpenOptions o = new OpenOptions();
         o.Clock = clk.Now;
         ShopDb d = ShopDb.Open(path, o);
-        Ok(d.Report.Created && d.Report.VersionNow == 1 && d.Report.Upgrades.Count == 1, "قاعدة جديدة: الترقية 1", string.Join(",", d.Report.Upgrades.ToArray()));
+        int n = Schema.All().Count;
+        Ok(d.Report.Created && d.Report.VersionNow == n && d.Report.Upgrades.Count == n, "قاعدة جديدة: كل الترقيات (" + n + ")", string.Join(",", d.Report.Upgrades.ToArray()));
         Eq("wal", S(d, "PRAGMA journal_mode"), "وضع WAL");
         Eq(2L, L(d, "PRAGMA synchronous"), "الحفظ الكامل على القرص (FULL)");
         Eq(1L, L(d, "PRAGMA foreign_keys"), "المفاتيح مفعّلة");
@@ -219,29 +222,29 @@ static class DbTests
         Eq("admin", S(d, "SELECT login FROM users WHERE id = 1"), "المدير الافتراضي");
         long logged = d.Read<long>(delegate (Sqlite c) { return Schema.LoggedTables(c).Count; });
         Eq(logged * 3, L(d, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'log%'"), "ثلاثة مُطلِقات لكل جدول مسجَّل");
-        Eq(0L, L(d, "SELECT COUNT(*) FROM change_log WHERE op_id <> 1"), "بذور الترقية مسجّلة باسم أمر الترقية");
+        Eq(0L, L(d, "SELECT COUNT(*) FROM change_log WHERE op_id NOT IN (SELECT id FROM ops WHERE kind = 'migrate')"), "بذور الترقيات مسجّلة باسم أوامر الترقية");
         Eq("migrate", S(d, "SELECT kind FROM ops WHERE id = 1"), "والترقية في سجل العمليات");
         d.Dispose();
 
         d = ShopDb.Open(path, o);
-        Ok(!d.Report.Created && d.Report.VersionBefore == 1 && d.Report.Upgrades.Count == 0 && d.Report.Check == "ok",
+        Ok(!d.Report.Created && d.Report.VersionBefore == n && d.Report.Upgrades.Count == 0 && d.Report.Check == "ok",
             "إعادة الفتح: لا ترقية، والفحص سليم", d.Report.Check);
         long book = Book(d, "كتاب قبل الترقية", D(10), D(6), 3, 0);
         d.Dispose();
 
         /* ترقية قادمة تجريبية: عمود جديد وتحويل بيانات */
         List<Migration> two = Schema.All();
-        two.Add(new Migration(2, "عمود تجربة", "ALTER TABLE items ADD COLUMN shelf_note TEXT NOT NULL DEFAULT '';",
+        two.Add(new Migration(n + 1, "عمود تجربة", "ALTER TABLE items ADD COLUMN shelf_note TEXT NOT NULL DEFAULT '';",
             delegate (Sqlite c, string at) { c.Run("UPDATE items SET shelf_note = 'منقول'"); }));
         OpenOptions o2 = new OpenOptions();
         o2.Clock = clk.Now;
         o2.Migrations = two;
         d = ShopDb.Open(path, o2);
-        Ok(d.Report.VersionBefore == 1 && d.Report.VersionNow == 2, "الترقية 2 طُبّقت");
+        Ok(d.Report.VersionBefore == n && d.Report.VersionNow == n + 1, "الترقية التجريبية طُبّقت");
         Ok(File.Exists(d.Report.BackupFile), "نسخة احتياطية قبل الترقية", d.Report.BackupFile);
         using (Sqlite b = Sqlite.Open(d.Report.BackupFile, true, false))
         {
-            Eq(1L, b.Long("PRAGMA user_version", 0), "النسخة على الترقية 1");
+            Eq((long)n, b.Long("PRAGMA user_version", 0), "النسخة على الترقية السابقة");
             Eq(1L, b.Long("SELECT COUNT(*) FROM items", 0), "وفيها الكتاب");
         }
         Eq("منقول", S(d, "SELECT shelf_note FROM items WHERE id = ?", book), "تحويل البيانات في الترقية");
@@ -252,14 +255,14 @@ static class DbTests
 
         /* ترقية فاشلة: لا يتغيّر شيء، والنسخة موجودة */
         List<Migration> three = new List<Migration>(two);
-        three.Add(new Migration(3, "ترقية معطوبة", "ALTER TABLE items ADD COLUMN x INTEGER; SELECT * FROM جدول_غير_موجود;", null));
+        three.Add(new Migration(n + 2, "ترقية معطوبة", "ALTER TABLE items ADD COLUMN x INTEGER; SELECT * FROM جدول_غير_موجود;", null));
         OpenOptions o3 = new OpenOptions();
         o3.Clock = clk.Now;
         o3.Migrations = three;
         try { ShopDb.Open(path, o3).Dispose(); Ok(false, "الترقية المعطوبة تُرفض"); }
         catch (SqliteException) { Ok(true, "الترقية المعطوبة تُرفض"); }
         d = ShopDb.Open(path, o2);
-        Ok(d.Report.VersionBefore == 2 && d.Report.Check == "ok", "والقاعدة باقية على الترقية 2 سليمة");
+        Ok(d.Report.VersionBefore == n + 1 && d.Report.Check == "ok", "والقاعدة باقية على الترقية السابقة سليمة");
         Eq(0L, L(d, "SELECT COUNT(*) FROM pragma_table_info('items') WHERE name = 'x'"), "ولا أثر لنصف الترقية");
         Eq(2, Directory.GetFiles(Path.Combine(Root, "backups"), "qirtasiya-before-v*.db").Length, "نسخة لكل محاولة ترقية");
         d.Dispose();

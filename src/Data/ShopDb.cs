@@ -334,9 +334,11 @@ namespace Qirtasiya.Data
                     "LEFT JOIN (SELECT customer_id, SUM(delta) AS t FROM customer_moves GROUP BY customer_id) m " +
                     "ON m.customer_id = c.id WHERE c.balance <> IFNULL(m.t, 0)"))
                     bad.Add("دين: زبون " + r[0] + " رصيده " + r[1] + " والحركات " + r[2]);
+                /* الفواتير المنقولة من 3.x تبقى بأرقامها كما كانت، ولو كتبت نسخة قديمة
+                   مجموعاً لا يطابق أسطره؛ تقرير النقل قالها مرة. يُفحص ما بعدها */
                 foreach (object[] r in db.Rows(
-                    "SELECT v.no FROM invoices v WHERE v.total <> v.subtotal - v.discount OR v.subtotal <> " +
-                    "(CASE v.kind WHEN 'return' THEN -1 ELSE 1 END) * IFNULL((SELECT SUM(l.qty * l.price) FROM invoice_lines l WHERE l.invoice_id = v.id), 0)"))
+                    "SELECT v.no FROM invoices v WHERE v.old_id = '' AND (v.total <> v.subtotal - v.discount OR v.subtotal <> " +
+                    "(CASE v.kind WHEN 'return' THEN -1 ELSE 1 END) * IFNULL((SELECT SUM(l.qty * l.price) FROM invoice_lines l WHERE l.invoice_id = v.id), 0))"))
                     bad.Add("فاتورة " + r[0] + ": المجموع لا يطابق أسطرها");
                 foreach (object[] r in db.Rows(
                     "SELECT v.no FROM invoices v WHERE NOT EXISTS (SELECT 1 FROM invoice_lines l WHERE l.invoice_id = v.id)"))

@@ -37,7 +37,7 @@ static class Crash
         Random r = new Random(20261026);
         Stopwatch total = Stopwatch.StartNew();
         int ops = 0, killedMidMigration = 0, insideTx = 0, migrated = 0;
-        string pristine = Path.Combine(dir, "v1.db");
+        string pristine = Path.Combine(dir, "before.db");
 
         for (int i = 1; i <= n; i++)
         {
@@ -58,7 +58,7 @@ static class Crash
             if (migrate)
             {
                 long v = UserVersion(db);
-                if (v == 2) { migrated++; File.Delete(db); foreach (string f in Directory.GetFiles(dir, "crash.db-*")) File.Delete(f); }
+                if (v == Heavy) { migrated++; File.Delete(db); foreach (string f in Directory.GetFiles(dir, "crash.db-*")) File.Delete(f); }
                 else
                 {
                     killedMidMigration++;
@@ -93,7 +93,7 @@ static class Crash
         d.Dispose();
     }
 
-    /* قاعدة على الترقية 1 فيها آلاف الصفوف، لتأخذ الترقية 2 وقتاً يُقتل فيه */
+    /* قاعدة على آخر ترقية حقيقية فيها آلاف الصفوف، لتأخذ الترقية الثقيلة وقتاً يُقتل فيه */
     static void PrepareV1(string pristine, string db, bool build)
     {
         if (build)
@@ -109,10 +109,13 @@ static class Crash
         File.Copy(pristine, db);
     }
 
+    /* الترقية الثقيلة رقمها بعد آخر ترقية حقيقية */
+    static readonly int Heavy = Schema.All().Count + 1;
+
     public static List<Migration> HeavyV2()
     {
         List<Migration> m = Schema.All();
-        m.Add(new Migration(2, "ترقية ثقيلة للاختبار",
+        m.Add(new Migration(Heavy, "ترقية ثقيلة للاختبار",
             "ALTER TABLE items ADD COLUMN search_key TEXT NOT NULL DEFAULT '';" +
             "CREATE INDEX items_search_key ON items(search_key);",
             delegate (Sqlite c, string at)
@@ -191,14 +194,14 @@ static class Crash
             long ver = d.Report.VersionBefore;
             if (migrate)
             {
-                if (ver != 1 && ver != 2) return "رقم ترقية غريب " + ver;
+                if (ver != Heavy - 1 && ver != Heavy) return "رقم ترقية غريب " + ver;
                 long hasCol = d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT COUNT(*) FROM pragma_table_info('items') WHERE name = 'search_key'", 0); });
-                if (ver == 1 && hasCol != 0) return "نصف ترقية: العمود موجود والرقم 1";
-                if (ver == 2)
+                if (ver == Heavy - 1 && hasCol != 0) return "نصف ترقية: العمود موجود والرقم " + ver;
+                if (ver == Heavy)
                 {
-                    if (hasCol != 1) return "الرقم 2 والعمود ناقص";
+                    if (hasCol != 1) return "الترقية مكتملة والعمود ناقص";
                     long empty = d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT COUNT(*) FROM items WHERE search_key NOT LIKE '% 3'", 0); });
-                    if (empty != 0) return "الرقم 2 وتحويل البيانات ناقص (" + empty + " صف)";
+                    if (empty != 0) return "الترقية مكتملة وتحويل البيانات ناقص (" + empty + " صف)";
                 }
             }
             else if (d.ReadOnly) return "فُتحت للقراءة فقط: " + d.Report.ReadOnlyReason;

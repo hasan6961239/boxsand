@@ -256,6 +256,12 @@ namespace Qirtasiya.Data
         }
 
         /* قراءة مريحة من كائن: الحقل الناقص يعطي القيمة الافتراضية */
+        public static object Get(IDictionary<string, object> o, string k)
+        {
+            object v;
+            return o != null && o.TryGetValue(k, out v) ? v : null;
+        }
+
         public static string Str(IDictionary<string, object> o, string k)
         {
             object v;
