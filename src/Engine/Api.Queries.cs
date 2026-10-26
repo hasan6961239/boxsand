@@ -88,25 +88,70 @@ namespace Qirtasiya.Engine
         const string QtyExpr = "(SELECT IFNULL(SUM(s.qty), 0) FROM item_stock s JOIN places p ON p.id = s.place_id " +
             "WHERE s.item_id = i.id AND p.kind <> 'store')";
 
-        /* صفحة أصناف. q يبحث في الاسم والمؤلف والرمز والباركود (بحث بسيط؛
-           البحث المتسامح بالفهرس في المرحلة 3). */
+        /* البحث بالاسم وأنت تكتب (المرحلة 3، قرار 0009): مربع البيع والجرد وغيرهما.
+           كل حرف طلب جديد، والطلب الأحدث من نفس الجلسة ونفس المربع (channel) يلغي
+           الأقدم فيرجع {cancelled: true}. الترتيب كما في 3.2: الاسم المطابق أولاً،
+           ثم القريب بعد nearFrom («هل تقصد؟»)، وEnter في البيع يضيف من names فقط. */
+        object SearchBox(Ctx c)
+        {
+            SearchOptions o = new SearchOptions();
+            o.Limit = (int)Math.Min(Math.Max(c.Long("limit", 8), 1), 50);
+            if (c.Str("kind").Length > 0) o.Kind = c.Str("kind");
+            o.Notes = c.Bool("notes");
+            o.Channel = c.S.Token + "|" + c.Str("channel");
+            SearchResult r = db.SearchItems(c.Str("q"), o);
+            if (r.Cancelled) return O("cancelled", true);
+            return O("q", r.Query, "items", SearchItemsJson(c, r, 0, r.Ids.Count), "exact", r.Exact, "nearFrom", r.NearFrom,
+                "names", r.Names, "ms", r.Ms);
+        }
+
+        List<object> SearchItemsJson(Ctx c, SearchResult r, int from, int to)
+        {
+            bool cost = c.S.Can("view_cost");
+            List<object> items = new List<object>();
+            for (int i = from; i < to; i++)
+            {
+                long id = r.Ids[i];
+                ItemRow it = db.GetItem(id);
+                if (it == null) continue;
+                long qty = db.Read<long>(delegate (Sqlite s) { return s.Long("SELECT " + QtyExpr + " FROM items i WHERE i.id = ?", 0, id); });
+                Dictionary<string, object> o = ItemJson(it, qty, cost);
+                o["score"] = r.Scores[i];
+                items.Add(o);
+            }
+            return items;
+        }
+
+        /* صفحة أصناف بالتصنيف والمكان والترتيب. مع q: المطابق بترتيب البحث (والقريب
+           بعده إن لم يوجد مطابق)، صفحة صفحة. بحرف أو حرفين: total حتى 1000 وmore بعدها. */
         object ItemsPage(Ctx c)
         {
             StringBuilder where = new StringBuilder("i.active = 1");
             List<object> args = new List<object>();
-            string q = c.Str("q").Trim();
-            if (q.Length > 0)
-            {
-                where.Append(" AND (i.title LIKE ? OR i.author LIKE ? OR i.code = ? COLLATE NOCASE OR i.barcode = ?)");
-                string like = "%" + q.Replace("%", "").Replace("_", "") + "%";
-                args.Add(like); args.Add(like); args.Add(q); args.Add(q);
-            }
             if (c.Str("kind").Length > 0) { where.Append(" AND i.kind = ?"); args.Add(c.Str("kind")); }
             if (c.Has("cat")) { where.Append(" AND i.cat = ?"); args.Add(c.Str("cat")); }
             if (c.Has("placeId"))
             {
                 where.Append(" AND i.home_place_id IN (WITH RECURSIVE t(id) AS (SELECT ? UNION ALL SELECT p.id FROM places p JOIN t ON p.parent_id = t.id) SELECT id FROM t)");
                 args.Add(c.Long("placeId"));
+            }
+            long limit = Limit(c, 100), offset = Math.Max(c.Long("offset", 0), 0);
+            string q = c.Str("q").Trim();
+            if (q.Length > 0)
+            {
+                SearchOptions o = new SearchOptions();
+                o.Notes = c.Bool("notes");
+                o.Channel = c.S.Token + "|" + (c.Str("channel").Length > 0 ? c.Str("channel") : "items.page");
+                /* النوع من الفهرس نفسه، والتصنيف والمكان شرط على الصنف */
+                if (c.Str("kind").Length > 0) { o.Kind = c.Str("kind"); args.RemoveAt(0); where.Replace(" AND i.kind = ?", ""); }
+                if (args.Count > 0) { o.Filter = where.ToString(); o.FilterArgs = args.ToArray(); }
+                long found;
+                bool more;
+                SearchResult r = db.SearchWindow(q, o, (int)Math.Min(offset + limit, int.MaxValue), out found, out more);
+                if (r.Cancelled) return O("cancelled", true);
+                int from = (int)Math.Min(offset, r.Ids.Count), to = (int)Math.Min(offset + limit, r.Ids.Count);
+                return O("total", found, "more", more, "items", SearchItemsJson(c, r, from, to), "exact", r.Exact, "nearFrom", r.NearFrom,
+                    "names", r.Names, "q", r.Query);
             }
             string order;
             switch (c.Str("sort"))
@@ -118,8 +163,8 @@ namespace Qirtasiya.Engine
             }
             long total = db.Read<long>(delegate (Sqlite s) { return s.Long("SELECT COUNT(*) FROM items i WHERE " + where, 0, args.ToArray()); });
             List<object> page = new List<object>(args);
-            page.Add(Limit(c, 100));
-            page.Add(Math.Max(c.Long("offset", 0), 0));
+            page.Add(limit);
+            page.Add(offset);
             List<object[]> rows = db.Read<List<object[]>>(delegate (Sqlite s)
             {
                 return s.Rows("SELECT i.id, " + QtyExpr + " FROM items i WHERE " + where + " ORDER BY " + order + " LIMIT ? OFFSET ?", page.ToArray());

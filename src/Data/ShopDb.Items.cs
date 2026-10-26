@@ -266,6 +266,7 @@ namespace Qirtasiya.Data
                 if (db.Long("SELECT COUNT(*) FROM places WHERE id = ? AND active = 1", 0, place) == 0) throw Err("المكان غير موجود.");
                 AddStock(c, id, place, qty, reason, "item", id);
             }
+            IndexItem(id);
             c.Detail = "إضافة " + (d.Kind == "book" ? "كتاب" : "صنف") + ": " + d.Title;
             c.RefType = "item"; c.RefId = id;
             return id;
@@ -289,6 +290,7 @@ namespace Qirtasiya.Data
                     code, d.Title, d.Author ?? "", d.Brand ?? "", d.Publisher ?? "", d.Barcode, d.Cat ?? "", d.CatFull ?? "",
                     d.Unit ?? "", d.LocNote ?? "", d.HomePlaceId, d.SupplierId > 0 ? (object)d.SupplierId : null,
                     d.Price, d.PriceW, d.Cost, d.Min, d.Note ?? "", c.At, id);
+                IndexItem(id);
                 /* قبل وبعد لما يهمّ المدير: الاسم والأسعار */
                 Dictionary<string, object> b = new Dictionary<string, object>(), a = new Dictionary<string, object>();
                 Diff(b, a, "title", old.Title, d.Title);
@@ -315,6 +317,7 @@ namespace Qirtasiya.Data
             {
                 ItemRow it = ActiveItem(id);
                 db.Run("UPDATE items SET active = 0, updated_at = ? WHERE id = ?", c.At, id);
+                IndexItem(id);
                 c.Detail = "حذف " + it.KindName + ": " + it.Title;
                 c.RefType = "item"; c.RefId = id;
             });

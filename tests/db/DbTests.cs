@@ -51,6 +51,7 @@ static class DbTests
         Section("الفحص الكامل والنسخة", CheckAndBackup);
         Section("نقل بيانات 3.x", delegate { ImportTests.Run(Ok); });
         Section("أوامر المحرك والصلاحيات", delegate { ApiTests.Run(Ok); });
+        Section("البحث بالاسم", delegate { SearchTests.Run(Ok); });
 
         Console.WriteLine();
         Console.WriteLine("==================================================");
@@ -787,6 +788,14 @@ static class DbTests
             }
         }
         Ok(diffs == 0, "إعادة تطبيق سجل التغييرات على قاعدة فارغة تبني نفس الجداول صفاً صفاً (" + tables.Count + " جدول، " + all.Count + " تغيير)", first);
+        /* فهرس البحث لا يُسجَّل: يُكتب هناك من الأصناف نفسها، فيطابق الأصل */
+        ShopDb f = ShopDb.Open(copy, o);
+        string sa = Dump(d.Read<List<object[]>>(delegate (Sqlite x) { return x.Rows("SELECT * FROM search_items ORDER BY item_id"); }));
+        string sb = Dump(f.Read<List<object[]>>(delegate (Sqlite x) { return x.Rows("SELECT * FROM search_items ORDER BY item_id"); }));
+        List<string> bad = f.CheckSearchIndex();
+        Ok(sa == sb && sa.Length > 0 && bad.Count == 0 && f.Report.SearchFixed == 0 && f.Report.SearchBuilt < 0,
+            "وفهرس البحث فيها مثل الأصل وسليم، بلا إصلاح عند فتحها", string.Join("؛ ", bad.ToArray()));
+        f.Dispose();
         d.Dispose();
     }
 

@@ -97,6 +97,22 @@ function ok(cond, name, detail) {
     r = await E.call(port, '/api/v2/health', { full: true }, S);
     ok(r.body.ok && r.body.data.check === 'ok' && r.body.data.problems.length === 0, 'الفحص الكامل سليم', r.body.data);
 
+    console.log('\n== البحث بالاسم (المرحلة 3) ==');
+    r = await E.call(port, '/api/v2/search', { q: it.title }, S);
+    let d = r.body.data || {};
+    ok(r.body.ok && d.items[0].title === it.title && d.names >= 1 && d.nearFrom === -1, 'الاسم كاملاً: الصنف نفسه أول نتيجة', d.items && d.items[0]);
+    /* غلط إملائي في وسط أطول كلمة */
+    const words = it.title.split(' ');
+    let k = 0;
+    words.forEach((w, i) => { if (w.length > words[k].length) k = i; });
+    const mid = Math.floor(words[k].length / 2);
+    words[k] = words[k].slice(0, mid) + (words[k][mid] === 'ر' ? 'ز' : 'ر') + words[k].slice(mid + 1);
+    r = await E.call(port, '/api/v2/search', { q: words.join(' ') }, S);
+    d = r.body.data || {};
+    ok(r.body.ok && d.items.some(x => x.title === it.title), 'بغلط إملائي («' + words[k] + '»): الصنف في النتائج', d.items && d.items.map(x => x.title));
+    r = await E.call(port, '/api/v2/items.page', { q: it.title.split(' ')[0], limit: 5 }, S);
+    ok(r.body.ok && r.body.data.total > 0 && r.body.data.items.length > 0, 'صفحة الأصناف بالبحث', r.body.data && r.body.data.total);
+
     console.log('\n== قتل المحرك فجأة ثم تشغيله ==');
     E.stopEngine(eng);
     await E.sleep(800);

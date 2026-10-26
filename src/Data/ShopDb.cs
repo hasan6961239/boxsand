@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace Qirtasiya.Data
 {
@@ -36,6 +37,9 @@ namespace Qirtasiya.Data
         public List<string> Upgrades = new List<string>();
         public bool ReadOnly;
         public string ReadOnlyReason = "";
+        /* فهرس البحث: كم صنفاً بُني من جديد (-1 = لم يُبنَ)، وكم صُلح، والوقت */
+        public int SearchBuilt = -1, SearchFixed;
+        public long SearchMs;
     }
 
     /* سياق الأمر الجاري: رقمه ووقته وصاحبه، وما يُكتب عنه في سجل العمليات */
@@ -183,7 +187,14 @@ namespace Qirtasiya.Data
                 c = Sqlite.Open(path, true, false);
                 c.Exec("PRAGMA foreign_keys = ON");
             }
-            return new ShopDb(c, rep, clk);
+            ShopDb shop = new ShopDb(c, rep, clk);
+            try { shop.EnsureSearch(); }
+            catch
+            {
+                shop.Dispose();
+                throw;
+            }
+            return shop;
         }
 
         static void Pragmas(Sqlite c)
@@ -264,6 +275,7 @@ namespace Qirtasiya.Data
                 if (Report.ReadOnly) throw new ShopException("لا يمكن الحفظ: " + Report.ReadOnlyReason);
                 db.Exec("BEGIN IMMEDIATE");
                 bool ok = false;
+                searchTouched = searchRebuilt = false;
                 try
                 {
                     long opId = NextOpId(db);
@@ -275,11 +287,14 @@ namespace Qirtasiya.Data
                         cmd.Before ?? "", cmd.After ?? "", cmd.Device ?? "");
                     db.Exec("COMMIT");
                     ok = true;
+                    if (searchTouched) Interlocked.Increment(ref searchGen);
+                    if (searchRebuilt) lock (vocabGate) vocabEpoch++;
                     return r;
                 }
                 finally
                 {
                     if (!ok) Rollback(db);
+                    searchTouched = searchRebuilt = false;
                 }
             }
         }
@@ -349,6 +364,7 @@ namespace Qirtasiya.Data
                 long maxNo = db.Long("SELECT MAX(no) FROM invoices", 0);
                 long ctr = db.Long("SELECT value FROM counters WHERE name = 'invoice'", 0);
                 if (ctr < maxNo) bad.Add("عدّاد الفواتير " + ctr + " أقل من آخر فاتورة " + maxNo);
+                CheckSearch(bad);
                 return bad;
             }
         }
@@ -385,11 +401,13 @@ namespace Qirtasiya.Data
             target.Exec("PRAGMA foreign_keys = OFF");
             target.Exec("BEGIN IMMEDIATE");
             bool ok = false;
+            HashSet<long> items = new HashSet<long>();
             try
             {
                 foreach (Change c in changes)
                 {
-                    if (Array.IndexOf(Schema.Unlogged, c.Table) >= 0) continue;
+                    if (!Schema.IsLogged(c.Table)) continue;
+                    if (c.Table == "items") items.Add(c.RowId);
                     if (c.Op == "d")
                     {
                         target.Run("DELETE FROM \"" + c.Table + "\" WHERE id = ?", c.RowId);
@@ -414,6 +432,8 @@ namespace Qirtasiya.Data
                     target.Run("INSERT INTO \"" + c.Table + "\"(" + cols + ") VALUES(" + qs + ") ON CONFLICT(id) DO " +
                         (set.Length > 0 ? "UPDATE SET " + set : "NOTHING"), vals);
                 }
+                /* فهرس البحث لا يُسجَّل: يُكتب هنا لكل صنف تغيّر */
+                if (items.Count > 0 && HasSearch(target)) foreach (long id in items) SearchIndex(target, id);
                 target.Exec("COMMIT");
                 ok = true;
             }
@@ -426,6 +446,7 @@ namespace Qirtasiya.Data
 
         public void Dispose()
         {
+            CloseReader();
             lock (gate) db.Dispose();
         }
 

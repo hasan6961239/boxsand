@@ -15,8 +15,8 @@ using Qirtasiya.Data;
 
    يحمّل المكتبة كلها في قاعدة جديدة (معاملة واحدة، كالاستيراد)، ثم
    يقيس ما يعيشه البائع: فتح البرنامج، البيع، الإرجاع، التسديد، الاستلام،
-   والصفحات الثقيلة (التنبيهات، الراكد، تقرير الشهر...). البحث بالاسم
-   في المرحلة 3، فلا يُقاس هنا.
+   والصفحات الثقيلة (التنبيهات، الراكد، تقرير الشهر...)، والبحث بالاسم
+   مع كل حرف (المرحلة 3).
    ============================================================ */
 static class Bench
 {
@@ -53,16 +53,26 @@ static class Bench
             Out["invoices"] + " فاتورة · " + Out["disk_mb"] + " ميغا");
 
         /* فتح البرنامج: فتح الملف + فحص السلامة السريع */
+        /* أول فتح يبني فهرس البحث (المكتبة أُدخلت من خارج المحرك) */
         List<double> opens = new List<double>();
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < 4; i++)
         {
             sw.Restart();
             d = ShopDb.Open(db, null);
-            opens.Add(sw.Elapsed.TotalMilliseconds);
-            if (i < 2) d.Dispose();
+            if (i == 0)
+            {
+                Out["search_build_s"] = Math.Round(d.Report.SearchMs / 1000.0, 1);
+                d.Read<int>(delegate (Sqlite c) { c.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); return 0; });
+                Out["search_index_mb"] = Math.Round(new FileInfo(db).Length / 1048576.0 - (double)Out["disk_mb"], 1);
+                Console.WriteLine("  فهرس البحث: بُني في " + Out["search_build_s"] + " ث، حجمه " + Out["search_index_mb"] + " ميغا");
+            }
+            else opens.Add(sw.Elapsed.TotalMilliseconds);
+            if (i < 3) d.Dispose();
         }
         Out["open_ms"] = Median(opens);
         Out["quick_check_ms"] = d.Report.CheckMs;
+
+        SearchBench(d);
 
         Random r = new Random(42);
         List<long> items = Ids(d, "SELECT id FROM items WHERE active = 1");
@@ -153,6 +163,12 @@ static class Bench
         Out["full_check_s"] = Math.Round(sw.ElapsedMilliseconds / 1000.0, 1);
         Out["full_check_problems"] = bad.Count;
         sw.Restart();
+        bad.AddRange(d.CheckSearchIndex());
+        Out["search_check_s"] = Math.Round(sw.ElapsedMilliseconds / 1000.0, 1);
+        Out["search_check_problems"] = bad.Count - (int)Out["full_check_problems"];
+        Console.WriteLine("  الفحص الكامل: " + Out["full_check_s"] + " ث · فحص فهرس البحث حرفاً بحرف: " + Out["search_check_s"] + " ث · مشاكل: " + bad.Count);
+        foreach (string b in bad) Console.WriteLine("    ✗ " + b);
+        sw.Restart();
         d.BackupTo(Path.Combine(dir, "backup.db"));
         Out["backup_s"] = Math.Round(sw.ElapsedMilliseconds / 1000.0, 1);
         d.Dispose();
@@ -163,6 +179,109 @@ static class Bench
         if (Array.IndexOf(args, "--keep") >= 0) Console.WriteLine("  القاعدة باقية: " + db);
         else { try { Directory.Delete(dir, true); } catch { } }
         return bad.Count == 0 ? 0 : 1;
+    }
+
+    /* ---------- البحث بالاسم (المرحلة 3) ----------
+       كما يكتب البائع: كل حرف بحث جديد (8 نتائج) على 30 اسماً حقيقياً من
+       المكتبة، وعلى 10 منها بغلط إملائي في وسطها، وقائمة ثابتة. ثم صفحة
+       الأصناف (كل المطابق مرتّباً) للأسماء كاملة. الهدف: أقل من 100 ms. */
+    static void SearchBench(ShopDb d)
+    {
+        /* البرنامج يجهّز القاموس في الخلفية عند التشغيل */
+        Stopwatch sw = Stopwatch.StartNew();
+        d.WarmSearch();
+        Out["search_warm_ms"] = sw.ElapsedMilliseconds;
+        List<string> titles = new List<string>();
+        long n = d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT COUNT(*) FROM items WHERE active = 1", 0); });
+        for (int i = 0; i < 30; i++)
+        {
+            long off = n * i / 30 + 7;
+            titles.Add(d.Read<string>(delegate (Sqlite c) { return c.Text("SELECT title FROM items WHERE active = 1 ORDER BY id LIMIT 1 OFFSET ?", off); }));
+        }
+        List<string> typed = new List<string>(titles);
+        for (int i = 0; i < 10; i++) typed.Add(Typo(titles[i * 3]));
+        typed.AddRange(new string[] { "الفيزياء الاساسيه", "رياضيات الجزء التاني", "شرلوك هولمز", "حظارة", "د. محمد" });
+
+        List<double> keys = new List<double>();
+        double worst = 0;
+        string worstQ = "";
+        SearchOptions pos = new SearchOptions();
+        pos.Limit = 8; pos.Channel = "bench";
+        foreach (string t in typed)
+        {
+            for (int L = 1; L <= t.Length; L++)
+            {
+                string q = t.Substring(0, L);
+                if (q.EndsWith(" ")) continue;
+                SearchResult r = d.SearchItems(q, pos);
+                keys.Add(r.Ms);
+                if (r.Ms > worst) { worst = r.Ms; worstQ = q; }
+            }
+        }
+        keys.Sort();
+        int slow = 0;
+        foreach (double k in keys) if (k > 100) slow++;
+        Out["search_keys_over_100ms"] = slow;
+        Out["search_keystrokes"] = keys.Count;
+        Out["search_key_ms_median"] = Math.Round(keys[keys.Count / 2], 1);
+        Out["search_key_ms_p95"] = Math.Round(keys[(int)(keys.Count * 0.95)], 1);
+        Out["search_key_ms_max"] = Math.Round(worst, 1);
+        Console.WriteLine("  تجهيز البحث عند التشغيل: " + Out["search_warm_ms"] + " ms");
+        Console.WriteLine("  البحث مع كل حرف (" + keys.Count + " حرف): الوسيط " + Out["search_key_ms_median"] + " ms · 95% " +
+            Out["search_key_ms_p95"] + " ms · الأسوأ " + Out["search_key_ms_max"] + " ms («" + worstQ + "») · فوق 100 ms: " + slow);
+
+        int found = 0;
+        foreach (string t in titles) if (d.SearchItems(t, pos).Ids.Count > 0) found++;
+        int nearFound = 0;
+        for (int i = 0; i < 10; i++)
+        {
+            SearchResult r = d.SearchItems(Typo(titles[i * 3]), pos);
+            if (r.Ids.Count > 0) nearFound++;
+        }
+        Out["search_found_exact"] = found + "/30";
+        Out["search_found_typo"] = nearFound + "/10";
+
+        List<double> table = new List<double>();
+        SearchOptions all = new SearchOptions();
+        long rows = 0;
+        foreach (string t in titles)
+        {
+            SearchResult r = d.SearchItems(t, all);
+            table.Add(r.Ms);
+            rows += r.Ids.Count;
+        }
+        table.Sort();
+        /* الجدول بحرف أو حرفين: كل ما فيه هذه الحروف، مرتّباً (أثقل حالة) */
+        double shortMax = 0;
+        foreach (string q in new string[] { "ا", "م", "ال", "كت", "ثق" })
+        {
+            /* كما تطلبها صفحة الأصناف: أول 100 والعدد */
+            long total;
+            bool more;
+            sw.Restart();
+            d.SearchWindow(q, new SearchOptions(), 100, out total, out more);
+            shortMax = Math.Max(shortMax, sw.Elapsed.TotalMilliseconds);
+        }
+        Out["search_table_short_ms_max"] = Math.Round(shortMax, 1);
+        Out["search_table_ms_median"] = Math.Round(table[table.Count / 2], 1);
+        Out["search_table_ms_max"] = Math.Round(table[table.Count - 1], 1);
+        Console.WriteLine("  صفحة الأصناف بالبحث: الوسيط " + Out["search_table_ms_median"] + " ms · الأسوأ " + Out["search_table_ms_max"] +
+            " ms · وُجد " + found + "/30 بالاسم و" + nearFound + "/10 بغلط إملائي · " + rows / titles.Count + " نتيجة للاسم في المتوسط" +
+            " · بحرف أو حرفين: " + Out["search_table_short_ms_max"] + " ms");
+    }
+
+    /* غلط إملائي في وسط أطول كلمة: حرف مكان حرف */
+    static string Typo(string t)
+    {
+        string[] w = t.Split(' ');
+        int k = 0;
+        for (int i = 1; i < w.Length; i++) if (w[i].Length > w[k].Length) k = i;
+        if (w[k].Length < 4) return t;
+        char[] c = w[k].ToCharArray();
+        int p = c.Length / 2;
+        c[p] = c[p] == 'ر' ? 'ز' : 'ر';
+        w[k] = new string(c);
+        return string.Join(" ", w);
     }
 
     static List<long> Ids(ShopDb d, string sql)

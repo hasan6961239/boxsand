@@ -39,12 +39,21 @@ namespace Qirtasiya.Data
         /* جداول لا تُسجَّل تغييراتها */
         public static readonly string[] Unlogged = { "change_log", "cur_op", "local_state" };
 
+        /* فهرس البحث (search_*) يُبنى من الأصناف على كل جهاز: لا يُسجَّل ولا يُربط */
+        public const string SearchPrefix = "search_";
+
+        public static bool IsLogged(string table)
+        {
+            return Array.IndexOf(Unlogged, table) < 0 && !table.StartsWith(SearchPrefix, StringComparison.Ordinal);
+        }
+
         public static List<Migration> All()
         {
             List<Migration> m = new List<Migration>();
             m.Add(new Migration(1, "الجداول الأولى", V1, SeedV1));
             m.Add(new Migration(2, "تاريخ طباعة اللاصقة (من 3.x)",
                 "ALTER TABLE items ADD COLUMN label_printed TEXT NOT NULL DEFAULT '';", null));
+            m.Add(new Migration(3, "فهرس البحث (FTS5 trigram)", V3Search, null));
             return m;
         }
 
@@ -463,6 +472,35 @@ CREATE TABLE local_state(
 ) STRICT;
 ";
 
+        /* فهرس البحث (المرحلة 3، قرار 0009). نصوص موحَّدة بـ Search.Norm يكتبها
+           المحرك مع كل إضافة وتعديل وحذف لصنف (ShopDb.Search.cs)، والأصناف
+           المحذوفة ليست فيه. يُعاد بناؤه كاملاً إن تغيّر Search.Version. */
+        const string V3Search = @"
+-- صف لكل صنف موجود: الاسم، والخانات الأخرى بين فواصل، وكلمات القريب (أولها nwords كلمة
+-- من الاسم)، والملاحظة
+CREATE TABLE search_items(
+  item_id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  other TEXT NOT NULL,
+  words TEXT NOT NULL,
+  nwords INTEGER NOT NULL,
+  note TEXT NOT NULL
+) STRICT;
+-- «الاسم يبدأ بما كُتب» مرتّباً بالطول جاهزاً: أول حرف وأول حرفين بلا فرز، وأطول بنطاق.
+-- والأسماء وحدها (الحرف والحرفان في وسط كلمة) تُمسح من search_items_name لا من الجدول كله
+CREATE INDEX search_items_name ON search_items(name, kind);
+CREATE INDEX search_items_p1 ON search_items(substr(name, 1, 1), length(name), kind);
+CREATE INDEX search_items_p2 ON search_items(substr(name, 1, 2), length(name), kind);
+-- أي جزء من 3 أحرف في الاسم والخانات الأخرى: المرشحون للمطابق
+CREATE VIRTUAL TABLE search_tri USING fts5(name, other, content='search_items', content_rowid='item_id',
+  tokenize='trigram case_sensitive 1', detail='none');
+-- الكلمات بعد الطيّ التي قد تقرب من كلمة بحث (بلا الباركود والرموز): المرشحون للقريب،
+-- وقاموسها في search_vocab. بلا محتوى: يُحذف منه بنفس كلماته المحسوبة من search_items
+CREATE VIRTUAL TABLE search_words USING fts5(words, content='', tokenize='unicode61 remove_diacritics 0', detail='none');
+CREATE VIRTUAL TABLE search_vocab USING fts5vocab(search_words, row);
+";
+
         /* البذور: ما يلزم أي محل من أول يوم، وتُسجَّل كأي تغيير */
         static void SeedV1(Sqlite db, string at)
         {
@@ -512,7 +550,7 @@ CREATE TABLE local_state(
             foreach (object[] r in db.Rows("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY rowid"))
             {
                 string n = (string)r[0];
-                if (Array.IndexOf(Unlogged, n) < 0) t.Add(n);
+                if (IsLogged(n)) t.Add(n);
             }
             return t;
         }

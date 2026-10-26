@@ -125,6 +125,7 @@ namespace Qirtasiya.Engine
                 return ItemJson(it, db.ShopQty(it.Id), c.S.Can("view_cost"));
             });
             Add("items.page", "search", delegate (Ctx c) { return ItemsPage(c); });
+            Add("search", "search", delegate (Ctx c) { return SearchBox(c); });
             Add("item.add", "edit_items", delegate (Ctx c)
             {
                 ItemInput d = ItemFrom(c, null);

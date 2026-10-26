@@ -112,9 +112,23 @@ static class Work
                 d.ConsignPay(Consignor, Math.Min(due, 5000), "", "", r.Next(2) == 0, 1);
                 return "consign-pay";
             }
+            if (k < 98)
+            {
+                /* صنف جديد: فهرس البحث في نفس معاملته */
+                ItemInput n = new ItemInput();
+                n.Kind = "book"; n.Title = "كتاب جديد " + r.Next(100000) + " الجزء الثاني"; n.Price = 1000 * r.Next(5, 80);
+                n.Barcode = "";
+                Items.Add(d.AddItem(n, r.Next(0, 5), 0, 1));
+                return "item-add";
+            }
             ItemRow item = d.GetItem(Pick(r, Items));
             ItemInput u = new ItemInput();
-            u.Title = item.Title; u.Author = item.Author; u.Barcode = item.Barcode; u.HomePlaceId = item.HomePlaceId;
+            /* الاسم يتغيّر أحياناً (فهرس البحث يتبعه)، والسعر دائماً */
+            string title = item.Title;
+            int cut = title.IndexOf(" — ", StringComparison.Ordinal);
+            if (cut >= 0) title = title.Substring(0, cut);
+            if (r.Next(2) == 0) title += " — ط" + r.Next(1, 9);
+            u.Title = title; u.Author = item.Author; u.Barcode = item.Barcode; u.HomePlaceId = item.HomePlaceId;
             u.Price = item.Price + 500; u.PriceW = item.PriceW; u.Cost = item.Cost; u.Min = item.Min; u.Cat = item.Cat;
             d.UpdateItem(item.Id, u, 1);
             return "item-edit";

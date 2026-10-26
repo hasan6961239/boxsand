@@ -208,6 +208,14 @@ static class Crash
 
             List<string> bad = d.FullCheck();
             if (bad.Count > 0) return string.Join("؛ ", bad.ToArray());
+            /* فهرس البحث في نفس معاملة الصنف: بعد القتل لا يحتاج إصلاحاً، ويطابق الأصناف حرفاً بحرف */
+            if (!d.ReadOnly)
+            {
+                if (d.Report.SearchFixed != 0 || d.Report.SearchBuilt > 0)
+                    return "فهرس البحث احتاج إصلاحاً بعد القتل (صُلح " + d.Report.SearchFixed + "، بُني " + d.Report.SearchBuilt + ")";
+                bad = d.CheckSearchIndex();
+                if (bad.Count > 0) return string.Join("؛ ", bad.ToArray());
+            }
             long maxOp = d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT MAX(id) FROM ops", 0); });
             long count = d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT COUNT(*) FROM ops", 0); });
             if (count != maxOp) return "فجوة في أرقام الأوامر: " + count + " أمر وآخر رقم " + maxOp;

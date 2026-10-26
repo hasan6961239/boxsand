@@ -471,6 +471,16 @@ namespace Qirtasiya
             }
         }
 
+        /* أول بحث لا ينتظر تجهيز القاموس (المرحلة 3) */
+        static void WarmSearch(ShopDb d)
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try { d.WarmSearch(); }
+                catch (Exception ex) { Log("تجهيز البحث: " + ex.Message); }
+            });
+        }
+
         static void OpenDbIfPresent()
         {
             if (!File.Exists(DbFile)) return;
@@ -482,9 +492,12 @@ namespace Qirtasiya
                 OpenReport r = d.Report;
                 Log("القاعدة الجديدة: SQLite " + r.SqliteVersion + "، الترقية " + r.VersionNow + "، الفحص: " + r.Check +
                     " (" + r.CheckMs + " ms)" + (r.Upgrades.Count > 0 ? "، رُقّيت: " + string.Join("، ", r.Upgrades.ToArray()) +
-                    " (نسخة قبلها: " + r.BackupFile + ")" : "") + (r.ReadOnly ? "، للقراءة فقط: " + r.ReadOnlyReason : ""));
+                    " (نسخة قبلها: " + r.BackupFile + ")" : "") + (r.ReadOnly ? "، للقراءة فقط: " + r.ReadOnlyReason : "") +
+                    (r.SearchBuilt >= 0 ? "، فهرس البحث بُني لـ " + r.SearchBuilt + " صنف (" + r.SearchMs + " ms)" : "") +
+                    (r.SearchFixed > 0 ? "، فهرس البحث: صُلح " + r.SearchFixed + " صنف" : ""));
                 Db = d;
                 V2 = new Api(d, null);
+                WarmSearch(d);
             }
             catch (Exception ex)
             {
@@ -522,6 +535,7 @@ namespace Qirtasiya
                         "، تنبيهات: " + rep.Warnings.Count + "، النسخة: " + after);
                     Db = d;
                     V2 = new Api(d, null);
+                    WarmSearch(d);
                     return Json.Write(rep.ToJson());
                 }
                 catch

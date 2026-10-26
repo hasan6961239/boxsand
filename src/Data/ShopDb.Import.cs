@@ -95,6 +95,7 @@ namespace Qirtasiya.Data
                     db.Exec("DROP TRIGGER \"" + t[0] + "\"");
                 new Importer(this, c, s, rep).Run();
                 Schema.RebuildTriggers(db);
+                RebuildSearch();
                 Reconcile(s, rep);
                 c.Detail = "نقل بيانات 3.x: " + Json.Arr(s, "books").Count + " كتاب، " + Json.Arr(s, "stationery").Count +
                     " صنف قرطاسية، " + Json.Arr(s, "invoices").Count + " فاتورة" +
