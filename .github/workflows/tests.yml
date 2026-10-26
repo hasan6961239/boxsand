@@ -1,10 +1,11 @@
 # ============================================================
-#  الاختبار التلقائي — مع كل تعديل يُرفع للمستودع (المرحلة 0)
+#  الاختبار التلقائي — مع كل تعديل يُرفع للمستودع
 #  ------------------------------------------------------------
-#  لينكس: كل الاختبارات (مولّد البيانات، الواجهة، الحسابات، تطبيق
-#         التلفون)، ثم بناء ملف التثبيت ورفعه للتحميل.
+#  لينكس: كل الاختبارات (مولّد البيانات، قاعدة البيانات، الواجهة،
+#         الحسابات، تطبيق التلفون)، ثم بناء ملف التثبيت ورفعه للتحميل.
 #  ويندوز: build.bat نفسه بمترجم ويندوز المدمج — يكشف أي كود لا يقبله
-#          (قرار 0002: الكود يبقى مقبولاً منه).
+#          (قرار 0002: الكود يبقى مقبولاً منه). واختبارات القاعدة على
+#          ملفي sqlite3.dll اللذين يُشحنان (64 و32 بت)، مع اختبار القتل.
 #  مجاني للمستودع العام.
 # ============================================================
 name: الاختبارات
@@ -49,6 +50,13 @@ jobs:
       - name: مولّد بيانات التجربة
         run: node tools/gen/test-gen.js
 
+      - name: قاعدة البيانات (المرحلة 1)
+        run: |
+          tools/build-dbtests.sh
+          mono build/DbTests.exe
+          mono build/DbTests.exe crash 300
+          mono build/DbTests.exe crash 100 --migrate
+
       - name: الواجهة والحسابات
         run: |
           node tools/dev-server.js > dev-server.log 2>&1 &
@@ -69,9 +77,9 @@ jobs:
           retention-days: 14
 
   windows:
-    name: ويندوز — build.bat
+    name: ويندوز — build.bat وقاعدة البيانات
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -80,3 +88,12 @@ jobs:
         run: |
           call build.bat < NUL
           if not exist build\Qirtasiya-1.exe exit /b 1
+
+      - name: قاعدة البيانات بملفي sqlite3.dll اللذين يُشحنان
+        shell: cmd
+        run: |
+          call tools\build-dbtests.bat || exit /b 1
+          build\DbTests.exe || exit /b 1
+          build\DbTests32.exe || exit /b 1
+          build\DbTests.exe crash 150 || exit /b 1
+          build\DbTests.exe crash 60 --migrate || exit /b 1
