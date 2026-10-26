@@ -28,6 +28,9 @@ done
 
 mcs -nologo -target:winexe -optimize+ -out:build/Qirtasiya-1.exe -win32icon:app/app.ico \
   -r:System.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll -r:System.Core.dll \
-  "${RES[@]}" src/Program.cs build/BuildInfo.cs
+  "${RES[@]}" src/Program.cs build/BuildInfo.cs src/Data/*.cs src/Engine/*.cs
+mkdir -p build/x64 build/x86
+cp vendor/sqlite/x64/sqlite3.dll build/x64/
+cp vendor/sqlite/x86/sqlite3.dll build/x86/
 makensis -V2 -DVERSION="$VERSION" installer/qirtasiya.nsi
 ls -la build/Qirtasiya-1.exe "build/Qirtasiya-Setup-$VERSION.exe"

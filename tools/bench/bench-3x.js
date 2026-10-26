@@ -5,10 +5,7 @@
    (tools/gen) بأحجام مختلفة، على المحرك الحقيقي تحت mono، والواجهة
    الحقيقية في Chromium.
 
-   الترخيص: المحرك يرفض الحفظ بلا ترخيص. نبني نسخة قياس مؤقتة فيها
-   مفتاح عام إضافي يُولَّد لحظتها ويُنسى بعدها، ونفعّلها برمز موقّع به.
-   النسخة المؤقتة في مجلد مؤقت ولا تدخل أي ملف تثبيت، و src/Program.cs
-   لا يُلمس.
+   الترخيص ونسخة التجربة: tools/engine.js.
 
    يحتاج: mono-mcs وxvfb-run وplaywright-core وChromium.
    الاستعمال:
@@ -16,14 +13,13 @@
      node tools/bench/bench-3x.js --sizes 1500,20000 --json out.json --md out.md
    ============================================================ */
 'use strict';
-const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
-const { execFileSync, spawn } = require('child_process');
+const fs = require('fs'), os = require('os'), path = require('path');
 const { chromium } = require('playwright-core');
+const E = require('../engine');
 const { generate } = require('../gen/generate');
 
-const ROOT = path.join(__dirname, '..', '..');
 const EXE = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = E.sleep;
 
 function args() {
   const a = process.argv.slice(2), o = { sizes: [1500, 20000, 100000], json: '', md: '' };
@@ -37,51 +33,7 @@ function args() {
   return o;
 }
 
-/* ---------- نسخة القياس ---------- */
-function buildEngine(dir, modulusB64) {
-  const src = fs.readFileSync(path.join(ROOT, 'src', 'Program.cs'), 'utf8');
-  const anchor = 'List<string> keys = new List<string>();';
-  if (src.indexOf(anchor) < 0) throw new Error('تغيّر شكل PublicKeys في Program.cs — حدّث bench-3x.js');
-  const patched = src.replace(anchor, anchor + ' keys.Add("' + modulusB64 + '"); /* قياس فقط */');
-  fs.writeFileSync(path.join(dir, 'Program.cs'), patched);
-  fs.writeFileSync(path.join(dir, 'BuildInfo.cs'),
-    'namespace Qirtasiya { static class BuildInfo { public const string Stamp = "bench"; } }');
-  const res = [];
-  for (const [f, n] of [['app/index.html', 'index.html'], ['app/styles.css', 'styles.css'], ['app/icon.png', 'icon.png'], ['cloud/worker.js', 'worker.js']]) {
-    res.push('-resource:' + path.join(ROOT, f) + ',' + n);
-  }
-  for (const m of ['jsbarcode', 'core', 'inventory', 'branches', 'notify', 'consign', 'count', 'sales', 'people', 'stale', 'labels', 'reports']) {
-    res.push('-resource:' + path.join(ROOT, 'app', 'js', m + '.js') + ',js/' + m + '.js');
-  }
-  execFileSync('mcs', ['-nologo', '-target:winexe', '-optimize+', '-out:' + path.join(dir, 'Qirtasiya.exe'),
-    '-r:System.dll', '-r:System.Drawing.dll', '-r:System.Windows.Forms.dll', '-r:System.Core.dll',
-    ...res, path.join(dir, 'Program.cs'), path.join(dir, 'BuildInfo.cs')], { stdio: ['ignore', 'ignore', 'inherit'] });
-}
-
-function startEngine(dir, xdg) {
-  try { fs.unlinkSync(path.join(dir, 'data', 'port.txt')); } catch (e) { }
-  const p = spawn('xvfb-run', ['-a', 'mono', 'Qirtasiya.exe', '/noopen'], {
-    cwd: dir, env: Object.assign({}, process.env, { XDG_DATA_HOME: xdg, HOME: xdg }), stdio: 'ignore', detached: true
-  });
-  return p;
-}
-async function waitPort(dir) {
-  for (let i = 0; i < 240; i++) {
-    try { const s = fs.readFileSync(path.join(dir, 'data', 'port.txt'), 'utf8').trim(); if (s) return +s; } catch (e) { }
-    await sleep(250);
-  }
-  throw new Error('المحرك لم يبدأ');
-}
-function stopEngine(p) { try { process.kill(-p.pid, 'SIGKILL'); } catch (e) { } }
-
-async function api(port, p, body) {
-  const r = await fetch('http://127.0.0.1:' + port + p, {
-    method: body ? 'POST' : 'GET',
-    headers: { 'X-Qirtasiya': '1', 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:' + port },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  return r.json();
-}
+async function api(port, p, body) { return (await E.call(port, p, body)).body; }
 
 /* ---------- القياس في الواجهة ---------- */
 async function measure(browser, port) {
@@ -151,11 +103,10 @@ async function measure(browser, port) {
 (async () => {
   const o = args();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bench3x-'));
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 65537 });
-  const n = Buffer.from(publicKey.export({ format: 'jwk' }).n, 'base64url').toString('base64');
+  const key = E.testKey();
   const engDir = path.join(tmp, 'engine');
   fs.mkdirSync(path.join(engDir, 'data'), { recursive: true });
-  buildEngine(engDir, n);
+  E.buildEngine(engDir, key.modulus);
   const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox', '--enable-precise-memory-info'] });
   const rows = [];
   try {
@@ -170,18 +121,15 @@ async function measure(browser, port) {
       const diskMb = +(fs.statSync(path.join(engDir, 'data', 'store.json')).size / 1e6).toFixed(1);
       const xdg = path.join(tmp, 'xdg-' + size);
       fs.mkdirSync(xdg, { recursive: true });
-      const eng = startEngine(engDir, xdg);
+      const eng = E.startEngine(engDir, xdg);
       try {
-        const port = await waitPort(engDir);
-        const lic = await api(port, '/api/license');
-        const sig = crypto.sign('sha256', Buffer.from(lic.fp + '|0', 'utf8'), { key: privateKey, padding: crypto.constants.RSA_PKCS1_PADDING });
-        const act = await api(port, '/api/activate', { code: '0.' + sig.toString('base64').replace(/\+/g, ',').replace(/\//g, '_') });
-        if (!act.ok) throw new Error('تفعيل نسخة القياس فشل: ' + JSON.stringify(act));
+        const port = await E.waitPort(engDir);
+        await E.activate(port, key.privateKey);
         const m = await measure(browser, port);
         const row = Object.assign({ books: size, stationery: stat, disk_mb: diskMb }, m);
         rows.push(row);
         console.log(JSON.stringify(row));
-      } finally { stopEngine(eng); await sleep(500); }
+      } finally { E.stopEngine(eng); await sleep(500); }
     }
   } finally {
     await browser.close();

@@ -13,6 +13,8 @@ using System.Text;
 using Microsoft.Win32;
 using System.Threading;
 using System.Windows.Forms;
+using Qirtasiya.Data;
+using Qirtasiya.Engine;
 
 namespace Qirtasiya
 {
@@ -41,6 +43,16 @@ namespace Qirtasiya
         static string StoreFile;
         static string PrevFile;
         static string PortFile;
+
+        /* ---------- القاعدة الجديدة (4.0) ----------
+           إن وُجد qirtasiya.db في مجلد البيانات تُفتح وتعمل أوامر /api/v2.
+           بدونه يعمل البرنامج كما كان على store.json، ولا تُحمَّل SQLite أصلاً.
+           الواجهة تنتقل لأوامر v2 في المرحلة 4. */
+        static string DbFile;
+        static ShopDb Db;
+        static Api V2;
+        static string DbError = "";
+        static readonly object DbLock = new object();
 
         static int Port;
         static TcpListener Listener;
@@ -412,6 +424,8 @@ namespace Qirtasiya
                 StoreFile = Path.Combine(DataDir, "store.json");
                 PrevFile = Path.Combine(DataDir, "store.previous.json");
                 PortFile = Path.Combine(DataDir, "port.txt");
+                DbFile = Path.Combine(DataDir, "qirtasiya.db");
+                OpenDbIfPresent();
 
                 Log("الإصدار " + AppVersion + " (بناء " + BuildStamp() + ") — الواجهة مدمجة داخل الملف التنفيذي");
                 Log("مفتاح هذا التثبيت: " + InstanceKey);
@@ -454,6 +468,87 @@ namespace Qirtasiya
             {
                 try { if (Tray != null) { Tray.Visible = false; Tray.Dispose(); } }
                 catch { }
+            }
+        }
+
+        static void OpenDbIfPresent()
+        {
+            if (!File.Exists(DbFile)) return;
+            try
+            {
+                OpenOptions o = new OpenOptions();
+                o.BackupDir = BackupDir;
+                ShopDb d = ShopDb.Open(DbFile, o);
+                OpenReport r = d.Report;
+                Log("القاعدة الجديدة: SQLite " + r.SqliteVersion + "، الترقية " + r.VersionNow + "، الفحص: " + r.Check +
+                    " (" + r.CheckMs + " ms)" + (r.Upgrades.Count > 0 ? "، رُقّيت: " + string.Join("، ", r.Upgrades.ToArray()) +
+                    " (نسخة قبلها: " + r.BackupFile + ")" : "") + (r.ReadOnly ? "، للقراءة فقط: " + r.ReadOnlyReason : ""));
+                Db = d;
+                V2 = new Api(d, null);
+            }
+            catch (Exception ex)
+            {
+                DbError = ex.Message;
+                Log("تعذّر فتح القاعدة الجديدة: " + ex);
+            }
+        }
+
+        /* نقل store.json إلى القاعدة الجديدة، مرة واحدة. قبله نسخة من
+           store.json، وبعده نسخة كاملة من القاعدة (نقطة البداية، قرار 0017).
+           إن فشل لا يبقى ملف قاعدة نصف جاهز. */
+        static string ImportStore()
+        {
+            lock (DbLock)
+            {
+                if (Db != null || File.Exists(DbFile)) throw new Exception("البيانات منقولة للقاعدة الجديدة من قبل.");
+                if (!FileLooksValid(StoreFile)) throw new Exception("لا يوجد ملف بيانات سليم لنقله.");
+                string json;
+                lock (IoLock)
+                {
+                    MakeManualBackup();
+                    json = File.ReadAllText(StoreFile, Encoding.UTF8);
+                }
+                ShopDb d = null;
+                try
+                {
+                    OpenOptions o = new OpenOptions();
+                    o.BackupDir = BackupDir;
+                    d = ShopDb.Open(DbFile, o);
+                    ImportReport rep = d.Import3x(json, 1);
+                    string after = Path.Combine(BackupDir, "qirtasiya-after-import-" +
+                        DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".db");
+                    d.BackupTo(after);
+                    Log("نُقلت البيانات للقاعدة الجديدة في " + rep.Ms + " ms" + (rep.AllOk ? "، مطابقة" : "، غير مطابقة") +
+                        "، تنبيهات: " + rep.Warnings.Count + "، النسخة: " + after);
+                    Db = d;
+                    V2 = new Api(d, null);
+                    return Json.Write(rep.ToJson());
+                }
+                catch
+                {
+                    if (d != null) d.Dispose();
+                    foreach (string f in new string[] { DbFile, DbFile + "-wal", DbFile + "-shm" })
+                    {
+                        try { if (File.Exists(f)) File.Delete(f); }
+                        catch { }
+                    }
+                    throw;
+                }
+            }
+        }
+
+        static string StatusText(int code)
+        {
+            switch (code)
+            {
+                case 200: return "OK";
+                case 400: return "Bad Request";
+                case 401: return "Unauthorized";
+                case 403: return "Forbidden";
+                case 404: return "Not Found";
+                case 405: return "Method Not Allowed";
+                case 409: return "Conflict";
+                default: return "Error";
             }
         }
 
@@ -991,6 +1086,41 @@ namespace Qirtasiya
                 }
             }
 
+            // ---------- أوامر القاعدة الجديدة ----------
+
+            if (path.StartsWith("/api/v2/", StringComparison.Ordinal))
+            {
+                string name = path.Substring(8);
+                if (method != "POST")
+                {
+                    Send(s, 405, "Method Not Allowed", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"POST\"}"));
+                    return;
+                }
+                /* النقل يطلبه صاحب النافذة الحالية (لا جلسة قبل وجود القاعدة) */
+                if (name == "import")
+                {
+                    if (!IsOwner(lines))
+                    {
+                        Send(s, 409, "Conflict", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"notOwner\":true}"));
+                        return;
+                    }
+                    try { SendJson(s, "{\"ok\":true,\"data\":" + ImportStore() + "}"); }
+                    catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                    return;
+                }
+                Api api = V2;
+                if (api == null)
+                {
+                    Send(s, 409, "Conflict", "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
+                        "{\"ok\":false,\"code\":\"no-db\",\"error\":" + JsonStr(DbError.Length > 0 ? "تعذّر فتح القاعدة الجديدة: " + DbError
+                            : "البيانات ما زالت على النظام القديم (store.json).") + "}"));
+                    return;
+                }
+                ApiResult r = api.Handle(name, GetHeader(lines, "X-Session"), Encoding.UTF8.GetString(body));
+                Send(s, r.Status, StatusText(r.Status), "application/json; charset=utf-8", Encoding.UTF8.GetBytes(r.Json));
+                return;
+            }
+
             // ---------- ملكية النافذة ----------
 
             if (path == "/api/claim" && method == "POST")
@@ -1156,6 +1286,13 @@ namespace Qirtasiya
                 return;
             }
 
+            /* بعد النقل للقاعدة الجديدة لا يُكتب store.json: كتابتان في مكانين تفترقان */
+            if ((path == "/api/save" || path == "/api/restore") && method == "POST" && Db != null)
+            {
+                SendJson(s, "{\"ok\":false,\"error\":" + JsonStr("البيانات انتقلت للقاعدة الجديدة، والحفظ صار من أوامرها.") + "}");
+                return;
+            }
+
             if (path == "/api/save" && method == "POST")
             {
                 try
@@ -1305,7 +1442,8 @@ namespace Qirtasiya
             {
                 SendJson(s, "{\"ok\":true,\"version\":" + JsonStr(AppVersion) +
                     ",\"build\":" + JsonStr(BuildStamp()) +
-                    ",\"dataDir\":" + JsonStr(DataDir) + ",\"port\":" + Port.ToString(CultureInfo.InvariantCulture) + "}");
+                    ",\"dataDir\":" + JsonStr(DataDir) + ",\"port\":" + Port.ToString(CultureInfo.InvariantCulture) +
+                    ",\"db\":" + (Db != null ? "true" : "false") + (DbError.Length > 0 ? ",\"dbError\":" + JsonStr(DbError) : "") + "}");
                 return;
             }
 
@@ -1864,6 +2002,8 @@ namespace Qirtasiya
             try { if (Tray != null) { Tray.Visible = false; Tray.Dispose(); } }
             catch { }
             try { if (Listener != null) Listener.Stop(); }
+            catch { }
+            try { lock (DbLock) if (Db != null) Db.Dispose(); }
             catch { }
             Application.Exit();
             Environment.Exit(0);

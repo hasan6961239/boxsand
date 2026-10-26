@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mono-mcs mono-devel libmono-system-windows-forms4.0-cil \
-            libmono-system-drawing4.0-cil nsis fonts-dejavu-core
+            libmono-system-drawing4.0-cil nsis fonts-dejavu-core xvfb xauth
 
       - name: playwright-core وChromium
         run: |
@@ -56,6 +56,16 @@ jobs:
           mono build/DbTests.exe
           mono build/DbTests.exe crash 300
           mono build/DbTests.exe crash 100 --migrate
+
+      - name: نقل بيانات 3.x (مكتبات المولّد بصيغة store.json)
+        run: |
+          node tools/gen/generate.js --profile misrata --store3 1 --out /tmp/s3m
+          node tools/gen/generate.js --profile tripoli --store3 1 --out /tmp/s3t
+          mono build/DbTests.exe import /tmp/s3m/store3.json
+          mono build/DbTests.exe import /tmp/s3t/store3.json
+
+      - name: المحرك الحقيقي من البداية للنهاية (المرحلة 2)
+        run: node tools/test-engine.js
 
       - name: الواجهة والحسابات
         run: |
@@ -88,6 +98,8 @@ jobs:
         run: |
           call build.bat < NUL
           if not exist build\Qirtasiya-1.exe exit /b 1
+          if not exist build\x64\sqlite3.dll exit /b 1
+          if not exist build\x86\sqlite3.dll exit /b 1
 
       - name: قاعدة البيانات بملفي sqlite3.dll اللذين يُشحنان
         shell: cmd

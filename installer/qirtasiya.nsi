@@ -106,6 +106,13 @@ Section "البرنامج" SecMain
 
   File "/oname=${EXENAME}" "../build/Qirtasiya-1.exe"
 
+  ;  مكتبة SQLite الرسمية للقاعدة الجديدة (قرار 0016)، للمعماريتين
+  SetOutPath "$INSTDIR\x64"
+  File "../build/x64/sqlite3.dll"
+  SetOutPath "$INSTDIR\x86"
+  File "../build/x86/sqlite3.dll"
+  SetOutPath "$INSTDIR"
+
   ;  علامة «مثبَّت»: البرنامج يقرأها فيكتب بياناته في مجلد المستخدم
   FileOpen $0 "$INSTDIR\installed.flag" w
   FileWrite $0 "${VERSION}"
@@ -176,6 +183,10 @@ Section "Uninstall"
   Pop $1
 
   Delete "$INSTDIR\${EXENAME}"
+  Delete "$INSTDIR\x64\sqlite3.dll"
+  Delete "$INSTDIR\x86\sqlite3.dll"
+  RMDir "$INSTDIR\x64"
+  RMDir "$INSTDIR\x86"
   Delete "$INSTDIR\installed.flag"
   Delete "$INSTDIR\uninstall.exe"
   RMDir /r "$INSTDIR\data"
