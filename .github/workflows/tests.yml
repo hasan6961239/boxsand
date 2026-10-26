@@ -1,0 +1,82 @@
+# ============================================================
+#  الاختبار التلقائي — مع كل تعديل يُرفع للمستودع (المرحلة 0)
+#  ------------------------------------------------------------
+#  لينكس: كل الاختبارات (مولّد البيانات، الواجهة، الحسابات، تطبيق
+#         التلفون)، ثم بناء ملف التثبيت ورفعه للتحميل.
+#  ويندوز: build.bat نفسه بمترجم ويندوز المدمج — يكشف أي كود لا يقبله
+#          (قرار 0002: الكود يبقى مقبولاً منه).
+#  مجاني للمستودع العام.
+# ============================================================
+name: الاختبارات
+
+on:
+  push:
+    branches: [claude/tripoli-foundation, claude/app-review-improvements-ld9q5d]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: لينكس — الاختبارات والبناء
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: الأدوات (mono وnsis)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mono-mcs mono-devel libmono-system-windows-forms4.0-cil \
+            libmono-system-drawing4.0-cil nsis fonts-dejavu-core
+
+      - name: playwright-core وChromium
+        run: |
+          npm ci
+          npx playwright-core install --with-deps chromium
+          echo "CHROME=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: مولّد بيانات التجربة
+        run: node tools/gen/test-gen.js
+
+      - name: الواجهة والحسابات
+        run: |
+          node tools/dev-server.js > dev-server.log 2>&1 &
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:17845/ && break; sleep 0.5; done
+          node tools/test.js
+          node tools/test-money.js
+
+      - name: تطبيق التلفون
+        run: node tools/test-site.js
+
+      - name: البناء
+        run: tools/build-linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Qirtasiya-Setup
+          path: build/Qirtasiya-Setup-*.exe
+          retention-days: 14
+
+  windows:
+    name: ويندوز — build.bat
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build.bat بمترجم ويندوز المدمج
+        shell: cmd
+        run: |
+          call build.bat < NUL
+          if not exist build\Qirtasiya-1.exe exit /b 1
