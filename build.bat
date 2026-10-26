@@ -22,15 +22,12 @@ echo   ============================================================
 echo.
 
 REM --- إيجاد مترجم C# داخل ويندوز ---
+REM مترجم .NET 4 وحده: الكود يحتاجه. كانت القائمة (v4.0.30319 v3.5) وآخر
+REM موجود يغلب، فإن كان .NET 3.5 مثبّتاً أيضاً (شائع في ويندوز 10) اختير
+REM مترجمه القديم وفشل البناء بأخطاء لا تدل على السبب.
 set CSC=
-for %%v in (v4.0.30319 v3.5) do (
-  if exist "%WINDIR%\Microsoft.NET\Framework64\%%v\csc.exe" set CSC=%WINDIR%\Microsoft.NET\Framework64\%%v\csc.exe
-)
-if "!CSC!"=="" (
-  for %%v in (v4.0.30319 v3.5) do (
-    if exist "%WINDIR%\Microsoft.NET\Framework\%%v\csc.exe" set CSC=%WINDIR%\Microsoft.NET\Framework\%%v\csc.exe
-  )
-)
+if exist "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+if "!CSC!"=="" if exist "%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe" set CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe
 if "!CSC!"=="" (
   echo   [خطأ] لم يُعثر على مترجم C# داخل ويندوز.
   echo   ثبّت .NET Framework 4 من موقع مايكروسوفت ثم أعد المحاولة.
