@@ -362,6 +362,19 @@ namespace Qirtasiya.Data
             });
         }
 
+        /* طُبعت لاصقات هذه الأصناف (3.x: labelPrinted) */
+        public int MarkLabelsPrinted(IList<long> ids, string date, long userId)
+        {
+            return Run<int>("labels", userId, delegate (Cmd c)
+            {
+                string day = string.IsNullOrEmpty(date) ? c.Date : date;
+                int n = 0;
+                foreach (long id in ids) n += db.Run("UPDATE items SET label_printed = ? WHERE id = ? AND active = 1", day, id);
+                c.Detail = "لاصقات: " + n + " صنف";
+                return n;
+            });
+        }
+
         /* ---------- الموردون ودور النشر والتصنيفات والإعدادات ---------- */
 
         public long AddSupplier(string name, string phone, string city, string note, long userId)

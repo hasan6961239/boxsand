@@ -50,6 +50,7 @@ static class DbTests
         Section("سجل التغييرات كامل", ReplayEqual);
         Section("الفحص الكامل والنسخة", CheckAndBackup);
         Section("نقل بيانات 3.x", delegate { ImportTests.Run(Ok); });
+        Section("أوامر المحرك والصلاحيات", delegate { ApiTests.Run(Ok); });
 
         Console.WriteLine();
         Console.WriteLine("==================================================");

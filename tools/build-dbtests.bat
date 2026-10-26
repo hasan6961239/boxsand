@@ -25,7 +25,7 @@ if not exist build\x86 mkdir build\x86
 copy /y vendor\sqlite\x64\sqlite3.dll build\x64\ >nul
 copy /y vendor\sqlite\x86\sqlite3.dll build\x86\ >nul
 
-set SRC=src\Data\*.cs tests\db\*.cs
+set SRC=src\Data\*.cs src\Engine\*.cs tests\db\*.cs
 set REF=/reference:System.dll /reference:System.Core.dll
 "!CSC!" /nologo /optimize+ /out:build\DbTests.exe !REF! !SRC!
 if errorlevel 1 exit /b 1

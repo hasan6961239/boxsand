@@ -344,6 +344,38 @@ namespace Qirtasiya.Data
             });
         }
 
+        /* الموظف يغيّر كلمة سره بنفسه: بكلمة السر الحالية */
+        public void ChangeOwnPassword(long userId, string current, string next)
+        {
+            Run("user-own-password", userId, delegate (Cmd c)
+            {
+                string hash = db.Text("SELECT pass_hash FROM users WHERE id = ? AND active = 1", userId);
+                if (hash == null) throw Err("المستخدم غير موجود.");
+                bool ok = hash.Length == 0 ? string.IsNullOrEmpty(current) : VerifyPassword(current ?? "", hash);
+                if (!ok) throw Err("كلمة السر الحالية غير صحيحة.");
+                if (string.IsNullOrEmpty(next) || next.Length < 4) throw Err("كلمة السر الجديدة قصيرة (4 أحرف على الأقل).");
+                db.Run("UPDATE users SET pass_hash = ?, updated_at = ? WHERE id = ?", HashPassword(next), c.At, userId);
+                c.Detail = "غيّر كلمة سره";
+                c.RefType = "user"; c.RefId = userId;
+            });
+        }
+
+        public void SetUserActive(long id, bool active, long userId)
+        {
+            Run("user-active", userId, delegate (Cmd c)
+            {
+                if (id == userId && !active) throw Err("لا يمكنك إيقاف حسابك وأنت داخل به.");
+                string name = db.Text("SELECT name FROM users WHERE id = ?", id);
+                if (name == null) throw Err("المستخدم غير موجود.");
+                if (!active && db.Text("SELECT role FROM users WHERE id = ?", id) == "admin" &&
+                    db.Long("SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1 AND id <> ?", 0, id) == 0)
+                    throw Err("لا يمكن إيقاف آخر مدير.");
+                db.Run("UPDATE users SET active = ?, updated_at = ? WHERE id = ?", active, c.At, id);
+                c.Detail = (active ? "تفعيل مستخدم: " : "إيقاف مستخدم: ") + name;
+                c.RefType = "user"; c.RefId = id;
+            });
+        }
+
         public void SetPerms(long id, IList<string> perms, long userId)
         {
             Run("user-perms", userId, delegate (Cmd c)
