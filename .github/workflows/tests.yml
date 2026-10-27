@@ -89,13 +89,15 @@ jobs:
       - name: تطبيق التلفون
         run: node tools/test-site.js
 
-      - name: البناء
-        run: tools/build-linux.sh
+      - name: البناء (تطبيقا مصراتة وطرابلس، قرار 0022)
+        run: |
+          tools/build-linux.sh
+          EDITION=tripoli tools/build-linux.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: Qirtasiya-Setup
-          path: build/Qirtasiya-Setup-*.exe
+          path: build/Qirtasiya-*-Setup-*.exe
           retention-days: 14
 
   windows:
@@ -165,3 +167,10 @@ jobs:
           build\DbTests32.exe || exit /b 1
           build\DbTests.exe crash 150 || exit /b 1
           build\DbTests.exe crash 60 --migrate || exit /b 1
+
+      - name: تطبيق طرابلس بمترجم ويندوز (build.bat tripoli 2)
+        shell: cmd
+        run: |
+          call build.bat tripoli 2 < NUL
+          if not exist build\Qirtasiya-2.exe exit /b 1
+          findstr /c:"tripoli" src\BuildInfo.cs || exit /b 1

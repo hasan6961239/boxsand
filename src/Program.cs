@@ -20,7 +20,11 @@ namespace Qirtasiya
 {
     static class Program
     {
-        const string AppTitle = "منظومة المكتبة والقرطاسية";
+        /* تطبيقان منفصلان (قرار 0022): مصراتة باسمها ومجلدها كما كانا، وطرابلس
+           باسم ولون ومجلد بيانات ومكان تثبيت خاص بها. النسخة تُختار عند البناء. */
+        static readonly bool Tripoli = BuildInfo.Edition == "tripoli";
+        static readonly string AppTitle = Tripoli ? "منظومة طرابلس" : "منظومة مصراتة";
+        static readonly string DataName = Tripoli ? "Qirtasiya-Tripoli" : "Qirtasiya";
         const string AppVersion = "4.0-test";   // ملف التثبيت: الرقم لويندوز، و«-test» في اسمه
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
@@ -150,7 +154,7 @@ namespace Qirtasiya
         {
             string r = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Qirtasiya");
+                DataName);
             try { Directory.CreateDirectory(r); } catch { }
             return r;
         }
@@ -452,10 +456,11 @@ namespace Qirtasiya
                     meta["setupDone"] = true;
                     d.SetSetting("meta", Json.Write(meta), 1);
                     Dictionary<string, object> branch = new Dictionary<string, object>();
-                    branch["id"] = Json.Str(req, "branchId").Length > 0 ? Json.Str(req, "branchId") : "tripoli";
+                    long defNo = Tripoli ? 2L : 1L;
+                    branch["id"] = Json.Str(req, "branchId").Length > 0 ? Json.Str(req, "branchId") : (Tripoli ? "tripoli" : "misrata");
                     branch["name"] = shop;
-                    branch["city"] = city.Length > 0 ? city : "طرابلس";
-                    branch["no"] = Json.Long(req, "branchNo", 2) > 0 ? Json.Long(req, "branchNo", 2) : 2L;
+                    branch["city"] = city.Length > 0 ? city : (Tripoli ? "طرابلس" : "مصراتة");
+                    branch["no"] = Json.Long(req, "branchNo", defNo) > 0 ? Json.Long(req, "branchNo", defNo) : defNo;
                     d.SetSetting("branch", Json.Write(branch), 1);
                     int items = demo ? d.SeedDemo(1) : 0;
                     Log("قاعدة 4.0 جديدة: " + shop + (demo ? "، ببيانات تجربة (" + items + " صنف)" : ""));
@@ -616,7 +621,7 @@ namespace Qirtasiya
         {
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Qirtasiya", "data");
+                DataName, "data");
         }
 
         /* إنقاذ بيانات من نسخة قديمة كانت تكتب في مسار ببصمة المجلد.
@@ -1562,6 +1567,7 @@ namespace Qirtasiya
             if (path == "/api/info")
             {
                 SendJson(s, "{\"ok\":true,\"version\":" + JsonStr(AppVersion) +
+                    ",\"edition\":" + JsonStr(BuildInfo.Edition) + ",\"app\":" + JsonStr(AppTitle) +
                     ",\"build\":" + JsonStr(BuildStamp()) +
                     ",\"dataDir\":" + JsonStr(DataDir) + ",\"port\":" + Port.ToString(CultureInfo.InvariantCulture) +
                     ",\"db\":" + (Db != null ? "true" : "false") + (DbError.Length > 0 ? ",\"dbError\":" + JsonStr(DbError) : "") + "}");
@@ -1652,8 +1658,9 @@ namespace Qirtasiya
             }
 
             // static files
-            /* القاعدة الجديدة موجودة: واجهة 4.0 (قرار 0021)، وإلا واجهة 3.x كما كانت */
-            if (path == "/") path = Db != null ? "/v4/index.html" : "/index.html";
+            /* القاعدة الجديدة موجودة: واجهة 4.0 (قرار 0021)، وإلا واجهة 3.x كما كانت.
+               تطبيق طرابلس 4.0 من أول يوم: بلا قاعدة يفتح إعدادها في واجهة 4.0 (قرار 0022) */
+            if (path == "/") path = Db != null || Tripoli ? "/v4/index.html" : "/index.html";
             if (path.Contains("..")) { Send(s, 400, "Bad Request", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("bad path")); return; }
 
             string rel = path.TrimStart(new char[] { '/' });
@@ -1678,7 +1685,7 @@ namespace Qirtasiya
                 }
                 if (File.Exists(file))
                 {
-                    Send(s, 200, "OK", ContentType(file), File.ReadAllBytes(file));
+                    Send(s, 200, "OK", ContentType(file), EditionPage(rel, File.ReadAllBytes(file)));
                     return;
                 }
             }
@@ -1687,12 +1694,19 @@ namespace Qirtasiya
             byte[] emb = GetEmbedded(rel);
             if (emb != null)
             {
-                Send(s, 200, "OK", ContentType(rel), emb);
+                Send(s, 200, "OK", ContentType(rel), EditionPage(rel, emb));
                 return;
             }
 
             Log("غير موجود: " + rel + "  |  الموارد المدمجة: " + ResourceNames());
             Send(s, 404, "Not Found", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("not found"));
+        }
+
+        /* واجهة 4.0 بلون طرابلس البنفسجي من أول رسم، لا خضراء ثم تتغير */
+        static byte[] EditionPage(string rel, byte[] data)
+        {
+            if (!Tripoli || rel != "v4/index.html") return data;
+            return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(data).Replace("th-green", "th-violet"));
         }
 
         static byte[] GetEmbedded(string rel)
@@ -1989,7 +2003,7 @@ namespace Qirtasiya
             try
             {
                 string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Qirtasiya", "webview_" + InstanceKey);
+                    DataName, "webview_" + InstanceKey);
                 string loader = Path.Combine(BaseDir, IntPtr.Size == 8 ? "x64" : "x86");
                 return WindowHost.Show(url, data, loader, AppTitle, DevMode, Log);
             }
@@ -2024,7 +2038,7 @@ namespace Qirtasiya
         {
             string profile = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Qirtasiya", "window_" + InstanceKey);
+                DataName, "window_" + InstanceKey);
             try { Directory.CreateDirectory(profile); }
             catch (Exception ex) { Log("تعذّر إنشاء مجلد النافذة: " + ex.Message); profile = null; }
 

@@ -1249,15 +1249,8 @@ var Rep = (function () {
       body:
         '<p class="muted small" style="line-height:1.9;margin:0 0 16px">' +
         "هذه أول مرة تفتح فيها المنظومة على هذا الجهاز. " +
-        "<b>إن كانت عندك بيانات من نسخة سابقة</b> فانقلها الآن قبل أن تبدأ. " +
-        "<b>فرع جديد؟</b> ابدأ على النظام الجديد 4.0 من الزر تحت.</p>" +
-
-        /* فرع جديد بلا بيانات يبدأ على النظام الجديد (قرار 0021) */
-        '<div class="card" style="box-shadow:none;border:1px solid var(--accent);margin-bottom:16px">' +
-        '<div class="card-body"><b style="display:block;margin-bottom:6px">فرع جديد؟ ابدأ على النظام الجديد 4.0</b>' +
-        '<p class="muted small" style="line-height:1.9;margin:0 0 10px">بحث أسرع، ودخول لكل موظف بصلاحياته، ' +
-        "وتقدر تبدأ ببيانات تجربة وتمسحها بزر واحد حين تجهز.</p>" +
-        '<button class="btn primary" onclick="Rep.startV4()">فرع جديد على النظام الجديد (4.0)</button></div></div>' +
+        "<b>إن كانت عندك بيانات من نسخة سابقة</b> فانقلها الآن قبل أن تبدأ، " +
+        "وإلا فاضغط «ابدأ من جديد».</p>" +
 
         (dir ? '<div style="margin-bottom:16px">' +
           '<div class="muted small" style="margin-bottom:5px">مجلد بيانات هذه النسخة</div>' +
@@ -1277,7 +1270,7 @@ var Rep = (function () {
         "</ol></div></div>",
       actions: [
         {
-          label: "ابدأ من جديد على النظام الحالي",
+          label: "ابدأ من جديد", kind: "primary",
           click: function (close) { close(); setupForm(); }
         },
         {
@@ -1310,35 +1303,6 @@ var Rep = (function () {
     catch (x) { App.toast("حدّده وانسخه بالفأرة.", "warn"); }
   }
 
-  /* قاعدة 4.0 جديدة من شاشة الترحيب: المحرك يُنشئها، ثم تفتح واجهة 4.0 */
-  function startV4() {
-    App.form({
-      title: "فرع جديد على النظام الجديد",
-      values: { shopName: "", city: "طرابلس", demo: "yes" },
-      fields: [
-        { k: "shopName", label: "اسم المحل", required: true, full: true, placeholder: "مثال: مكتبة النور للقرطاسية" },
-        { k: "city", label: "المدينة", required: true },
-        { k: "demo", label: "البداية", type: "select", options: [
-          { v: "yes", t: "ببيانات تجربة (تُمسح بزر حين تجهز)" },
-          { v: "no", t: "فارغ، للعمل الحقيقي مباشرة" }] }
-      ],
-      saveLabel: "ابدأ",
-      onSave: function (v) {
-        App.ensureWriteToken().then(function () {
-          return App.apiWrite("/api/v2/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ shopName: v.shopName, city: v.city, demo: v.demo === "yes" })
-          });
-        }).then(function () {
-          App.toast("جاهز. يفتح النظام الجديد…", "ok");
-          setTimeout(function () { location.href = "/"; }, 500);
-        }).catch(function (e) { App.toast(e.message, "bad"); });
-        return false;   // يبقى النموذج حتى تفتح 4.0، أو مع الخطأ لا يضيع ما كُتب
-      }
-    });
-  }
-
   function setupForm() {
     App.form({
       title: "إعداد سريع",
@@ -1366,7 +1330,7 @@ var Rep = (function () {
   }
 
   return {
-    copyDir: copyDir, startV4: startV4,
+    copyDir: copyDir,
     dashboard: dashboard, reports: reports, settings: settings, firstRun: firstRun,
     setRange: setRange, quick: quick, printReport: printReport,
     setMeta: setMeta, setList: setList, letters: letters, allLetters: allLetters,

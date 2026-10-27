@@ -6,8 +6,9 @@
 #  يحتاج: mono-mcs mono-devel libmono-system-windows-forms4.0-cil
 #         libmono-system-drawing4.0-cil nsis
 #
-#    tools/build-linux.sh            الإصدار من AppVersion في Program.cs
-#    tools/build-linux.sh 3.4        إصدار محدد
+#    tools/build-linux.sh                    مصراتة، والإصدار من AppVersion في Program.cs
+#    EDITION=tripoli tools/build-linux.sh    طرابلس (تطبيق منفصل، قرار 0022)
+#    tools/build-linux.sh 3.4                إصدار محدد
 #
 #  ختم التاريخ يُكتب في build/BuildInfo.cs لا في src/، فلا يتغيّر ملف
 #  في المستودع بسبب البناء.
@@ -20,17 +21,23 @@ VERSION="${1:-$(grep -oP 'AppVersion = "\K[^"]+' src/Program.cs)}"
 NUM="${VERSION%%-*}"
 TAG="${VERSION#"$NUM"}"
 STAMP="${STAMP:-$(date -u +%Y-%m-%d)}"
+EDITION="${EDITION:-misrata}"
+case "$EDITION" in
+  misrata) NUMBER=1; ICO=app/app.ico;         PNG=app/icon.png ;;
+  tripoli) NUMBER=2; ICO=app/app-tripoli.ico; PNG=app/icon-tripoli.png ;;
+  *) echo "EDITION: misrata أو tripoli" >&2; exit 1 ;;
+esac
 mkdir -p build
-echo "namespace Qirtasiya { static class BuildInfo { public const string Stamp = \"$STAMP\"; } }" > build/BuildInfo.cs
+echo "namespace Qirtasiya { static class BuildInfo { public const string Stamp = \"$STAMP\"; public const string Edition = \"$EDITION\"; } }" > build/BuildInfo.cs
 
 RES=(-resource:app/index.html,index.html -resource:app/styles.css,styles.css
-     -resource:app/icon.png,icon.png -resource:cloud/worker.js,worker.js)
+     -resource:$PNG,icon.png -resource:cloud/worker.js,worker.js)
 for f in jsbarcode core inventory branches notify consign count sales people stale labels reports; do
   RES+=("-resource:app/js/$f.js,js/$f.js")
 done
 for f in app/v4/*; do RES+=("-resource:$f,v4/$(basename "$f")"); done
 
-mcs -nologo -target:winexe -optimize+ -out:build/Qirtasiya-1.exe -win32icon:app/app.ico \
+mcs -nologo -target:winexe -optimize+ -out:build/Qirtasiya-$NUMBER.exe -win32icon:$ICO \
   -r:System.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll -r:System.Core.dll \
   -r:vendor/webview2/Microsoft.Web.WebView2.Core.dll -r:vendor/webview2/Microsoft.Web.WebView2.WinForms.dll \
   "${RES[@]}" src/Program.cs src/AppWindow.cs build/BuildInfo.cs src/Data/*.cs src/Engine/*.cs
@@ -40,5 +47,5 @@ cp vendor/sqlite/x86/sqlite3.dll build/x86/
 cp vendor/webview2/Microsoft.Web.WebView2.Core.dll vendor/webview2/Microsoft.Web.WebView2.WinForms.dll build/
 cp vendor/webview2/x64/WebView2Loader.dll build/x64/
 cp vendor/webview2/x86/WebView2Loader.dll build/x86/
-makensis -V2 -DVERSION="$NUM" -DTAG="$TAG" installer/qirtasiya.nsi
-ls -la build/Qirtasiya-1.exe "build/Qirtasiya-Setup-$VERSION.exe"
+makensis -V2 -DVERSION="$NUM" -DTAG="$TAG" -DEDITION="$EDITION" installer/qirtasiya.nsi
+ls -la build/Qirtasiya-$NUMBER.exe build/Qirtasiya-*-Setup-$VERSION.exe

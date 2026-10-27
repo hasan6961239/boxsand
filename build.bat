@@ -5,7 +5,7 @@ REM  شغّله بالنقر عليه مرتين على أي جهاز ويندو
 REM  لا يحتاج تنصيب أي برنامج — مترجم C# موجود داخل ويندوز نفسه.
 REM
 REM   build.bat              ->  يبني الفرع الأول (مصراتة)
-REM   build.bat tripoli 2    ->  يبني فرعاً ثانياً برمز ومدينة مختلفين
+REM   build.bat tripoli 2    ->  يبني تطبيق طرابلس: اسمه ولونه ومجلد بياناته (قرار 0022)
 REM ============================================================
 setlocal enabledelayedexpansion
 chcp 65001 >nul
@@ -15,6 +15,15 @@ set BRANCH=%1
 set NUMBER=%2
 if "%BRANCH%"=="" set BRANCH=misrata
 if "%NUMBER%"=="" set NUMBER=1
+REM تطبيقان منفصلان: طرابلس بأيقونتها البنفسجية، وكل فرع آخر بتطبيق مصراتة
+set EDITION=misrata
+set ICO=app\app.ico
+set PNG=app\icon.png
+if /i "%BRANCH%"=="tripoli" (
+  set EDITION=tripoli
+  set ICO=app\app-tripoli.ico
+  set PNG=app\icon-tripoli.png
+)
 
 echo.
 echo   بناء منظومة القرطاسية — الفرع: %BRANCH% (رقم %NUMBER%)
@@ -42,7 +51,7 @@ set OUT=build\Qirtasiya-%NUMBER%.exe
 REM --- الواجهة تُدمج داخل الملف التنفيذي، فلا ملفات جانبية يعبث بها أحد ---
 set RES=/resource:app\index.html,index.html
 set RES=!RES! /resource:app\styles.css,styles.css
-set RES=!RES! /resource:app\icon.png,icon.png
+set RES=!RES! /resource:!PNG!,icon.png
 REM كود الـWorker يُنسخ من داخل البرنامج، فيبقى أصلاً واحداً لا نسختين
 set RES=!RES! /resource:cloud\worker.js,worker.js
 for %%f in (jsbarcode core inventory branches notify consign count sales people stale labels reports) do (
@@ -53,11 +62,11 @@ for %%f in (app\v4\*) do set RES=!RES! /resource:%%f,v4/%%~nxf
 
 REM --- ختم تاريخ البناء، ليعرف صاحب المحل أي نسخة يشغّل ---
 for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set STAMP=%%d
-> src\BuildInfo.cs echo namespace Qirtasiya { static class BuildInfo { public const string Stamp = "!STAMP!"; } }
+> src\BuildInfo.cs echo namespace Qirtasiya { static class BuildInfo { public const string Stamp = "!STAMP!"; public const string Edition = "!EDITION!"; } }
 
 echo   يبني... (بناء !STAMP!)
 "!CSC!" /nologo /target:winexe /optimize+ /out:%OUT% ^
-  /win32icon:app\app.ico ^
+  /win32icon:!ICO! ^
   /reference:System.dll /reference:System.Drawing.dll ^
   /reference:System.Windows.Forms.dll /reference:System.Core.dll ^
   /reference:vendor\webview2\Microsoft.Web.WebView2.Core.dll /reference:vendor\webview2\Microsoft.Web.WebView2.WinForms.dll ^

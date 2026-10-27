@@ -25,7 +25,11 @@ var V4 = (function () {
       return r.json().catch(function () { return null; }).then(function (d) {
         if (r.status === 401) { signedOut(); throw new Error((d && d.error) || "انتهت الجلسة. ادخل من جديد."); }
         if (!d) throw new Error("رد غير مفهوم من البرنامج (" + r.status + ").");
-        if (d.ok === false) throw new Error(d.error || "تعذّرت العملية.");
+        if (d.ok === false) {
+          var e = new Error(d.error || "تعذّرت العملية.");
+          e.code = d.code || "";
+          throw e;
+        }
         return d.data;
       });
     }, function () {
@@ -193,7 +197,48 @@ var V4 = (function () {
       view.querySelector("#goBtn").onclick = go;
       view.querySelector("#pw").onkeydown = function (e) { if (e.key === "Enter") go(); };
     }).catch(function (e) {
+      if (e.code === "no-db") { setupScreen(); return; }
       view.innerHTML = '<div class="login-wrap"><div class="card"><div class="card-body">' + App.esc(e.message) + "</div></div></div>";
+    });
+  }
+
+  /* أول تشغيل لتطبيق طرابلس: لا قاعدة بعد (قرار 0022). اسم المحل والمدينة،
+     وبيانات تجربة أو لا، ثم ينشئها البرنامج وتفتح 4.0 */
+  function setupScreen() {
+    var view = document.getElementById("view");
+    App.apiJson("/api/info").catch(function () { return {}; }).then(function (info) {
+      var app = (info && info.app) || "المنظومة";
+      document.title = app;
+      view.innerHTML = '<div class="login-wrap"><div class="card"><div class="card-body" style="padding:30px">' +
+        "<h2>" + App.esc(app) + "</h2>" +
+        '<p class="muted center" style="margin:0 0 18px">أول تشغيل على هذا الجهاز</p>' +
+        '<div class="field"><label for="suShop">اسم المحل</label>' +
+        '<input class="inp" id="suShop" placeholder="مثال: مكتبة النور للقرطاسية"></div>' +
+        '<div class="field"><label for="suCity">المدينة</label><input class="inp" id="suCity" value="طرابلس"></div>' +
+        '<div class="field"><label for="suDemo">البداية</label><select class="inp" id="suDemo">' +
+        '<option value="yes">ببيانات تجربة (تُمسح بزر من الإعدادات حين تجهز)</option>' +
+        '<option value="no">فارغ، للعمل الحقيقي مباشرة</option></select></div>' +
+        '<button class="btn primary lg" id="suGo">ابدأ</button>' +
+        "</div></div></div>";
+      var go = view.querySelector("#suGo");
+      view.querySelector("#suShop").focus();
+      go.onclick = function () {
+        var shop = view.querySelector("#suShop").value.trim();
+        if (!shop) { App.toast("اكتب اسم المحل.", "warn"); view.querySelector("#suShop").focus(); return; }
+        go.disabled = true;
+        /* الإنشاء من النافذة المالكة للكتابة، كالنقل (قرار 0019) */
+        App.apiJson("/api/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) }).then(function (c) {
+          if (!c || !c.ok) throw new Error("تعذّر تجهيز البرنامج للكتابة.");
+          return fetch("/api/v2/create", {
+            method: "POST",
+            headers: { "X-Qirtasiya": "1", "X-Owner": c.token, "Content-Type": "application/json" },
+            body: JSON.stringify({ shopName: shop, city: view.querySelector("#suCity").value.trim(), demo: view.querySelector("#suDemo").value === "yes" })
+          }).then(function (r) { return r.json(); });
+        }).then(function (d) {
+          if (!d || !d.ok) throw new Error((d && d.error) || "تعذّر إنشاء القاعدة.");
+          location.reload();
+        }).catch(function (e) { go.disabled = false; App.toast(e.message, "bad"); });
+      };
     });
   }
 

@@ -2,6 +2,7 @@
 ;   مثبِّت منظومة المكتبة والقرطاسية
 ;  ------------------------------------------------------------
 ;   يُبنى من لينكس:  makensis -DVERSION=2.5 installer/qirtasiya.nsi
+;   تطبيق طرابلس:     makensis -DEDITION=tripoli ... (قرار 0022)
 ;
 ;   لماذا مجلد بيانات منفصل؟ لأن Program Files لا يقبل الكتابة،
 ;   ولأن ربط البيانات بمجلد البرنامج يعني ضياعها الظاهري مع كل
@@ -18,15 +19,32 @@ Unicode true
   !define TAG ""
 !endif
 
-!define APPNAME   "منظومة المكتبة والقرطاسية"
-!define SHORTNAME "Qirtasiya"
+; تطبيقان منفصلان (قرار 0022): كل واحد باسمه ومكان تثبيته ومجلد بياناته
+; وأيقونته، فيُثبَّتان على جهاز واحد بلا خلط. مصراتة تبقى في مكانها القديم.
+!ifndef EDITION
+  !define EDITION "misrata"
+!endif
+!if "${EDITION}" == "tripoli"
+  !define APPNAME   "منظومة طرابلس"
+  !define SHORTNAME "Qirtasiya-Tripoli"
+  !define EXENAME   "Qirtasiya-Tripoli.exe"
+  !define SRCEXE    "Qirtasiya-2.exe"
+  !define APPICON   "../app/app-tripoli.ico"
+  !define SETUPNAME "Qirtasiya-Tripoli-Setup"
+!else
+  !define APPNAME   "منظومة مصراتة"
+  !define SHORTNAME "Qirtasiya"
+  !define EXENAME   "Qirtasiya.exe"
+  !define SRCEXE    "Qirtasiya-1.exe"
+  !define APPICON   "../app/app.ico"
+  !define SETUPNAME "Qirtasiya-Misrata-Setup"
+!endif
 !define PUBLISHER "مكتبة دار الحكمة"
-!define EXENAME   "Qirtasiya.exe"
 !define REGKEY    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${SHORTNAME}"
 !define APPKEY    "Software\${SHORTNAME}"
 
 Name "${APPNAME}"
-OutFile "../build/Qirtasiya-Setup-${VERSION}${TAG}.exe"
+OutFile "../build/${SETUPNAME}-${VERSION}${TAG}.exe"
 InstallDir "$PROGRAMFILES64\${SHORTNAME}"
 InstallDirRegKey HKLM "${APPKEY}" "InstallDir"
 RequestExecutionLevel admin
@@ -46,8 +64,8 @@ VIAddVersionKey /LANG=1025 "LegalCopyright"  "${PUBLISHER}"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 
-!define MUI_ICON   "../app/app.ico"
-!define MUI_UNICON "../app/app.ico"
+!define MUI_ICON   "${APPICON}"
+!define MUI_UNICON "${APPICON}"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXENAME}"
 !define MUI_FINISHPAGE_RUN_TEXT "شغّل المنظومة الآن"
@@ -108,7 +126,7 @@ Section "البرنامج" SecMain
   SetOutPath "$INSTDIR"
   SetOverwrite on
 
-  File "/oname=${EXENAME}" "../build/Qirtasiya-1.exe"
+  File "/oname=${EXENAME}" "../build/${SRCEXE}"
 
   ;  مكتبة SQLite الرسمية للقاعدة الجديدة (قرار 0016)، للمعماريتين
   SetOutPath "$INSTDIR\x64"
@@ -151,6 +169,11 @@ Section "البرنامج" SecMain
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKLM "${REGKEY}" "EstimatedSize" "$0"
 
+!if "${EDITION}" != "tripoli"
+  ;  الاسم القديم قبل فصل التطبيقين: اختصاراته تُستبدل بـ«منظومة مصراتة»
+  Delete "$DESKTOP\منظومة المكتبة والقرطاسية.lnk"
+  RMDir /r "$SMPROGRAMS\منظومة المكتبة والقرطاسية"
+!endif
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortCut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\${EXENAME}" "" "$INSTDIR\${EXENAME}" 0
   CreateShortCut "$SMPROGRAMS\${APPNAME}\إلغاء التثبيت.lnk" "$INSTDIR\uninstall.exe"

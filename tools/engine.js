@@ -14,12 +14,15 @@ const { execFileSync, spawn } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-function buildEngine(dir) {
+/* edition: misrata (الافتراضي) أو tripoli — تطبيقان منفصلان (قرار 0022) */
+function buildEngine(dir, edition) {
+  edition = edition || 'misrata';
   fs.copyFileSync(path.join(ROOT, 'src', 'Program.cs'), path.join(dir, 'Program.cs'));
   fs.writeFileSync(path.join(dir, 'BuildInfo.cs'),
-    'namespace Qirtasiya { static class BuildInfo { public const string Stamp = "test"; } }');
+    'namespace Qirtasiya { static class BuildInfo { public const string Stamp = "test"; public const string Edition = "' + edition + '"; } }');
   const res = [];
-  for (const [f, n] of [['app/index.html', 'index.html'], ['app/styles.css', 'styles.css'], ['app/icon.png', 'icon.png'], ['cloud/worker.js', 'worker.js']]) {
+  const png = edition === 'tripoli' ? 'app/icon-tripoli.png' : 'app/icon.png';
+  for (const [f, n] of [['app/index.html', 'index.html'], ['app/styles.css', 'styles.css'], [png, 'icon.png'], ['cloud/worker.js', 'worker.js']]) {
     res.push('-resource:' + path.join(ROOT, f) + ',' + n);
   }
   for (const m of ['jsbarcode', 'core', 'inventory', 'branches', 'notify', 'consign', 'count', 'sales', 'people', 'stale', 'labels', 'reports']) {

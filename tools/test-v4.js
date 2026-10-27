@@ -1,10 +1,11 @@
 /* ============================================================
-   test-v4.js — واجهة 4.0 على المحرك الحقيقي (المرحلة 4أ، قرار 0021)
+   test-v4.js — واجهة 4.0 على المحرك الحقيقي (المرحلة 4أ، قراران 0021 و0022)
    ------------------------------------------------------------
-   جهاز جديد بلا بيانات: شاشة الترحيب ← «فرع جديد على النظام الجديد»
-   ببيانات تجربة ← دخول المدير ← لوحة اليوم ← بيعة من نقطة البيع بالبحث
-   الجديد ← الفواتير ← إضافة كتاب وتعديله وحذفه ← موظف بكلمة سر ←
-   «ابدأ من جديد بلا بيانات التجربة» ← إعادة تشغيل المحرك.
+   تطبيق طرابلس على جهاز جديد: إعداد 4.0 مباشرة ببيانات تجربة ← دخول
+   المدير ← لوحة اليوم ← بيعة من نقطة البيع بالبحث الجديد ← الفواتير ←
+   إضافة كتاب وتعديله وحذفه ← موظف بكلمة سر ← المجلد الإضافي للنسخ ←
+   «ابدأ من جديد بلا بيانات التجربة» ← إعادة تشغيل المحرك. ثم تطبيقا
+   مصراتة وطرابلس مثبَّتين على جهاز واحد: كل واحد باسمه ومجلد بياناته.
    صور الشاشات في SHOTS (أو مجلد مؤقت).
 
    يحتاج: mono-mcs وxvfb-run وlibsqlite3 وplaywright-core.
@@ -31,8 +32,8 @@ function ok(cond, name, detail) {
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(shots, { recursive: true });
-  console.log('يبني المحرك...');
-  E.buildEngine(dir);
+  console.log('يبني تطبيق طرابلس...');
+  E.buildEngine(dir, 'tripoli');
 
   let eng = E.startEngine(dir, home), lastPage = null;
   const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox'] });
@@ -51,21 +52,23 @@ function ok(cond, name, detail) {
     const toastHas = s => page.waitForFunction(t => Array.prototype.some.call(document.querySelectorAll('#toasts .toast'),
       x => x.textContent.indexOf(t) >= 0), s, { timeout: 8000 }).then(() => true, () => false);
 
-    console.log('\n== جهاز جديد: شاشة الترحيب ==');
+    console.log('\n== تطبيق طرابلس على جهاز جديد: إعداد 4.0 مباشرة ==');
+    let info = (await E.call(port, '/api/info')).body;
+    ok(info.edition === 'tripoli' && info.app === 'منظومة طرابلس' && info.db === false, 'تطبيق طرابلس، بلا قاعدة بعد', info);
     await page.goto(base + '/');
-    await page.waitForSelector(top + ' >> text=فرع جديد على النظام الجديد (4.0)', { timeout: 15000 });
-    ok(true, 'بلا بيانات: شاشة الترحيب فيها «فرع جديد على النظام الجديد (4.0)»');
-    ok(await page.$(top + ' >> text=أنقل بياناتي أولاً') !== null && await page.$(top + ' >> text=ابدأ من جديد') !== null,
-      'وخيارا النظام الحالي ونقل البيانات باقيان كما كانا');
-    await shot('01-welcome');
-    await page.click(top + ' >> text=فرع جديد على النظام الجديد (4.0)');
-    await page.waitForSelector(top + ' #f_shopName');
-    ok(await page.$eval(top + ' #f_city', e => e.value) === 'طرابلس', 'المدينة طرابلس افتراضياً');
-    ok(await page.$eval(top + ' #f_demo', e => e.value) === 'yes', 'وبيانات التجربة مختارة افتراضياً');
-    await page.fill(top + ' #f_shopName', 'مكتبة التجربة');
-    await E.sleep(350);
-    await shot('02-new-branch');
-    await page.click(top + ' .m-foot .btn.primary');
+    await page.waitForSelector('#suShop', { timeout: 15000 });
+    ok(await page.$('#modalHost .overlay') === null, 'يفتح إعداد 4.0 مباشرة، بلا شاشة ترحيب 3.x');
+    ok(await page.evaluate(() => document.body.classList.contains('th-violet') && !document.body.classList.contains('th-green')), 'بلون طرابلس البنفسجي');
+    ok(await page.title() === 'منظومة طرابلس' && await text('.login-wrap h2') === 'منظومة طرابلس', 'واسمه «منظومة طرابلس»', await page.title());
+    ok(await page.$eval('#suCity', e => e.value) === 'طرابلس' && await page.$eval('#suDemo', e => e.value) === 'yes', 'المدينة طرابلس، وبيانات التجربة مختارة');
+    const icon = await page.evaluate(() => fetch('/icon.png').then(r => r.arrayBuffer()).then(b => b.byteLength));
+    ok(icon === fs.statSync(path.join(E.ROOT, 'app', 'icon-tripoli.png')).size, 'وأيقونته البنفسجية', icon);
+    await page.click('#suGo');
+    ok(await toastHas('اكتب اسم المحل'), 'بلا اسم محل لا يبدأ');
+    await page.fill('#suShop', 'مكتبة التجربة');
+    await E.sleep(200);
+    await shot('01-setup');
+    await page.click('#suGo');
 
     console.log('\n== 4.0: الدخول ولوحة اليوم ==');
     await page.waitForSelector('body.v4:not(.out) #nav .nav-item', { timeout: 20000 });
@@ -298,6 +301,39 @@ function ok(cond, name, detail) {
     ok(r.status === 409 || (r.body && r.body.ok === false), 'ولا تُنشأ قاعدة ثانية فوقها', r.body);
 
     ok(errors.length === 0, 'بلا أخطاء JavaScript في الصفحة', errors);
+
+    console.log('\n== تطبيقا مصراتة وطرابلس مثبَّتان على جهاز واحد (قرار 0022) ==');
+    E.stopEngine(eng);
+    const inst = { tripoli: path.join(tmp, 'inst-tripoli'), misrata: path.join(tmp, 'inst-misrata') };
+    fs.mkdirSync(inst.tripoli); fs.mkdirSync(inst.misrata);
+    for (const f of ['Qirtasiya.exe', 'Qirtasiya.exe.config']) fs.copyFileSync(path.join(dir, f), path.join(inst.tripoli, f));
+    console.log('يبني تطبيق مصراتة...');
+    E.buildEngine(inst.misrata, 'misrata');
+    /* كما يتركه المثبّت: البيانات في مجلد المستخدم، لا بجانب البرنامج */
+    for (const d of Object.values(inst)) fs.writeFileSync(path.join(d, 'installed.flag'), '4.0-test');
+    const portOf = async name => {
+      for (let i = 0; i < 240; i++) {
+        for (const root of [home, path.join(home, '.local', 'share')]) {
+          try { const v = fs.readFileSync(path.join(root, name, 'data', 'port.txt'), 'utf8').trim(); if (v) return +v; } catch (e) { }
+        }
+        await E.sleep(250);
+      }
+      throw new Error('لم يبدأ: ' + name);
+    };
+    const engT = E.startEngine(inst.tripoli, home), engM = E.startEngine(inst.misrata, home);
+    try {
+      const pT = await portOf('Qirtasiya-Tripoli'), pM = await portOf('Qirtasiya');
+      const iT = (await E.call(pT, '/api/info')).body, iM = (await E.call(pM, '/api/info')).body;
+      ok(pT !== pM, 'الاثنان يعملان معاً، كل واحد بمنفذه', [pT, pM]);
+      ok(iT.app === 'منظومة طرابلس' && /Qirtasiya-Tripoli[\\/]data$/.test(iT.dataDir), 'طرابلس: اسمها ومجلد بياناته Qirtasiya-Tripoli', iT);
+      ok(iM.app === 'منظومة مصراتة' && /[\\/]Qirtasiya[\\/]data$/.test(iM.dataDir), 'مصراتة: اسمها ومجلدها القديم Qirtasiya كما كان', iM);
+      const pm = await ctx.newPage();
+      await pm.goto('http://127.0.0.1:' + pM + '/');
+      await pm.waitForSelector('#modalHost .overlay >> text=أنقل بياناتي أولاً', { timeout: 20000 });
+      ok(await pm.$('#modalHost .overlay >> text=4.0') === null && await pm.$('#modalHost .overlay >> text=ابدأ من جديد') !== null,
+        'مصراتة على جهاز جديد: شاشة الترحيب كما كانت، بلا خيار 4.0');
+      await pm.close();
+    } finally { E.stopEngine(engT); E.stopEngine(engM); }
   } catch (e) {
     if (lastPage) await lastPage.screenshot({ path: path.join(shots, 'zz-stopped.png') }).catch(() => { });
     fail++; failures.push('توقف: ' + (e && e.stack || e));

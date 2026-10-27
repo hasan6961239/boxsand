@@ -13,5 +13,7 @@ namespace Qirtasiya
     static class BuildInfo
     {
         public const string Stamp = "2026-09-30";
+        /* misrata أو tripoli: تطبيقان منفصلان (قرار 0022) */
+        public const string Edition = "misrata";
     }
 }
