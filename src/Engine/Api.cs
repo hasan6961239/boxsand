@@ -111,6 +111,11 @@ namespace Qirtasiya.Engine
                     if (req == null) return Fail(400, "الطلب ليس كائن JSON.");
                 }
                 if (name == "login") return Ok(Login(req));
+                /* شاشة الدخول: الموظفون الموجودون ومن له كلمة سر. المدير بلا كلمة سر
+                   يدخل مباشرة، فلا تُحسب عليه محاولات خاطئة لم يكتبها */
+                if (name == "login.users")
+                    return Ok(Rows("SELECT id, name, login, role, pass_hash <> '' FROM users WHERE active = 1 ORDER BY role <> 'admin', id",
+                        new string[] { "id", "name", "login", "role", "hasPassword" }));
                 if (name == "logout") { lock (gate) if (token != null) sessions.Remove(token); return Ok(null); }
 
                 Command cmd;
@@ -123,6 +128,13 @@ namespace Qirtasiya.Engine
             }
             catch (ShopException e) { return Fail(200, e.Message); }
             catch (FormatException e) { return Fail(400, e.Message); }
+        }
+
+        /* أوامر البرنامج خارج المحرك (مسح بيانات التجربة): هل لهذه الجلسة الصلاحية؟ */
+        public bool Allowed(string token, string perm)
+        {
+            Session s = SessionOf(token);
+            return s != null && (perm == AnyUser || s.Can(perm));
         }
 
         static string PermLabel(string p)
@@ -178,8 +190,16 @@ namespace Qirtasiya.Engine
             s.Token = NewToken(); s.UserId = r.UserId; s.Name = r.Name; s.Role = r.Role; s.Seen = clock();
             s.Perms.AddRange(r.Perms);
             lock (gate) sessions[s.Token] = s;
-            Dictionary<string, object> o = Me(s);
+            Dictionary<string, object> o = MeNow(s);
             o["token"] = s.Token;
+            return o;
+        }
+
+        /* ومعه: هل له كلمة سر؟ (المدير بلا كلمة سر تنبّهه الواجهة) */
+        Dictionary<string, object> MeNow(Session s)
+        {
+            Dictionary<string, object> o = Me(s);
+            o["hasPassword"] = db.Read<long>(delegate (Sqlite c) { return c.Long("SELECT pass_hash <> '' FROM users WHERE id = ?", 0, s.UserId); }) == 1;
             return o;
         }
 

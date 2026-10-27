@@ -48,6 +48,8 @@ set RES=!RES! /resource:cloud\worker.js,worker.js
 for %%f in (jsbarcode core inventory branches notify consign count sales people stale labels reports) do (
   set RES=!RES! /resource:app\js\%%f.js,js/%%f.js
 )
+REM واجهة 4.0 (قرار 0021): كل ما في app\v4 باسم v4/<الملف>
+for %%f in (app\v4\*) do set RES=!RES! /resource:%%f,v4/%%~nxf
 
 REM --- ختم تاريخ البناء، ليعرف صاحب المحل أي نسخة يشغّل ---
 for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set STAMP=%%d

@@ -412,6 +412,158 @@ namespace Qirtasiya
             }
         }
 
+        /* بيانات النظام الحالي على هذا الجهاز؟ (كتب أو فواتير أو زبائن في store.json) */
+        static bool StoreHasData()
+        {
+            if (!File.Exists(StoreFile)) return false;
+            try
+            {
+                Dictionary<string, object> st = Json.Parse(File.ReadAllText(StoreFile, Encoding.UTF8)) as Dictionary<string, object>;
+                if (st == null) return true;
+                foreach (string k in new string[] { "books", "stationery", "invoices", "customers" })
+                    if (Json.Arr(st, k).Count > 0) return true;
+                return false;
+            }
+            catch { return true; }   // ملف لا يُقرأ: لا نبني فوقه شيئاً
+        }
+
+        /* قاعدة 4.0 جديدة على جهاز بلا بيانات (قرار 0021): اسم المحل والفرع،
+           وبيانات التجربة إن طُلبت. إن فشل لا يبقى ملف قاعدة نصف جاهز. */
+        static string CreateDb(string body)
+        {
+            lock (DbLock)
+            {
+                if (Db != null || File.Exists(DbFile)) throw new Exception("القاعدة الجديدة موجودة من قبل.");
+                if (StoreHasData()) throw new Exception("على هذا الجهاز بيانات النظام الحالي: تنتقل بالنقل، لا بقاعدة فارغة.");
+                Dictionary<string, object> req = (Json.Parse(string.IsNullOrEmpty(body) ? "{}" : body) as Dictionary<string, object>) ?? new Dictionary<string, object>();
+                string shop = Json.Str(req, "shopName").Trim();
+                if (shop.Length == 0) throw new Exception("اكتب اسم المحل.");
+                string city = Json.Str(req, "city").Trim();
+                bool demo = Json.Bool(req, "demo");
+                ShopDb d = null;
+                try
+                {
+                    OpenOptions o = new OpenOptions();
+                    o.BackupDir = BackupDir;
+                    d = ShopDb.Open(DbFile, o);
+                    Dictionary<string, object> meta = new Dictionary<string, object>();
+                    meta["shopName"] = shop;
+                    meta["currency"] = "د.ل";
+                    meta["setupDone"] = true;
+                    d.SetSetting("meta", Json.Write(meta), 1);
+                    Dictionary<string, object> branch = new Dictionary<string, object>();
+                    branch["id"] = Json.Str(req, "branchId").Length > 0 ? Json.Str(req, "branchId") : "tripoli";
+                    branch["name"] = shop;
+                    branch["city"] = city.Length > 0 ? city : "طرابلس";
+                    branch["no"] = Json.Long(req, "branchNo", 2) > 0 ? Json.Long(req, "branchNo", 2) : 2L;
+                    d.SetSetting("branch", Json.Write(branch), 1);
+                    int items = demo ? d.SeedDemo(1) : 0;
+                    Log("قاعدة 4.0 جديدة: " + shop + (demo ? "، ببيانات تجربة (" + items + " صنف)" : ""));
+                    Db = d;
+                    V2 = new Api(d, null);
+                    WarmSearch(d);
+                    /* أول نسخة يومية الآن، لا عند الإغلاق. وبعد مسح التجربة تحلّ محل نسخة اليوم */
+                    ThreadPool.QueueUserWorkItem(delegate { DailyDbBackup(true); });
+                    Dictionary<string, object> r = new Dictionary<string, object>();
+                    r["items"] = (long)items;
+                    r["demo"] = demo;
+                    return Json.Write(r);
+                }
+                catch
+                {
+                    if (d != null) d.Dispose();
+                    foreach (string f in new string[] { DbFile, DbFile + "-wal", DbFile + "-shm" })
+                    {
+                        try { if (File.Exists(f)) File.Delete(f); }
+                        catch { }
+                    }
+                    throw;
+                }
+            }
+        }
+
+        /* «ابدأ من جديد بلا بيانات التجربة» (قرار 0021): نسخة التجربة تبقى في
+           backups، ثم قاعدة جديدة فارغة باسم المحل والفرع نفسيهما. قاعدة بلا
+           علامة التجربة لا تُمسح من هنا أبداً. */
+        static string ResetDemo()
+        {
+            lock (DbLock)
+            {
+                ShopDb d = Db;
+                if (d == null) throw new Exception("لا توجد قاعدة.");
+                if (d.GetSetting("demo") != "true") throw new Exception("هذه ليست نسخة تجربة: بياناتها حقيقية ولا تُمسح.");
+                Dictionary<string, object> meta = (Json.Parse(d.GetSetting("meta") ?? "{}") as Dictionary<string, object>) ?? new Dictionary<string, object>();
+                Dictionary<string, object> branch = (Json.Parse(d.GetSetting("branch") ?? "{}") as Dictionary<string, object>) ?? new Dictionary<string, object>();
+                string keep = Path.Combine(BackupDir, "qirtasiya-demo-" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".db");
+                lock (DbBackupLock)
+                {
+                    d.SnapshotTo(keep);
+                    V2 = null;
+                    Db = null;
+                    d.Dispose();
+                    foreach (string f in new string[] { DbFile, DbFile + "-wal", DbFile + "-shm" })
+                        if (File.Exists(f)) File.Delete(f);
+                }
+                Log("مُسحت بيانات التجربة، ونسختها: " + keep);
+                Dictionary<string, object> req = new Dictionary<string, object>();
+                req["shopName"] = Json.Str(meta, "shopName");
+                req["city"] = Json.Str(branch, "city");
+                req["branchId"] = Json.Str(branch, "id");
+                req["branchNo"] = Json.Long(branch, "no", 2);
+                try { return CreateDb(Json.Write(req)); }
+                catch
+                {
+                    /* القاعدة الجديدة لم تُنشأ: نسخة التجربة ترجع كما كانت */
+                    try { File.Copy(keep, DbFile, true); OpenDbIfPresent(); }
+                    catch (Exception ex) { Log("تعذّر إرجاع نسخة التجربة: " + ex.Message); }
+                    throw;
+                }
+            }
+        }
+
+        /* المجلد الإضافي للنسخ من واجهة 4.0 (في 3.x من نافذتها المالكة).
+           مسار لا يُكتب فيه يُرفض الآن، لا يوم يُحتاج للنسخة. */
+        static string BackupDirCmd(string body)
+        {
+            Dictionary<string, object> req = (Json.Parse(string.IsNullOrEmpty(body) ? "{}" : body) as Dictionary<string, object>) ?? new Dictionary<string, object>();
+            if (req.ContainsKey("dir"))
+            {
+                string dir = Json.Str(req, "dir").Trim();
+                if (dir.Length > 0)
+                {
+                    if (!Path.IsPathRooted(dir)) throw new Exception("اكتب المسار كاملاً، مثل D:\\نسخ-المكتبة");
+                    try
+                    {
+                        Directory.CreateDirectory(dir);
+                        string probe = Path.Combine(dir, ".qirtasiya-test");
+                        File.WriteAllText(probe, "ok");
+                        File.Delete(probe);
+                    }
+                    catch (Exception ex) { throw new Exception("تعذّرت الكتابة في هذا المجلد: " + ex.Message); }
+                }
+                ExtraBackupDir = dir;
+                File.WriteAllText(Path.Combine(DataDir, "backup-dir.txt"), dir, new UTF8Encoding(false));
+                Log(dir.Length > 0 ? "مجلد نسخ إضافي: " + dir : "أُوقف مجلد النسخ الإضافي");
+                /* نسخة اليوم تصله الآن، فيرى صاحب المحل أنه يعمل */
+                if (dir.Length > 0) ThreadPool.QueueUserWorkItem(delegate { DailyDbBackup(true); });
+            }
+            string last = "";
+            try
+            {
+                foreach (string f in Directory.GetFiles(BackupDir, "qirtasiya-*.db"))
+                {
+                    string n = Path.GetFileName(f);
+                    if (IsDailyDbName(n) && string.CompareOrdinal(n, last) > 0) last = n;
+                }
+            }
+            catch { }
+            Dictionary<string, object> r = new Dictionary<string, object>();
+            r["dir"] = ExtraBackupDir;
+            r["folder"] = BackupDir;
+            r["last"] = last;
+            return Json.Write(r);
+        }
+
         static string StatusText(int code)
         {
             switch (code)
@@ -1033,6 +1185,18 @@ namespace Qirtasiya
                     Send(s, 405, "Method Not Allowed", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"POST\"}"));
                     return;
                 }
+                /* جهاز جديد بلا بيانات: قاعدة 4.0 فارغة أو ببيانات تجربة (قرار 0021) */
+                if (name == "create")
+                {
+                    if (!IsOwner(lines))
+                    {
+                        Send(s, 409, "Conflict", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"notOwner\":true}"));
+                        return;
+                    }
+                    try { SendJson(s, "{\"ok\":true,\"data\":" + CreateDb(Encoding.UTF8.GetString(body)) + "}"); }
+                    catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                    return;
+                }
                 /* النقل يطلبه صاحب النافذة الحالية (لا جلسة قبل وجود القاعدة) */
                 if (name == "import")
                 {
@@ -1046,6 +1210,19 @@ namespace Qirtasiya
                     return;
                 }
                 Api api = V2;
+                /* أوامر البرنامج لا المحرك: مسح بيانات التجربة يغلق القاعدة نفسها،
+                   والمجلد الإضافي للنسخ إعداد للبرنامج لا للقاعدة */
+                if ((name == "demo.reset" || name == "backup.dir") && api != null)
+                {
+                    if (!api.Allowed(GetHeader(lines, "X-Session"), "settings"))
+                    {
+                        Send(s, 403, "Forbidden", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"لا تملك صلاحية الإعدادات.\"}"));
+                        return;
+                    }
+                    try { SendJson(s, "{\"ok\":true,\"data\":" + (name == "demo.reset" ? ResetDemo() : BackupDirCmd(Encoding.UTF8.GetString(body))) + "}"); }
+                    catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                    return;
+                }
                 if (api == null)
                 {
                     Send(s, 409, "Conflict", "application/json; charset=utf-8", Encoding.UTF8.GetBytes(
@@ -1475,7 +1652,8 @@ namespace Qirtasiya
             }
 
             // static files
-            if (path == "/") path = "/index.html";
+            /* القاعدة الجديدة موجودة: واجهة 4.0 (قرار 0021)، وإلا واجهة 3.x كما كانت */
+            if (path == "/") path = Db != null ? "/v4/index.html" : "/index.html";
             if (path.Contains("..")) { Send(s, 400, "Bad Request", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("bad path")); return; }
 
             string rel = path.TrimStart(new char[] { '/' });

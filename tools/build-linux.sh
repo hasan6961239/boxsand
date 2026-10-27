@@ -25,6 +25,7 @@ RES=(-resource:app/index.html,index.html -resource:app/styles.css,styles.css
 for f in jsbarcode core inventory branches notify consign count sales people stale labels reports; do
   RES+=("-resource:app/js/$f.js,js/$f.js")
 done
+for f in app/v4/*; do RES+=("-resource:$f,v4/$(basename "$f")"); done
 
 mcs -nologo -target:winexe -optimize+ -out:build/Qirtasiya-1.exe -win32icon:app/app.ico \
   -r:System.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll -r:System.Core.dll \

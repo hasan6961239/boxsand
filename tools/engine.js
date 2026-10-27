@@ -25,6 +25,9 @@ function buildEngine(dir) {
   for (const m of ['jsbarcode', 'core', 'inventory', 'branches', 'notify', 'consign', 'count', 'sales', 'people', 'stale', 'labels', 'reports']) {
     res.push('-resource:' + path.join(ROOT, 'app', 'js', m + '.js') + ',js/' + m + '.js');
   }
+  for (const f of fs.readdirSync(path.join(ROOT, 'app', 'v4'))) {
+    res.push('-resource:' + path.join(ROOT, 'app', 'v4', f) + ',v4/' + f);
+  }
   const cs = d => fs.readdirSync(path.join(ROOT, 'src', d)).filter(f => f.endsWith('.cs')).map(f => path.join(ROOT, 'src', d, f));
   const wv = f => path.join(ROOT, 'vendor', 'webview2', f);
   execFileSync('mcs', ['-nologo', '-target:winexe', '-optimize+', '-out:' + path.join(dir, 'Qirtasiya.exe'),

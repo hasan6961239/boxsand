@@ -1,0 +1,39 @@
+/* ============================================================
+   واجهة 4.0 — إضافات قليلة فوق styles.css المشترك (قرار 0021)
+   ============================================================ */
+
+/* «نسخة تجربة» ظاهرة دائماً (قرار 0014) */
+.demo-tag {
+  background: var(--amber-wash); color: #7A5306; border: 1px solid #EDDCB0;
+  border-radius: 999px; padding: 3px 12px; font-size: 12.5px; font-weight: 700;
+}
+
+/* الدخول: بلا شريط جانبي */
+body.v4.out #rail, body.v4.out #topbar { display: none; }
+.login-wrap { max-width: 420px; margin: 9vh auto 0; }
+.login-wrap h2 { font-family: var(--font-head); font-size: 28px; margin: 0 0 4px; text-align: center; }
+.login-wrap .field { margin-bottom: 14px; }
+.login-wrap .btn.lg { width: 100%; }
+
+.user-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+
+/* شريط أدوات الصفحات */
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar .inp.search { flex: 1; min-width: 220px; }
+.toolbar .seg { min-width: 240px; }
+.pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 14px; }
+
+/* مسار المكان: «ط1 · قسم الجامعي · خزانة A · رف 2» */
+.place-path { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.place-path b { color: var(--ink-soft); font-weight: 700; }
+
+/* «هل تقصد؟» فوق أول نتيجة قريبة في الجداول */
+tr.near-row td { color: var(--ink-soft); }
+.near-head td { background: var(--amber-wash); color: #7A5306; font-weight: 700; font-size: 12.5px; }
+
+/* البطاقات القابلة للضغط في اللوحة */
+.stat.click { cursor: pointer; }
+.stat.click:hover { box-shadow: var(--shadow-2); }
+
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13.5px; }
+.kv .k { color: var(--muted); }

@@ -10,7 +10,7 @@ namespace Qirtasiya.Engine
         void Register()
         {
             /* ---------- الحساب ---------- */
-            Add("me", AnyUser, delegate (Ctx c) { return Me(c.S); });
+            Add("me", AnyUser, delegate (Ctx c) { return MeNow(c.S); });
             Add("me.password", AnyUser, delegate (Ctx c) { db.ChangeOwnPassword(c.User, c.Str("current"), c.Str("next")); return null; });
             Add("perms.list", "users", delegate (Ctx c)
             {
@@ -48,11 +48,13 @@ namespace Qirtasiya.Engine
 
             /* ---------- المحل والإعدادات ---------- */
             /* اسم المحل وبيانات الإيصال: يحتاجها كل بائع. الربط والإشعارات لا (فيها مفاتيح) */
-            Add("shop.info", AnyUser, delegate (Ctx c) { return O("meta", Setting("meta"), "branch", Setting("branch")); });
+            Add("shop.info", AnyUser, delegate (Ctx c) { return O("meta", Setting("meta"), "branch", Setting("branch"), "demo", Setting("demo")); });
             Add("settings.get", "settings", delegate (Ctx c) { return Setting(c.Str("key")); });
             Add("setting.set", "settings", delegate (Ctx c)
             {
                 if (c.Str("key").Length == 0) throw new ShopException("اسم الإعداد ناقص.");
+                /* علامة التجربة تسمح بمسح القاعدة كلها: لا تُوضع على بيانات حقيقية */
+                if (c.Str("key") == "demo") throw new ShopException("علامة «نسخة تجربة» لا تُغيَّر من هنا.");
                 object v;
                 c.R.TryGetValue("value", out v);
                 db.SetSetting(c.Str("key"), Json.Write(v), c.User);
