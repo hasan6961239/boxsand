@@ -251,7 +251,7 @@ namespace Qirtasiya
 
             if (!isFirst)
             {
-                // Already running: just re-open the window and exit.
+                /* البرنامج يعمل: نطلب منه إظهار نافذته نفسها، وإلا فتحنا المتصفح عليه */
                 try
                 {
                     string pf = Path.Combine(ResolveDataDir(), "port.txt");
@@ -260,7 +260,8 @@ namespace Qirtasiya
                         int p;
                         if (int.TryParse(File.ReadAllText(pf).Trim(), out p) && !NoOpen)
                         {
-                            OpenWindow("http://127.0.0.1:" + p.ToString(CultureInfo.InvariantCulture) + "/");
+                            string url = "http://127.0.0.1:" + p.ToString(CultureInfo.InvariantCulture) + "/";
+                            if (!AskShowWindow(url)) OpenBrowser(url);
                         }
                     }
                 }
@@ -310,6 +311,8 @@ namespace Qirtasiya
 
                 Application.EnableVisualStyles();
                 SetupTray();
+                try { WindowHost.Init(); }
+                catch (Exception ex) { Log("تعذّر تجهيز نافذة البرنامج: " + ex.Message); }
                 Log("أيقونة شريط المهام جاهزة");
                 if (NoOpen) Log("سيفتح ويندوز النافذة (وضع /noopen)");
                 else OpenWindow(Url());
@@ -1364,6 +1367,13 @@ namespace Qirtasiya
                 return;
             }
 
+            /* نسخة ثانية من البرنامج فُتحت: نُظهر هذه النافذة بدل نافذة جديدة */
+            if (path == "/api/window" && method == "POST")
+            {
+                SendJson(s, "{\"ok\":true,\"shown\":" + (ShowAppWindow(Url()) ? "true" : "false") + "}");
+                return;
+            }
+
             if (path == "/api/open-folder" && method == "POST")
             {
                 try { Process.Start("explorer.exe", "\"" + DataDir + "\""); }
@@ -1790,7 +1800,49 @@ namespace Qirtasiya
             return null;
         }
 
+        /* نافذة البرنامج الخاصة (WebView2)، وإلا المتصفح كما في 3.x */
         static void OpenWindow(string url)
+        {
+            if (!ShowAppWindow(url)) OpenBrowser(url);
+        }
+
+        static bool ShowAppWindow(string url)
+        {
+            try
+            {
+                string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Qirtasiya", "webview_" + InstanceKey);
+                string loader = Path.Combine(BaseDir, IntPtr.Size == 8 ? "x64" : "x86");
+                return WindowHost.Show(url, data, loader, AppTitle, DevMode, Log);
+            }
+            catch (Exception ex)
+            {
+                Log("نافذة البرنامج: " + ex.Message);
+                return false;
+            }
+        }
+
+        /* النسخة الثانية تطلب من الأولى إظهار نافذتها (/api/window) */
+        static bool AskShowWindow(string url)
+        {
+            try
+            {
+                HttpWebRequest q = (HttpWebRequest)WebRequest.Create(url + "api/window");
+                q.Method = "POST";
+                q.Headers["X-Qirtasiya"] = "1";
+                q.ContentType = "application/json";
+                q.ContentLength = 2;
+                q.Timeout = 5000;
+                q.Proxy = null;
+                using (Stream st = q.GetRequestStream()) st.Write(new byte[] { (byte)'{', (byte)'}' }, 0, 2);
+                using (HttpWebResponse r = (HttpWebResponse)q.GetResponse())
+                using (StreamReader rd = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
+                    return rd.ReadToEnd().Contains("\"shown\":true");
+            }
+            catch { return false; }
+        }
+
+        static void OpenBrowser(string url)
         {
             string profile = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

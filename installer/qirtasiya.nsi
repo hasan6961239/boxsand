@@ -109,9 +109,15 @@ Section "البرنامج" SecMain
   ;  مكتبة SQLite الرسمية للقاعدة الجديدة (قرار 0016)، للمعماريتين
   SetOutPath "$INSTDIR\x64"
   File "../build/x64/sqlite3.dll"
+  File "../build/x64/WebView2Loader.dll"
   SetOutPath "$INSTDIR\x86"
   File "../build/x86/sqlite3.dll"
+  File "../build/x86/WebView2Loader.dll"
   SetOutPath "$INSTDIR"
+
+  ;  نافذة البرنامج الخاصة (WebView2، vendor/webview2)
+  File "../build/Microsoft.Web.WebView2.Core.dll"
+  File "../build/Microsoft.Web.WebView2.WinForms.dll"
 
   ;  علامة «مثبَّت»: البرنامج يقرأها فيكتب بياناته في مجلد المستخدم
   FileOpen $0 "$INSTDIR\installed.flag" w
@@ -185,6 +191,10 @@ Section "Uninstall"
   Delete "$INSTDIR\${EXENAME}"
   Delete "$INSTDIR\x64\sqlite3.dll"
   Delete "$INSTDIR\x86\sqlite3.dll"
+  Delete "$INSTDIR\x64\WebView2Loader.dll"
+  Delete "$INSTDIR\x86\WebView2Loader.dll"
+  Delete "$INSTDIR\Microsoft.Web.WebView2.Core.dll"
+  Delete "$INSTDIR\Microsoft.Web.WebView2.WinForms.dll"
   RMDir "$INSTDIR\x64"
   RMDir "$INSTDIR\x86"
   Delete "$INSTDIR\installed.flag"

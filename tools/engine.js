@@ -26,9 +26,12 @@ function buildEngine(dir) {
     res.push('-resource:' + path.join(ROOT, 'app', 'js', m + '.js') + ',js/' + m + '.js');
   }
   const cs = d => fs.readdirSync(path.join(ROOT, 'src', d)).filter(f => f.endsWith('.cs')).map(f => path.join(ROOT, 'src', d, f));
+  const wv = f => path.join(ROOT, 'vendor', 'webview2', f);
   execFileSync('mcs', ['-nologo', '-target:winexe', '-optimize+', '-out:' + path.join(dir, 'Qirtasiya.exe'),
     '-r:System.dll', '-r:System.Drawing.dll', '-r:System.Windows.Forms.dll', '-r:System.Core.dll',
-    ...res, path.join(dir, 'Program.cs'), path.join(dir, 'BuildInfo.cs'), ...cs('Data'), ...cs('Engine')],
+    '-r:' + wv('Microsoft.Web.WebView2.Core.dll'), '-r:' + wv('Microsoft.Web.WebView2.WinForms.dll'),
+    ...res, path.join(dir, 'Program.cs'), path.join(ROOT, 'src', 'AppWindow.cs'), path.join(dir, 'BuildInfo.cs'),
+    ...cs('Data'), ...cs('Engine')],
     { stdio: ['ignore', 'ignore', 'inherit'] });
   /* mono يبحث عن libsqlite3.so، وهي موجودة فقط مع حزمة التطوير */
   fs.writeFileSync(path.join(dir, 'Qirtasiya.exe.config'),

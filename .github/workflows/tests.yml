@@ -100,6 +100,41 @@ jobs:
           if not exist build\Qirtasiya-1.exe exit /b 1
           if not exist build\x64\sqlite3.dll exit /b 1
           if not exist build\x86\sqlite3.dll exit /b 1
+          if not exist build\Microsoft.Web.WebView2.Core.dll exit /b 1
+          if not exist build\Microsoft.Web.WebView2.WinForms.dll exit /b 1
+          if not exist build\x64\WebView2Loader.dll exit /b 1
+          if not exist build\x86\WebView2Loader.dll exit /b 1
+
+      - name: البرنامج نفسه على ويندوز — نافذته بـ WebView2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = 'build\data\log.txt'
+          New-Item -ItemType Directory -Force build\data | Out-Null
+          $p = Start-Process -FilePath build\Qirtasiya-1.exe -PassThru
+          $port = $null
+          for ($i = 0; $i -lt 120 -and -not $port; $i++) {
+            Start-Sleep -Milliseconds 500
+            if (Test-Path build\data\port.txt) { $port = (Get-Content build\data\port.txt -Raw).Trim() }
+          }
+          if (-not $port) { Get-Content $log -ErrorAction SilentlyContinue; throw 'البرنامج لم يبدأ' }
+          $seen = $false
+          for ($i = 0; $i -lt 60 -and -not $seen; $i++) {
+            Start-Sleep -Milliseconds 500
+            $seen = Select-String -Path $log -Pattern 'نافذة البرنامج: WebView2' -Quiet
+          }
+          # فتحه مرة ثانية يعيد النافذة نفسها، والنسخة الثانية تخرج
+          $p2 = Start-Process -FilePath build\Qirtasiya-1.exe -PassThru
+          $p2.WaitForExit(30000) | Out-Null
+          Start-Sleep -Seconds 2
+          $again = Select-String -Path $log -Pattern 'أُعيدت النافذة نفسها' -Quiet
+          $h = @{ 'X-Qirtasiya' = '1' }
+          Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/quit" -Headers $h -Body '{}' -ContentType 'application/json' | Out-Null
+          $p.WaitForExit(30000) | Out-Null
+          Get-Content $log
+          if (-not $seen) { throw 'النافذة لم تُفتح بـ WebView2' }
+          if (-not $again) { throw 'فتحه مرة ثانية لم يُعد النافذة نفسها' }
+          if (-not $p.HasExited) { throw 'البرنامج لم يخرج بعد /api/quit' }
 
       - name: قاعدة البيانات بملفي sqlite3.dll اللذين يُشحنان
         shell: cmd

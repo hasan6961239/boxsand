@@ -58,8 +58,9 @@ echo   يبني... (بناء !STAMP!)
   /win32icon:app\app.ico ^
   /reference:System.dll /reference:System.Drawing.dll ^
   /reference:System.Windows.Forms.dll /reference:System.Core.dll ^
+  /reference:vendor\webview2\Microsoft.Web.WebView2.Core.dll /reference:vendor\webview2\Microsoft.Web.WebView2.WinForms.dll ^
   !RES! ^
-  src\Program.cs src\BuildInfo.cs src\Data\*.cs src\Engine\*.cs
+  src\Program.cs src\AppWindow.cs src\BuildInfo.cs src\Data\*.cs src\Engine\*.cs
 
 if errorlevel 1 (
   echo.
@@ -73,6 +74,12 @@ if not exist build\x64 mkdir build\x64
 if not exist build\x86 mkdir build\x86
 copy /y vendor\sqlite\x64\sqlite3.dll build\x64\ >nul
 copy /y vendor\sqlite\x86\sqlite3.dll build\x86\ >nul
+
+REM --- نافذة البرنامج (WebView2): ملفان بجانبه، والمحمِّل لكل معمارية ---
+copy /y vendor\webview2\Microsoft.Web.WebView2.Core.dll build\ >nul
+copy /y vendor\webview2\Microsoft.Web.WebView2.WinForms.dll build\ >nul
+copy /y vendor\webview2\x64\WebView2Loader.dll build\x64\ >nul
+copy /y vendor\webview2\x86\WebView2Loader.dll build\x86\ >nul
 
 REM --- ملف الإعداد المسبق للفرع ---
 > build\preset.json echo {"branch":{"id":"%BRANCH%","no":%NUMBER%}}
