@@ -2,31 +2,20 @@
    engine.js — نسخة تجربة من المحرك الحقيقي تحت mono
    ------------------------------------------------------------
    يستعملها القياس (bench/bench-3x.js) واختبار المحرك (test-engine.js).
-
-   الترخيص: المحرك يرفض العمل بلا ترخيص. نبني نسخة مؤقتة فيها مفتاح
-   عام إضافي يُولَّد لحظتها ويُنسى بعدها، ونفعّلها برمز موقّع به. النسخة
-   في مجلد مؤقت ولا تدخل أي ملف تثبيت، و src/Program.cs لا يُلمس.
+   تُبنى من src/Program.cs كما هو في مجلد مؤقت، ولا تدخل أي ملف تثبيت.
+   بلا ترخيص (قرار 0020): تعمل من أول تشغيل.
 
    يحتاج: mono-mcs وxvfb-run (أيقونة شريط المهام تحتاج شاشة).
    ============================================================ */
 'use strict';
-const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const fs = require('fs'), path = require('path');
 const { execFileSync, spawn } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-function testKey() {
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 65537 });
-  return { privateKey, modulus: Buffer.from(publicKey.export({ format: 'jwk' }).n, 'base64url').toString('base64') };
-}
-
-function buildEngine(dir, modulusB64) {
-  const src = fs.readFileSync(path.join(ROOT, 'src', 'Program.cs'), 'utf8');
-  const anchor = 'List<string> keys = new List<string>();';
-  if (src.indexOf(anchor) < 0) throw new Error('تغيّر شكل PublicKeys في Program.cs — حدّث tools/engine.js');
-  const patched = src.replace(anchor, anchor + ' keys.Add("' + modulusB64 + '"); /* تجربة فقط */');
-  fs.writeFileSync(path.join(dir, 'Program.cs'), patched);
+function buildEngine(dir) {
+  fs.copyFileSync(path.join(ROOT, 'src', 'Program.cs'), path.join(dir, 'Program.cs'));
   fs.writeFileSync(path.join(dir, 'BuildInfo.cs'),
     'namespace Qirtasiya { static class BuildInfo { public const string Stamp = "test"; } }');
   const res = [];
@@ -76,11 +65,4 @@ async function call(port, p, body, headers) {
   return { status: r.status, body: j };
 }
 
-async function activate(port, privateKey) {
-  const lic = (await call(port, '/api/license')).body;
-  const sig = crypto.sign('sha256', Buffer.from(lic.fp + '|0', 'utf8'), { key: privateKey, padding: crypto.constants.RSA_PKCS1_PADDING });
-  const act = (await call(port, '/api/activate', { code: '0.' + sig.toString('base64').replace(/\+/g, ',').replace(/\//g, '_') })).body;
-  if (!act || !act.ok) throw new Error('تفعيل نسخة التجربة فشل: ' + JSON.stringify(act));
-}
-
-module.exports = { ROOT, sleep, testKey, buildEngine, startEngine, waitPort, stopEngine, call, activate };
+module.exports = { ROOT, sleep, buildEngine, startEngine, waitPort, stopEngine, call };

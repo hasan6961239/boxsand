@@ -2,7 +2,7 @@
    test-engine.js — المحرك الحقيقي من البداية للنهاية (المرحلة 2)
    ------------------------------------------------------------
    Qirtasiya.exe نفسه تحت mono، بمكتبة صناعية بصيغة 3.x (store.json):
-   الترخيص والحارس، نقل البيانات للقاعدة الجديدة عبر النافذة المالكة،
+   الحارس وبلا ترخيص، نقل البيانات للقاعدة الجديدة عبر النافذة المالكة،
    أوامر /api/v2 بالجلسة، ثم قتل المحرك فجأة وإعادة تشغيله والتأكد أن
    ما قيل عنه «تم» باقٍ.
 
@@ -23,12 +23,11 @@ function ok(cond, name, detail) {
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qengine-'));
-  const key = E.testKey();
   const dir = path.join(tmp, 'engine'), home = path.join(tmp, 'home');
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   fs.mkdirSync(home, { recursive: true });
   console.log('يبني المحرك...');
-  E.buildEngine(dir, key.modulus);
+  E.buildEngine(dir);
   const meta = generate({ profile: 'misrata', books: 300, stationery: 40, customers: 30, years: 1, store3: 1, out: path.join(tmp, 'gen') });
   fs.copyFileSync(path.join(tmp, 'gen', 'store3.json'), path.join(dir, 'data', 'store.json'));
   const store = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'store.json'), 'utf8'));
@@ -36,10 +35,11 @@ function ok(cond, name, detail) {
   let eng = E.startEngine(dir, home);
   try {
     let port = await E.waitPort(dir);
-    console.log('\n== الحارس والترخيص ==');
-    let r = await E.call(port, '/api/v2/login', { login: 'admin', password: '' });
-    ok(r.status === 403 && r.body.error === 'unlicensed', 'بلا ترخيص: أوامر v2 مرفوضة كبقية الواجهة', r);
-    await E.activate(port, key.privateKey);
+    console.log('\n== الحارس، وبلا ترخيص ==');
+    let r = await E.call(port, '/api/device');
+    ok(r.status === 200 && /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(r.body.fp), 'بلا تفعيل: البرنامج يعمل من أول تشغيل، وبصمة الجهاز تصل', r.body);
+    r = await E.call(port, '/api/activate', { code: 'x' });
+    ok(!(r.body && r.body.ok), 'لا أمر تفعيل في البرنامج (قرار 0020)', r);
     r = await E.call(port, '/api/v2/login', { login: 'admin' }, { 'X-Qirtasiya': null });
     ok(r.status === 403 && r.body.error === 'forbidden', 'بلا ترويسة X-Qirtasiya: 403 (صفحة ويب غريبة لا تنادي المحرك)', r);
     r = await E.call(port, '/api/v2/login', { login: 'admin' }, { Origin: 'http://evil.example' });

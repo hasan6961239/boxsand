@@ -5,7 +5,7 @@
    (tools/gen) بأحجام مختلفة، على المحرك الحقيقي تحت mono، والواجهة
    الحقيقية في Chromium.
 
-   الترخيص ونسخة التجربة: tools/engine.js.
+   نسخة التجربة من المحرك: tools/engine.js.
 
    يحتاج: mono-mcs وxvfb-run وplaywright-core وChromium.
    الاستعمال:
@@ -103,10 +103,9 @@ async function measure(browser, port) {
 (async () => {
   const o = args();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bench3x-'));
-  const key = E.testKey();
   const engDir = path.join(tmp, 'engine');
   fs.mkdirSync(path.join(engDir, 'data'), { recursive: true });
-  E.buildEngine(engDir, key.modulus);
+  E.buildEngine(engDir);
   const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox', '--enable-precise-memory-info'] });
   const rows = [];
   try {
@@ -124,7 +123,6 @@ async function measure(browser, port) {
       const eng = E.startEngine(engDir, xdg);
       try {
         const port = await E.waitPort(engDir);
-        await E.activate(port, key.privateKey);
         const m = await measure(browser, port);
         const row = Object.assign({ books: size, stationery: stat, disk_mb: diskMb }, m);
         rows.push(row);

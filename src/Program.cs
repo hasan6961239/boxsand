@@ -62,49 +62,10 @@ namespace Qirtasiya
         static string LogFile;
         static string InstanceKey = "0";
 
-        // ---------- الترخيص ----------
-        // التطبيق يحمل المفاتيح العامة فقط: يتحقق من التوقيع ولا يستطيع توليده.
-        //
-        // PUB_N_NEW: مفتاحك الجديد. ولّده بـ tools/توليد-مفاتيح.html على جهازك
-        //            (المفتاح الخاص لا يغادر متصفحك) والصق الناتج هنا.
-        // PUB_N_OLD: المفتاح السابق — يبقى مقبولاً فترة انتقالية حتى لا تتوقف
-        //            تراخيص الزبائن الحاليين. احذفه بعد إعادة إصدار تراخيصهم.
-        //
-        // اتركه فارغاً ("") لتعطيل أي من المفتاحين.
-        const string PUB_N_NEW = "";
-        const string PUB_N_OLD = "ul8ewQ1L8J7bmh0sNG5zGT/8PoKI5pnUmhNqEj1UZQiwaC9utxjGOkF8AjESJKwnVo9TqQpQaspkYcALYW8RKn9kt0bka9l3SVNL6AbIc0UNsfOV7LuQB6CnCyrCE33Bh0PNeOSR37HPtjCj+Cmde86iGylLgpU34nHkeW41RW4OJdtHuS6WOP7U9fGZ2/9KNXwYX0W0TWyPPtD7ckBczDXBoe0EQfq6hHeiCPxFkO3B8vazGrmzjy9UKMGA2sRXuN05AQUqwV5cDmTJK4LcYQzYm1bUoNdw9tp6rmIf6qukey7iIYMxR9XPKqgN5VXb7Q8AUAOm7Chph/J/aPS1tw==";
-        const string PUB_E = "AQAB";
-
-        static string[] PublicKeys()
-        {
-            List<string> keys = new List<string>();
-            if (!string.IsNullOrEmpty(PUB_N_NEW)) keys.Add(PUB_N_NEW);
-            if (!string.IsNullOrEmpty(PUB_N_OLD)) keys.Add(PUB_N_OLD);
-            return keys.ToArray();
-        }
-
-        static bool SignatureValid(byte[] data, byte[] sig)
-        {
-            byte[] hash;
-            using (SHA256 sha = SHA256.Create()) hash = sha.ComputeHash(data);
-            string[] keys = PublicKeys();
-            for (int i = 0; i < keys.Length; i++)
-            {
-                try
-                {
-                    using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
-                    {
-                        RSAParameters pr = new RSAParameters();
-                        pr.Modulus = Convert.FromBase64String(keys[i]);
-                        pr.Exponent = Convert.FromBase64String(PUB_E);
-                        rsa.ImportParameters(pr);
-                        if (rsa.VerifyHash(hash, CryptoConfig.MapNameToOID("SHA256"), sig)) return true;
-                    }
-                }
-                catch { }
-            }
-            return false;
-        }
+        // ---------- بصمة الجهاز ----------
+        // أُلغي الترخيص (قرار 0020): البرنامج يعمل على أي جهاز بلا تفعيل.
+        // البصمة باقية لشيء واحد: معرفة جهاز المحل، فلا تُرسل نسخةٌ مستعادة
+        // على جهاز آخر إشعاراتِ بيع ولا ترفع مخزوناً باسم الفرع.
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         static extern bool GetVolumeInformation(string rootPathName,
@@ -172,8 +133,8 @@ namespace Qirtasiya
             return new string(outc, 0, 4) + "-" + new string(outc, 4, 4) + "-" + new string(outc, 8, 4);
         }
 
-        /* البصمة الحالية: الرقم التسلسلي للقرص + معرّف ويندوز الثابت.
-           اسم الجهاز خرج منها — تغييره كان يبطل ترخيصاً مدفوعاً. */
+        /* البصمة: الرقم التسلسلي للقرص + معرّف ويندوز الثابت. اسم الجهاز ليس
+           منها: تغييره لا يجعل جهاز المحل «جهازاً آخر». */
         static string MachineFingerprint()
         {
             string guid = MachineGuid();
@@ -182,64 +143,9 @@ namespace Qirtasiya
             return Fp12(raw);
         }
 
-        /* البصمة القديمة (القرص + اسم الجهاز). تُقبل أيضاً حتى لا يتوقف
-           ترخيص أُصدر بنسخة سابقة. */
-        static string LegacyFingerprint()
-        {
-            return Fp12(VolumeSerial().ToString("X8", CultureInfo.InvariantCulture) + "|" + Environment.MachineName);
-        }
-
-        /* كل البصمات التي يُقبل ترخيص محرّر لأيٍّ منها */
-        static string[] AcceptedFingerprints()
-        {
-            string now = MachineFingerprint();
-            string old = LegacyFingerprint();
-            if (old == now) return new string[] { now };
-            return new string[] { now, old };
-        }
-
-        static bool VerifyLicense(string fp, string code, out string until)
-        {
-            until = "";
-            try
-            {
-                if (string.IsNullOrEmpty(code)) return false;
-                string clean = code.Replace("-", "").Replace(" ", "").Replace("\n", "").Replace("\r", "").Trim();
-                int bar = clean.IndexOf('.');
-                if (bar <= 0) return false;
-                string exp = clean.Substring(0, bar);            // تاريخ الانتهاء أو 0
-                string sigB64 = clean.Substring(bar + 1).Replace("_", "/").Replace(",", "+");
-                byte[] sig = Convert.FromBase64String(sigB64);
-
-                byte[] data = Encoding.UTF8.GetBytes(fp + "|" + exp);
-                if (!SignatureValid(data, sig)) return false;
-
-                if (exp != "0")
-                {
-                    DateTime d;
-                    if (!DateTime.TryParseExact(exp, "yyyyMMdd", CultureInfo.InvariantCulture,
-                        DateTimeStyles.None, out d)) return false;
-                    /* ساعة الجهاز وحدها كانت تحكم: إرجاعها يمدّد ترخيصاً منتهياً.
-                       نحفظ أحدث تاريخ رأيناه ونرفض أي قفزة إلى الوراء. */
-                    DateTime now = DateTime.Now.Date;
-                    DateTime seen = LastSeenDate();
-                    if (seen > now) now = seen;
-                    if (now > d.Date) { until = "expired"; return false; }
-                    TouchLastSeen(now);
-                    until = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-                }
-                else until = "دائم";
-                return true;
-            }
-            catch { return false; }
-        }
-
-        /* الترخيص وقفل الأرباح مربوطان بالجهاز لا بمجلد البيانات.
-           كانا داخل DataDir، فتثبيتُ البرنامج — وهو يغيّر مجلد
-           البيانات — كان يفقد الترخيص، فتُرفض كل كتابة بـ«unlicensed»
-           ويبدو زر الاستعادة وكأنه لا يفعل شيئاً.
-           صارا في مجلد المستخدم الثابت، ويُنقلان من المكان القديم
-           تلقائياً إن وُجدا فيه. */
+        /* قفل الأرباح مربوط بالجهاز لا بمجلد البيانات: تثبيتُ البرنامج يغيّر
+           مجلد البيانات، فكان يضيع. صار في مجلد المستخدم الثابت، ويُنقل من
+           المكان القديم تلقائياً إن وُجد فيه. */
         static string UserRoot()
         {
             string r = Path.Combine(
@@ -267,33 +173,6 @@ namespace Qirtasiya
             }
             catch (Exception ex) { Log("تعذّر نقل " + name + ": " + ex.Message); }
             return stable;
-        }
-
-        static string LicPath() { return MachineFile("license.txt"); }
-
-        static DateTime LastSeenDate()
-        {
-            try
-            {
-                string f = MachineFile("lastseen.txt");
-                if (!File.Exists(f)) return DateTime.MinValue;
-                DateTime d;
-                if (DateTime.TryParseExact(File.ReadAllText(f).Trim(), "yyyy-MM-dd",
-                    CultureInfo.InvariantCulture, DateTimeStyles.None, out d)) return d.Date;
-            }
-            catch { }
-            return DateTime.MinValue;
-        }
-
-        static void TouchLastSeen(DateTime d)
-        {
-            try
-            {
-                if (d <= LastSeenDate()) return;
-                File.WriteAllText(MachineFile("lastseen.txt"),
-                    d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), new UTF8Encoding(false));
-            }
-            catch { }
         }
 
         // ---------- رمز الأرباح ----------
@@ -325,26 +204,6 @@ namespace Qirtasiya
             int diff = 0;                          // مقارنة لا تتأثر بتوقيت التنفيذ
             for (int i = 0; i < got.Length; i++) diff |= got[i] ^ want[i];
             return diff == 0;
-        }
-
-        static bool LicenseOK(out string fp, out string until)
-        {
-            fp = MachineFingerprint();
-            until = "";
-            try
-            {
-                if (!File.Exists(LicPath())) return false;
-                string code = File.ReadAllText(LicPath()).Trim();
-                string[] fps = AcceptedFingerprints();
-                for (int i = 0; i < fps.Length; i++)
-                {
-                    string u;
-                    if (VerifyLicense(fps[i], code, out u)) { until = u; return true; }
-                    if (u == "expired") until = "expired";
-                }
-                return false;
-            }
-            catch { return false; }
         }
 
         /* بصمة قصيرة من مسار التثبيت: تثبيتان مختلفان = قفل ونافذة مستقلان */
@@ -429,8 +288,7 @@ namespace Qirtasiya
 
                 Log("الإصدار " + AppVersion + " (بناء " + BuildStamp() + ") — الواجهة مدمجة داخل الملف التنفيذي");
                 Log("مفتاح هذا التثبيت: " + InstanceKey);
-                string _fp, _un;
-                Log(LicenseOK(out _fp, out _un) ? ("الترخيص مفعّل حتى: " + _un) : ("غير مفعّل — بصمة الجهاز: " + _fp));
+                Log("بصمة الجهاز: " + MachineFingerprint());
 
                 DevMode = File.Exists(Path.Combine(BaseDir, "dev-mode.txt"));
                 if (DevMode) Log("وضع التطوير مفعّل — يُقرأ مجلد app المجاور");
@@ -1073,20 +931,6 @@ namespace Qirtasiya
                     return;
                 }
 
-                // بلا ترخيص لا تُفتح بيانات ولا تُكتب — الفحص في الواجهة وحده كان يُتخطّى بملف واحد
-                bool needLicense = path != "/api/license" && path != "/api/activate" &&
-                                   path != "/api/info" && path != "/api/preset" && path != "/api/quit";
-                if (needLicense)
-                {
-                    string lfp, lun;
-                    if (!LicenseOK(out lfp, out lun))
-                    {
-                        Send(s, 403, "Forbidden", "application/json; charset=utf-8",
-                            Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"unlicensed\"}"));
-                        return;
-                    }
-                }
-
                 // نداءات الكتابة تحتاج ملكية النافذة
                 bool needOwner = path == "/api/save" || path == "/api/restore" ||
                                  path == "/api/backup" || path == "/api/backup-dir" ||
@@ -1470,52 +1314,14 @@ namespace Qirtasiya
                 return;
             }
 
+            /* بصمة هذا الجهاز: الواجهة تعرف بها جهاز المحل */
+            if (path == "/api/device")
+            {
+                SendJson(s, "{\"ok\":true,\"fp\":" + JsonStr(MachineFingerprint()) + "}");
+                return;
+            }
+
             // الإعداد المسبق الذي يكتبه المثبّت (رمز الفرع ومدينته)
-            if (path == "/api/license")
-            {
-                string fp, until;
-                bool ok = LicenseOK(out fp, out until);
-                /* «لا يوجد ملف ترخيص» و«الترخيص غير صالح» مشكلتان
-                   مختلفتان وحلّاهما مختلفان، وكانتا تظهران متطابقتين. */
-                bool has = false;
-                try { has = File.Exists(LicPath()); } catch { }
-                SendJson(s, "{\"ok\":true,\"active\":" + (ok ? "true" : "false") +
-                    ",\"hasFile\":" + (has ? "true" : "false") +
-                    ",\"fp\":" + JsonStr(fp) + ",\"until\":" + JsonStr(until) + "}");
-                return;
-            }
-
-            if (path == "/api/activate" && method == "POST")
-            {
-                try
-                {
-                    string code = ExtractJsonValue(Encoding.UTF8.GetString(body), "code");
-                    string until2 = "";
-                    bool okAct = false;
-                    string[] fps2 = AcceptedFingerprints();
-                    for (int i = 0; i < fps2.Length && !okAct; i++)
-                    {
-                        string u2;
-                        if (VerifyLicense(fps2[i], code, out u2)) { okAct = true; until2 = u2; }
-                        else if (u2 == "expired") until2 = "expired";
-                    }
-                    if (!okAct)
-                    {
-                        SendJson(s, "{\"ok\":false,\"error\":" +
-                            JsonStr(until2 == "expired" ? "انتهت صلاحية هذا الرمز" : "الرمز غير صحيح لهذا الجهاز") + "}");
-                        return;
-                    }
-                    File.WriteAllText(LicPath(), code.Trim(), new UTF8Encoding(false));
-                    Log("فُعّل الترخيص حتى: " + until2);
-                    SendJson(s, "{\"ok\":true,\"until\":" + JsonStr(until2) + "}");
-                }
-                catch (Exception ex)
-                {
-                    SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}");
-                }
-                return;
-            }
-
             if (path == "/api/preset")
             {
                 try

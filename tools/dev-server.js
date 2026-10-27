@@ -52,13 +52,6 @@ http.createServer((req, res) => {
       if (origin && origin !== 'http://' + want) return json(res, { ok: false, error: 'forbidden' }, 403);
       if (req.headers['x-qirtasiya'] !== '1') return json(res, { ok: false, error: 'forbidden' }, 403);
 
-      /* محاكاة جهاز غير مفعّل: QI_DENY=unlicensed. بنفس ترتيب Route في النواة —
-         قبل الملكية و/api/claim — وإلا ما ظهر ما يراه الزبون فعلاً. */
-      if (process.env.QI_DENY === 'unlicensed' &&
-          !['/api/license', '/api/info', '/api/activate', '/api/preset', '/api/quit'].includes(p)) {
-        return json(res, { ok: false, error: 'unlicensed' }, 403);
-      }
-
       const needOwner = ['/api/save', '/api/restore', '/api/backup', '/api/backup-dir',
         '/api/uninstall', '/api/profit-code', '/api/archive'].includes(p);
       if (needOwner && !isOwner(req)) return json(res, { ok: false, notOwner: true }, 409);
@@ -139,11 +132,7 @@ http.createServer((req, res) => {
       if (!fs.existsSync(src)) return json(res, { ok: false, error: 'النسخة غير موجودة' });
       fs.copyFileSync(src, STORE); return json(res, { ok: true });
     }
-    if (p === '/api/license') return json(res, {
-      ok: true, active: process.env.QI_DENY !== 'unlicensed',
-      hasFile: process.env.QI_HASFILE !== '0',
-      fp: 'ABCD-EFGH-JKLM', until: 'دائم' });
-    if (p === '/api/activate') return json(res, { ok: true, until: 'دائم' });
+    if (p === '/api/device') return json(res, { ok: true, fp: 'ABCD-EFGH-JKLM' });
     if (p === '/api/preset') return json(res, { ok: false });
     if (p === '/api/notify') { console.log('[notify]', body.toString().slice(0, 300)); return json(res, { ok: true }); }
     /* خادم ربط مقلَّد للاختبار: ما في .devdata/remote.json يُعاد كلقطات

@@ -1286,12 +1286,8 @@ var Rep = (function () {
                 '<p style="line-height:1.95;margin:0 0 12px">' +
                 "<b>١.</b> أغلق نافذة البرنامج (زر ✕ في أعلى النافذة).<br>" +
                 "<b>٢.</b> انسخ كل ما بداخل مجلد <span class=\"num\">data</span> القديم " +
-                "— وفيه <span class=\"num\">store.json</span> و<span class=\"num\">license.txt</span> — " +
-                "إلى مجلد بيانات هذه النسخة.<br>" +
-                "<b>٣.</b> شغّل البرنامج من جديد.</p>" +
-                '<p class="muted small" style="line-height:1.85;margin:0">' +
-                "انسخ المجلد كاملاً ولا تنسَ <span class=\"num\">license.txt</span> — " +
-                "بدونه يطلب البرنامج تفعيلاً من جديد.</p>"
+                "— وفيه <span class=\"num\">store.json</span> — إلى مجلد بيانات هذه النسخة.<br>" +
+                "<b>٣.</b> شغّل البرنامج من جديد.</p>"
             });
           }
         }

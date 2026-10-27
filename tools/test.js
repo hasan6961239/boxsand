@@ -821,19 +821,18 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   console.log('\n== 14ج3. الاستعادة تفشل بصوت مسموع ==');
   {
     /* الخلل الذي بلّغ عنه صاحب المحل: ضغط «استعادة من ملف» فلم يحدث شيء.
-       السبب: fetch لا يرفض الوعد عند 403، فكان الكود يعلن النجاح ويعيد
-       التحميل على لا شيء. والسبب الجذري أن الترخيص كان داخل مجلد
-       البيانات، فالتثبيت — وهو يغيّر المجلد — كان يفقده. */
+       السبب: fetch لا يرفض الوعد عند 403 أو 409، فكان الكود يعلن النجاح
+       ويعيد التحميل على لا شيء. */
     await closePage(pg); writeStore(seed()); pg = await open();
 
     const shape = await pg.evaluate(() => typeof App.apiWrite);
     check('توجد دالة كتابة تفحص رد الخادم', shape === 'function', shape);
 
-    /* 403 غير مرخّص: يجب أن يُرفض الوعد برسالة مفهومة */
+    /* 403 من الحارس: يُرفض الوعد ولا يُعلن نجاح */
     const denied = await pg.evaluate(() => {
       const realFetch = window.fetch;
       window.fetch = function () {
-        return Promise.resolve(new Response('{"ok":false,"error":"unlicensed"}',
+        return Promise.resolve(new Response('{"ok":false,"error":"forbidden"}',
           { status: 403, headers: { 'Content-Type': 'application/json' } }));
       };
       return App.apiWrite('/api/save', { method: 'POST', body: '{}' })
@@ -841,7 +840,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
         .catch(function (e) { return e.message; })
         .then(function (r) { window.fetch = realFetch; return r; });
     });
-    check('403 غير مرخّص يُرفض برسالة مفهومة', /غير مفعَّل/.test(denied), denied);
+    check('403 يُرفض ولا يُعلن نجاحاً', denied !== 'نجح بالخطأ' && denied.length > 0, denied);
 
     /* 409 نافذة أخرى */
     const busy = await pg.evaluate(() => {
@@ -870,44 +869,26 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
         .then(function (r) { window.fetch = realFetch; return r; });
     });
     check('والنجاح يمر كما هو', okRes === 'ok:true', okRes);
-
-    /* شاشة الترخيص تشرح السبب الشائع بعد التثبيت */
-    const licTxt = await pg.evaluate(() => {
-      App.lic.active = false; App.lic.fp = 'TEST-FP'; App.lic.hasFile = false;
-      App.licScreen();
-      return document.getElementById('view').textContent;
-    });
-    check('شاشة الترخيص تدلّ على مجلد data القديم',
-      /license\.txt/.test(licTxt) && /data/.test(licTxt), licTxt.slice(0, 90));
   }
 
-  console.log('\n== 14ج4. جهاز غير مفعّل: شاشة التفعيل وحدها بلا «نافذة أخرى» ==');
+  console.log('\n== 14ج4. بلا ترخيص (قرار 0020): البرنامج يفتح مباشرة ==');
   {
-    /* بلّغ عنه صاحب المحل من جهاز تجربة: فوق شاشة التفعيل شريط «المنظومة
-       مفتوحة في نافذة أخرى» وزر «تحكّم» لا يعمل. السبب: النواة ترفض
-       /api/claim بـunlicensed قبل التفعيل، وكان الإقلاع يقرأ الرفض «نافذة أخرى».
-       الردود هنا بنفس ترتيب Route في Program.cs. */
     const up = await b.newPage({ viewport: { width: 1440, height: 900 } });
     up.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
-    const writes = [];
-    await up.route('**/api/**', route => {
-      const p = new globalThis.URL(route.request().url()).pathname;
-      if (p === '/api/license') return route.fulfill({ status: 200, contentType: 'application/json',
-        body: '{"ok":true,"active":false,"hasFile":false,"fp":"TEST-FP","until":""}' });
-      if (['/api/info', '/api/preset', '/api/activate', '/api/quit'].includes(p)) return route.continue();
-      if (route.request().method() === 'POST') writes.push(p);
-      return route.fulfill({ status: 403, contentType: 'application/json', body: '{"ok":false,"error":"unlicensed"}' });
-    });
+    const asked = [];
+    up.on('request', r => { const p = new globalThis.URL(r.url()).pathname; if (/license|activate/.test(p)) asked.push(p); });
     await up.goto(URL, { waitUntil: 'domcontentloaded' });
     await up.waitForFunction(() => window.App && App.S, null, { timeout: 30000 });
-    await sleep(1500);
+    await sleep(1200);
     const st = await up.evaluate(() => ({
-      bar: (document.getElementById('blockBar') || {}).textContent || '',
-      lic: !!document.querySelector('.lic-wrap')
+      nav: document.querySelectorAll('#nav .nav-item').length,
+      lic: !!document.querySelector('.lic-wrap'),
+      fp: App.deviceFp(),
+      bar: (document.getElementById('blockBar') || {}).textContent || ''
     }));
-    check('غير المفعّل يرى شاشة التفعيل', st.lic, JSON.stringify(st));
-    check('ولا يظهر له شريط «نافذة أخرى»', !/نافذة أخرى/.test(st.bar), st.bar);
-    check('ولا يطلب الملكية ولا يحفظ', writes.length === 0, writes.join('، '));
+    check('لا شاشة تفعيل، والقائمة كاملة من أول فتح', !st.lic && st.nav > 5, JSON.stringify(st));
+    check('ولا يسأل النواة عن ترخيص', asked.length === 0, asked.join('، '));
+    check('وبصمة الجهاز تصل (لمعرفة جهاز المحل)', st.fp === 'ABCD-EFGH-JKLM', st.fp);
     await up.close();
   }
 

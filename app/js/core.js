@@ -111,8 +111,8 @@ var App = (function () {
 
      fetch لا يرفض الوعد عند 403 أو 409 — يرفض عند انقطاع الشبكة فقط.
      فكل نداء كُتب `api(...).then(نجاح)` كان يعلن النجاح ولو ردّ الخادم
-     «غير مرخّص» أو «ليست النافذة المالكة». هكذا بدا زر الاستعادة وكأنه
-     لا يفعل شيئاً: يقول «استُعيدت البيانات» ثم يعيد التحميل على لا شيء.
+     «ليست النافذة المالكة». هكذا بدا زر الاستعادة وكأنه لا يفعل شيئاً:
+     يقول «استُعيدت البيانات» ثم يعيد التحميل على لا شيء.
 
      هذه الدالة ترفض الوعد برسالة مفهومة، فلا يمر فشل بصمت. */
   function apiWrite(path, opts) {
@@ -121,9 +121,6 @@ var App = (function () {
         var d = null;
         try { d = JSON.parse(t); } catch (e) { }
 
-        if (r.status === 403 && d && d.error === "unlicensed") {
-          throw new Error("البرنامج غير مفعَّل على هذا الجهاز — فعّله من الإعدادات ثم أعد المحاولة.");
-        }
         if (r.status === 409 || (d && d.notOwner)) {
           throw new Error("المنظومة مفتوحة في نافذة أخرى. أغلقها أو اضغط «تحكّم من هذه النافذة».");
         }
@@ -1920,7 +1917,6 @@ var App = (function () {
   var current = "";
 
   function route() {
-    if (!lic.active) { licScreen(); return; }
     var k = (location.hash || "#/dash").replace("#/", "").split("?")[0];
     var page = null;
     PAGES.forEach(function (p) { if (p.k === k) page = p; });
@@ -2051,21 +2047,13 @@ var App = (function () {
     }
   }
 
-  /* فحص الترخيص مستقل تماماً — يجري في كل تشغيل مهما كانت حالة الإعداد */
-  function checkLicense() {
-    return api("/api/license")
+  /* بصمة هذا الجهاز: بها تُعرف بيانات المحل إن فُتحت على جهاز آخر (الترخيص
+     أُلغي، قرار 0020). أي خلل في الرد يبقي البرنامج يعمل كما هو */
+  function deviceInfo() {
+    return api("/api/device")
       .then(function (r) { return r.json(); })
-      .then(function (l) {
-        // لا نقفل إلا عند رفض صريح — أي خلل في الرد يبقي البرنامج يعمل
-        if (l && l.fp) lic.fp = l.fp;              // بصمة هذا الجهاز — تُستعمل أيضاً لمعرفة جهاز المحل
-        if (l && l.ok === true && l.active === false) {
-          lic.active = false;
-          lic.fp = l.fp || "";
-          lic.until = l.until || "";
-          lic.hasFile = !!l.hasFile;
-        } else lic.active = true;
-      })
-      .catch(function () { lic.active = true; });   // نواة قديمة بلا ترخيص: لا نمنع العمل
+      .then(function (d) { if (d && d.fp) dev.fp = d.fp; })
+      .catch(function () { });
   }
 
   function applyPreset() {
@@ -2082,7 +2070,7 @@ var App = (function () {
     }).catch(function () { });
   }
 
-  var lic = { active: true, fp: "", until: "", hasFile: false };
+  var dev = { fp: "" };
 
   /* ---------- جهاز المحل ----------
      ملف النسخة يحمل إعدادات الإشعارات والربط. استعادته على جهاز آخر (تجربة،
@@ -2096,7 +2084,7 @@ var App = (function () {
     return !!((S.sync && S.sync.url) || (S.notify && S.notify.enabled && S.notify.topic));
   }
   function homeCheck() {
-    var fp = lic.fp || "", m = S.meta;
+    var fp = dev.fp || "", m = S.meta;
     if (!fp) return;
     if (!m.homeFp && !m.cloneCheck) {          // أول تشغيل بهذه النسخة على جهاز المحل
       if (outboundOn()) { m.homeFp = fp; save(); }
@@ -2120,7 +2108,7 @@ var App = (function () {
     });
   }
   function claimHome() {
-    S.meta.homeFp = lic.fp; delete S.meta.cloneCheck; delete S.meta.notHome;
+    S.meta.homeFp = dev.fp; delete S.meta.cloneCheck; delete S.meta.notHome;
     outHold = false;
     save();
     if (typeof Stock !== "undefined") Stock.startAuto();
@@ -2136,66 +2124,6 @@ var App = (function () {
       '<div class="spacer"></div><button class="btn sm" onclick="App.claimHome()">هذا جهاز المحل الآن</button></div>';
   }
 
-  function licScreen() {
-    document.getElementById("view").innerHTML =
-      '<div class="lic-wrap"><div class="card"><div class="card-body" style="padding:34px">' +
-      '<h2 style="font-family:var(--font-head);margin:0 0 6px;font-size:26px;text-align:center">تفعيل المنظومة</h2>' +
-      '<p class="muted" style="text-align:center;margin:0 0 14px;line-height:1.8">' +
-      (lic.until === "expired"
-        ? "انتهت مدة الترخيص على هذا الجهاز.<br>أرسل الرمز التالي لتجديده."
-        : (lic.hasFile
-            ? "يوجد ملف ترخيص لكنه لا يطابق هذا الجهاز.<br>أرسل الرمز التالي لتحصل على ترخيص لهذا الجهاز."
-            : "هذه النسخة غير مفعّلة على هذا الجهاز.<br>أرسل الرمز التالي لمن باعك المنظومة ليعطيك رمز التفعيل.")) +
-      "</p>" +
-      /* السبب الشائع بعد التثبيت: الترخيص بقي مع البيانات القديمة.
-         قوله صراحةً يوفّر على صاحب المحل طلب ترخيص جديد بلا داعٍ. */
-      (!lic.hasFile
-        ? '<p class="muted small" style="text-align:center;margin:0 0 18px;line-height:1.85;' +
-          'background:var(--amber-wash);padding:11px 13px;border-radius:8px">' +
-          "<b>هل كنت مفعَّلاً قبل التثبيت؟</b> ملف الترخيص كان مع بياناتك القديمة. " +
-          "انسخ مجلد <span class=\"num\">data</span> القديم كاملاً (وفيه " +
-          "<span class=\"num\">license.txt</span>) إلى مجلد بيانات هذه النسخة، " +
-          "ثم أعد التشغيل — يعود التفعيل وحده.</p>"
-        : "") +
-      '<label style="font-size:13px;color:var(--muted)">بصمة هذا الجهاز</label>' +
-      '<div class="lic-fp" id="licFp">' + esc(lic.fp) + "</div>" +
-      '<button class="btn" style="width:100%;margin-bottom:18px" onclick="App.copyFp()">نسخ البصمة</button>' +
-      '<label style="font-size:13px;color:var(--muted)">رمز التفعيل</label>' +
-      '<textarea class="inp" id="licCode" style="min-height:110px;font-family:var(--font-num);font-size:12px" ' +
-      'placeholder="الصق رمز التفعيل هنا"></textarea>' +
-      '<button class="btn primary lg" style="width:100%;margin-top:14px" onclick="App.activate()">تفعيل</button>' +
-      (lic.until === "expired" ? '<p style="color:var(--stamp);text-align:center;margin-top:12px">انتهت صلاحية الترخيص السابق.</p>' : "") +
-      "</div></div></div>";
-  }
-
-  function copyFp() {
-    var el = document.getElementById("licFp");
-    if (!el) return;
-    try {
-      var r = document.createRange();
-      r.selectNodeContents(el);
-      var sel = window.getSelection();
-      sel.removeAllRanges(); sel.addRange(r);
-      document.execCommand("copy");
-      toast("نُسخت البصمة.");
-    } catch (e) { toast("حدّدها بالفأرة وانسخها.", "warn"); }
-  }
-
-  function activate() {
-    var el = document.getElementById("licCode");
-    if (!el || !el.value.trim()) { toast("الصق رمز التفعيل.", "warn"); return; }
-    api("/api/activate", { method: "POST", body: JSON.stringify({ code: el.value.trim() }) })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        if (res && res.ok) {
-          lic.active = true;
-          toast("فُعّلت المنظومة — " + (res.until === "دائم" ? "ترخيص دائم" : "حتى " + res.until));
-          setTimeout(function () { location.reload(); }, 900);
-        } else toast((res && res.error) || "تعذّر التفعيل", "bad");
-      })
-      .catch(function () { toast("تعذّر الاتصال بالنواة.", "bad"); });
-  }
-
   /* شريط ثابت أعلى الصفحة عندما تكون النافذة للعرض فقط.
      الصمت هنا كان هو المشكلة: المستخدم يعمل ولا يُحفظ شيء. */
   function paintBlockBar() {
@@ -2205,8 +2133,7 @@ var App = (function () {
       host.id = "blockBar";
       document.body.insertBefore(host, document.body.firstChild);
     }
-    // غير المفعّل تظهر له شاشة التفعيل وحدها — لا «نافذة أخرى» ولا «تحكّم»
-    if (!readOnly || !lic.active) { host.className = ""; host.innerHTML = ""; return; }
+    if (!readOnly) { host.className = ""; host.innerHTML = ""; return; }
     host.className = "block-bar";
     var isCorrupt = blockReason.indexOf("تالف") >= 0;
     host.innerHTML =
@@ -2235,13 +2162,8 @@ var App = (function () {
         }
       });
 
-      /* الترخيص قبل الملكية: النواة ترفض /api/claim بـ«unlicensed» على جهاز
-         غير مفعّل، وكان هذا الرفض يُقرأ «نافذة أخرى» فيظهر شريط «للعرض فقط»
-         فوق شاشة التفعيل وزر «تحكّم» لا يعمل. غير المفعّل لا يطلب الملكية ولا
-         يكتب (النواة ترفض الحفظ أصلاً) حتى يُفعَّل ويُعاد التحميل.
-         وملف تالف: لا نطلب الملكية ولا نكتب شيئاً. */
-      var claimed = checkLicense().then(function () {
-        if (!lic.active) { readOnly = true; return false; }
+      /* ملف تالف: لا نطلب الملكية ولا نكتب شيئاً */
+      var claimed = deviceInfo().then(function () {
         return readOnly ? false : claim(false);
       });
 
@@ -2261,7 +2183,6 @@ var App = (function () {
         }
 
         return applyPreset().then(function () {
-          if (!lic.active) { route(); return; }
           if (!S.meta.setupDone && !readOnly) { route(); Rep.firstRun(); }
           else {
             route();
@@ -2286,7 +2207,7 @@ var App = (function () {
     uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, busy: busy, lazyMore: lazyMore, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm, match: match, rank: rank, nearLabel: nearLabel, fold: fold, exactCount: exactCount, sugHead: sugHead,
     api: api, apiJson: apiJson, apiWrite: apiWrite, ensureWriteToken: ensureWriteToken,
-    outboundHeld: outboundHeld, claimHome: claimHome, holdBanner: holdBanner, deviceFp: function () { return lic.fp; },
+    outboundHeld: outboundHeld, claimHome: claimHome, holdBanner: holdBanner, deviceFp: function () { return dev.fp; },
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
     retryConnect: retryConnect,
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,
@@ -2297,7 +2218,6 @@ var App = (function () {
     nextCode: nextCode, locChip: locChip, locPin: locPin,
     toast: toast, modal: modal, confirm: confirm, form: form, table: table, setField: setField,
     canProfit: canProfit, unlockProfit: unlockProfit, lockProfit: lockProfit,
-    copyFp: copyFp, activate: activate, lic: lic, checkLicense: checkLicense, licScreen: licScreen,
     paintBranchTag: paintBranchTag, branchLabel: branchLabel, applyUiSize: applyUiSize,
     icon: icon, applyTheme: applyTheme, THEMES: THEMES,
     download: download, toCsv: toCsv, parseCsv: parseCsv, pickFile: pickFile, xls: xls,
