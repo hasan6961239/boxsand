@@ -1463,6 +1463,78 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await closePage(pg);
   }
 
+  console.log('\n== 16أ2. «إضافة للمخزن» بلا مكتبة ولا رف، والنقل للرفوف يسأل وين ==');
+  {
+    const st16 = seed();
+    st16.meta.lastBook = { lib: 'C', shelf: 4 };
+    writeStore(st16);
+    const pg = await open();
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(600);
+    await pg.evaluate(() => Inv.editBook()); await sleep(500);
+    const shown = () => pg.evaluate(() => ['f_lib', 'f_shelf'].map(id => !document.getElementById(id).closest('.field').hidden).join());
+    check('للرفوف: خانتا المكتبة والرف ظاهرتان', (await shown()) === 'true,true', await shown());
+    await pg.click('#modalHost .dest-tabs button[data-to="store"]'); await sleep(200);
+    check('«إضافة للمخزن»: تختفيان', (await shown()) === 'false,false', await shown());
+    await pg.click('#modalHost .dest-tabs button[data-to="shelf"]'); await sleep(200);
+    check('والرجوع للرفوف يُظهرهما', (await shown()) === 'true,true', await shown());
+    await pg.click('#modalHost .dest-tabs button[data-to="store"]'); await sleep(200);
+    await pg.fill('#f_title', 'كتاب للمخزن');
+    await pg.fill('#f_price', '20');
+    await pg.fill('#f_qty', '5');
+    await pg.click('#modalHost button:has-text("حفظ")'); await sleep(900);
+    const nb = await pg.evaluate(() => { const x = App.S.books.find(b => b.title === 'كتاب للمخزن'); return x && { lib: x.lib, shelf: x.shelf, st: App.storeQty(x), sh: App.shelfQty(x), id: x.id }; });
+    check('يُحفظ في المخزن بلا مكتبة ولا رف', nb && nb.lib === '' && nb.shelf === '' && nb.st === 5 && nb.sh === 0, JSON.stringify(nb));
+    check('وشارته «في المخزن» لا «بلا موقع»', await pg.evaluate(id => /في المخزن/.test(App.locChip(App.findItem('book', id))), nb.id));
+    check('وآخر مكان استُعمل للرفوف (C رف 4) لا يُمسح', await pg.evaluate(() => App.S.meta.lastBook.lib === 'C' && String(App.S.meta.lastBook.shelf) === '4'),
+      await pg.evaluate(() => JSON.stringify(App.S.meta.lastBook)));
+
+    /* تعديله لا يعطيه المكتبة الأولى بصمت */
+    await pg.evaluate(id => Inv.editBook(id), nb.id); await sleep(500);
+    check('تعديل كتاب المخزن: المكتبة فارغة كما هي', await pg.evaluate(() => document.getElementById('f_lib').value === '' && document.getElementById('f_shelf').value === ''));
+    await pg.click('#modalHost button:has-text("حفظ")'); await sleep(600);
+    check('والحفظ لا يضع له رفاً', await pg.evaluate(id => { const x = App.findItem('book', id); return x.lib === '' && x.shelf === ''; }, nb.id));
+
+    /* النقل للرفوف: يسأل وين قبل أن ينقل */
+    await pg.evaluate(id => Inv.move('book', id, 'in', 2), nb.id); await sleep(400);
+    check('النقل للرفوف يسأل المكتبة والرف', await pg.evaluate(() => !document.getElementById('mvPlace').hidden &&
+      document.getElementById('mvLib').value === '' && document.getElementById('mvShelf').value === ''));
+    await pg.click('#modalHost .overlay:last-child .m-foot .btn.primary'); await sleep(400);
+    const still = await pg.evaluate(id => App.storeQty(App.findItem('book', id)), nb.id);
+    check('بلا اختيار: لا يُنقل شيء', still === 5 && await pg.evaluate(() => !!document.getElementById('mvPlace')), String(still));
+    await pg.selectOption('#mvLib', 'B');
+    await pg.selectOption('#mvShelf', '3');
+    await pg.click('#modalHost .overlay:last-child .m-foot .btn.primary'); await sleep(600);
+    const mv = await pg.evaluate(id => { const x = App.findItem('book', id); return [x.lib, x.shelf, App.shelfQty(x), App.storeQty(x)].join(); }, nb.id);
+    check('بعد الاختيار: نسختان على المكتبة B رف 3، و3 في المخزن', mv === 'B,3,2,3', mv);
+    check('وتغيير المكان في سجل العمليات', await pg.evaluate(() => App.S.log.some(l => l.action === 'تغيير مكان')));
+
+    /* كتاب له مكان: يظهر مكانه، والنقل للمخزن لا يسأل */
+    await pg.evaluate(() => Inv.move('book', 'b1', 'in')); await sleep(400);
+    check('كتاب له مكان: المكتبة والرف معبّآن بمكانه', await pg.evaluate(() => document.getElementById('mvLib').value === 'A' && document.getElementById('mvShelf').value === '1'));
+    await pg.click('#mvDir button[data-d="out"]'); await sleep(200);
+    check('ومن الرفوف للمخزن لا يسأل عن رف', await pg.evaluate(() => document.getElementById('mvPlace').hidden));
+    await pg.click('#modalHost .overlay:last-child [data-x]'); await sleep(300);
+
+    /* النقل الجماعي لا ينقل كتاباً بلا رف */
+    await pg.evaluate(() => {
+      App.S.books.push({ id: 'b9', code: 'K9', title: 'كتاب مخزن آخر', lib: '', shelf: '', price: 5, qty: 4, store: 4, min: 2 });
+      App.findItem('book', 'b1').store = 15; App.findItem('book', 'b1').min = 8; App.save();
+    });
+    await pg.evaluate(() => Inv.restockAll()); await sleep(400);
+    const txt = await pg.evaluate(() => document.querySelector('#modalHost .overlay:last-child .m-body').textContent);
+    check('«انقل المقترح كله» يذكر الكتاب بلا رف ولا ينقله', /بلا رف/.test(txt), txt);
+    await pg.click('#modalHost .overlay:last-child .m-foot .btn.primary'); await sleep(500);
+    const after = await pg.evaluate(() => [App.storeQty(App.findItem('book', 'b9')), App.storeQty(App.findItem('book', 'b1')) < 15].join());
+    check('الكتاب بلا رف بقي في المخزن، والباقي نُقل', after === '4,true', after);
+
+    /* القرطاسية للمخزن: بلا مكان في المحل */
+    await pg.evaluate(() => Inv.editStat()); await sleep(500);
+    await pg.click('#modalHost .dest-tabs button[data-to="store"]'); await sleep(200);
+    check('قرطاسية للمخزن: خانة المكان في المحل تختفي', await pg.evaluate(() => document.getElementById('f_loc').closest('.field').hidden));
+    await pg.click('#modalHost .overlay:last-child [data-x]'); await sleep(300);
+    await closePage(pg);
+  }
+
   console.log('\n== 16ب. زر ✕ في سلة البيع يحذف السطر ==');
   {
     writeStore(seed());

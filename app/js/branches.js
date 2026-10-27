@@ -1029,10 +1029,17 @@ var Stock = (function () {
   }
 
   function roomAllBack() {
-    var rows = roomItems();
-    if (!rows.length) return;
+    var all = roomItems();
+    /* كتاب بلا مكتبة ولا رف يُنقل وحده ليُختار رفه */
+    var rows = all.filter(function (x) { return !(x.type === "book" && !x.it.lib && !x.it.shelf); });
+    var skip = all.length - rows.length;
+    if (!rows.length) {
+      if (skip) App.toast(skip + " كتاب بلا رف: انقلها واحداً واحداً لتختار رف كل كتاب.", "warn");
+      return;
+    }
     var n = rows.reduce(function (a, x) { return a + App.storeQty(x.it); }, 0);
-    App.confirm("سيُحسب كل ما في غرفة الخزين (" + n + " نسخة من " + rows.length + " صنف) على الرفوف. المجموع لا يتغيّر.",
+    App.confirm("سيُحسب كل ما في غرفة الخزين (" + n + " نسخة من " + rows.length + " صنف) على الرفوف. المجموع لا يتغيّر." +
+      (skip ? " و" + skip + " كتاب بلا رف يبقى: انقله وحده لتختار رفه." : ""),
       function () {
         var moved = 0;
         rows.forEach(function (x) { moved += App.moveStock(x.it, App.storeQty(x.it), "in"); });
@@ -1049,7 +1056,7 @@ var Stock = (function () {
       "<table><thead><tr><th>الصنف</th><th>مكانه على الرفوف</th><th>على الرفوف</th><th>في الغرفة</th></tr></thead><tbody>";
     rows.forEach(function (x) {
       h += "<tr><td>" + App.esc(App.itemName(x.it)) + "</td><td>" +
-        (x.type === "book" ? App.esc((x.it.lib || "") + " / رف " + (x.it.shelf || "")) : App.esc(x.it.loc || "")) +
+        (x.type === "book" ? (x.it.lib || x.it.shelf ? App.esc((x.it.lib || "") + " / رف " + (x.it.shelf || "")) : "بلا رف بعد") : App.esc(x.it.loc || "")) +
         '</td><td class="num">' + App.shelfQty(x.it) + '</td><td class="num"><b>' + App.storeQty(x.it) + "</b></td></tr>";
     });
     h += "</tbody></table></div>";

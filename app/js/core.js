@@ -941,7 +941,9 @@ var App = (function () {
   function locPin() { return '<span class="bc-pin">◉</span>'; }
 
   function locChip(it) {
-    if (!it.lib && !it.shelf) return '<span class="loc none"><span class="lib">?</span><span class="shelf">بلا موقع</span></span>';
+    if (!it.lib && !it.shelf) return storeQty(it) > 0 && shelfQty(it) <= 0
+      ? '<span class="loc none"><span class="shelf">في المخزن</span></span>'
+      : '<span class="loc none"><span class="lib">?</span><span class="shelf">بلا موقع</span></span>';
     return '<span class="loc"><span class="lib">' + esc(it.lib || "?") + '</span>' +
       '<span class="shelf">رف ' + esc(it.shelf || "?") + '</span></span>';
   }

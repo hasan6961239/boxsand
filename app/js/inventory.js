@@ -432,8 +432,9 @@ var Inv = (function () {
             return { v: x.id, t: x.name + (x.phone ? " · " + x.phone : "") };
           })).concat([{ v: "__new__", t: "➕ إضافة مورّد جديد…" }])
         },
-        { k: "lib", label: "المكتبة (الخزانة)", type: "select", options: S().meta.libraries },
-        { k: "shelf", label: "رقم الرف", type: "select", options: shelfOptions() },
+        /* كتاب كله في المخزن بلا رف: التعديل لا يعطيه المكتبة الأولى بصمت */
+        { k: "lib", label: "المكتبة (الخزانة)", type: "select", options: b ? noPlace("بلا مكتبة (في المخزن)").concat(S().meta.libraries) : S().meta.libraries },
+        { k: "shelf", label: "رقم الرف", type: "select", options: b ? noPlace("—").concat(shelfOptions()) : shelfOptions() },
         { k: "cat", label: "التصنيف", type: "select", options: catOptions("book", lb.cat) },
         /* التصنيف قائمة قصيرة يُتصفَّح بها، والتخصص الدقيق نصٌّ حرّ
            يشرح الكتاب. فصلهما يجعل القائمة قابلة للاستعمال ولا يضيع
@@ -461,6 +462,8 @@ var Inv = (function () {
         // المخزن جزء من الكمية: لا يزيد عليها ولا يقلّ عن صفر
         v.store = Math.min(Math.max(Math.floor(App.num(v.store)), 0), Math.max(App.num(v.qty), 0));
         if (!b) v.store = newDest === "store" ? Math.max(App.num(v.qty), 0) : 0;
+        /* للمخزن: لا مكتبة ولا رف، يُختاران عند نقله للرفوف */
+        if (!b && newDest === "store") { v.lib = ""; v.shelf = ""; }
         var bc = String(v.barcode || "").trim();
         if (bc) {
           var clash = null;
@@ -483,7 +486,7 @@ var Inv = (function () {
           if (auto > 0) v.priceW = auto;
         }
         S().meta.lastBook = {
-          lib: v.lib, shelf: v.shelf, cat: v.cat, publisher: v.publisher,
+          lib: v.lib || lb.lib, shelf: v.shelf || lb.shelf, cat: v.cat, publisher: v.publisher,
           qty: App.num(v.qty) || 2, min: 0
         };
         if (b) {
@@ -1212,6 +1215,7 @@ var Inv = (function () {
         // المخزن جزء من الكمية: لا يزيد عليها ولا يقلّ عن صفر
         v.store = Math.min(Math.max(Math.floor(App.num(v.store)), 0), Math.max(App.num(v.qty), 0));
         if (!p) v.store = newDest === "store" ? Math.max(App.num(v.qty), 0) : 0;
+        if (!p && newDest === "store") v.loc = "";
         var bc2 = String(v.barcode || "").trim();
         if (bc2) {
           var clash2 = null;
@@ -1228,7 +1232,7 @@ var Inv = (function () {
           var dd = findDupes("stat", v.name, v.barcode, null);
           if (dd.length) { showDupes("stat", dd, fs2); return false; }
         }
-        S().meta.lastStat = { cat: v.cat, loc: v.loc, unit: v.unit, qty: App.num(v.qty) || 2, min: 0 };
+        S().meta.lastStat = { cat: v.cat, loc: v.loc || ls.loc, unit: v.unit, qty: App.num(v.qty) || 2, min: 0 };
         if (p) {
           Object.keys(v).forEach(function (k) { p[k] = v[k]; });
           p.updated = App.nowStamp();
@@ -1276,7 +1280,26 @@ var Inv = (function () {
     Array.prototype.forEach.call(btn.parentNode.children, function (b) { b.classList.toggle("on", b === btn); });
   }
   var newDest = "shelf";           // وجهة كمية الكتاب/الصنف الجديد
-  function setNewDest(k, btn) { newDest = k; if (btn) markTab(btn); }
+  /* «إضافة للمخزن»: لا مكتبة ولا رف ولا مكان في المحل، فتختفي خاناتها */
+  function setNewDest(k, btn) {
+    newDest = k;
+    if (!btn) return;
+    markTab(btn);
+    var m = btn.closest(".modal");
+    if (!m) return;
+    ["f_lib", "f_shelf", "f_loc"].forEach(function (id) {
+      var e = m.querySelector("#" + id);
+      if (e && e.closest(".field")) e.closest(".field").hidden = k === "store";
+    });
+  }
+  function noPlace(t) { return [{ v: "", t: t }]; }
+  function optionsHtml(list, cur) {
+    return list.map(function (o) {
+      return '<option value="' + App.esc(o.v) + '"' + (String(o.v) === String(cur || "") ? " selected" : "") + ">" + App.esc(o.t) + "</option>";
+    }).join("");
+  }
+  /* كتاب بلا مكتبة ولا رف لا يُنقل للرفوف ضمن نقل جماعي: مكانه يُختار وهو يُنقل وحده */
+  function noShelf(type, it) { return type === "book" && !it.lib && !it.shelf; }
 
   function addStock(type, id) {
     var it = App.findItem(type, id);
@@ -1343,7 +1366,22 @@ var Inv = (function () {
     var it = App.findItem(type, id);
     if (!it) return;
     var st0 = App.storeQty(it), sh0 = App.shelfQty(it);
+    var isB = type === "book";
     dir = dir || (st0 > 0 ? "in" : "out");
+    /* إلى الرفوف: وين يُحط؟ الكتاب الآتي من المخزن بلا رف يُختار رفه هنا، لا يأخذ رفاً قديماً بصمت */
+    var place = isB
+      ? '<div class="field" id="mvPlace"><label>وين تحطه على الرفوف؟</label><div class="row" style="gap:8px">' +
+        '<select class="inp" id="mvLib">' + optionsHtml([{ v: "", t: "— المكتبة —" }].concat(S().meta.libraries.map(function (l) {
+          return { v: l, t: "المكتبة " + l };
+        })), it.lib) + "</select>" +
+        '<select class="inp" id="mvShelf">' + optionsHtml([{ v: "", t: "— الرف —" }].concat(shelfOptions().map(function (r) {
+          return { v: String(r), t: "رف " + r };
+        })), it.shelf) + "</select></div>" +
+        (sh0 > 0 ? '<div class="hint">للكتاب مكان واحد: إن غيّرته يتغيّر لكل نسخه على الرفوف.</div>' : "") + "</div>"
+      : '<div class="field" id="mvPlace"><label>وين تحطه في المحل؟ (اختياري)</label>' +
+        '<input class="inp" id="mvLoc" list="mvLocs" value="' + App.esc(it.loc || "") + '" placeholder="مثال: الرف الزجاجي / الدرج 2">' +
+        '<datalist id="mvLocs">' + uniq(S().stationery, "loc").map(function (l) { return '<option value="' + App.esc(l) + '">'; }).join("") +
+        "</datalist></div>";
     var body =
       '<div class="mv-title">' + App.esc(App.itemName(it)) + "</div>" +
       '<div class="field"><div class="seg" id="mvDir">' +
@@ -1351,6 +1389,7 @@ var Inv = (function () {
       '<button type="button" data-d="out">من الرفوف ⇦ إلى المخزن</button></div></div>' +
       '<div class="field"><label>كم نسخة تنقل؟</label>' +
       '<input class="inp num big-num" id="mvN" type="number" min="1" value="' + (n || 1) + '"></div>' +
+      place +
       '<div id="mvBoxes"></div><div class="hint center" id="mvHint"></div>';
     var m = App.modal({
       title: "نقل بين المخزن والرفوف", size: "narrow", body: body,
@@ -1362,6 +1401,7 @@ var Inv = (function () {
     function cnt() { return Math.max(0, Math.floor(App.num(q("mvN").value))); }
     function paint() {
       Array.prototype.forEach.call(q("mvDir").children, function (b) { b.classList.toggle("on", b.getAttribute("data-d") === dir); });
+      q("mvPlace").hidden = dir !== "in";
       var k = Math.min(cnt(), avail());
       var sh = dir === "in" ? sh0 + k : sh0 - k, st = dir === "in" ? st0 - k : st0 + k;
       q("mvBoxes").innerHTML = afterBoxes(sh, st, sh0, st0);
@@ -1383,8 +1423,21 @@ var Inv = (function () {
       if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); if (go()) m.close(); }
     });
     function go() {
+      var lib = isB ? q("mvLib").value : "", shelf = isB ? q("mvShelf").value : "";
+      if (dir === "in" && isB && avail() && (!lib || !shelf)) {
+        App.toast("اختر المكتبة والرف اللي بتحط فيهم الكتاب.", "warn");
+        (lib ? q("mvShelf") : q("mvLib")).focus();
+        return false;
+      }
       var done = App.moveStock(it, cnt(), dir);
       if (!done) { App.toast(avail() ? "اكتب عدد النسخ." : "لا يوجد ما يُنقل.", "warn"); return false; }
+      if (dir === "in") {
+        if (isB && (lib !== String(it.lib || "") || shelf !== String(it.shelf || ""))) {
+          App.log("تغيير مكان", App.itemName(it) + ": " + (it.lib ? it.lib + " / رف " + it.shelf : "المخزن") + " ⇦ " + lib + " / رف " + shelf);
+          it.lib = lib; it.shelf = shelf;
+        }
+        if (!isB && q("mvLoc").value.trim()) it.loc = q("mvLoc").value.trim();
+      }
       App.save(); App.rerender();
       App.toast("نُقلت " + done + (dir === "in" ? " إلى الرفوف" : " إلى المخزن") +
         " — الرفوف " + App.shelfQty(it) + " · المخزن " + App.storeQty(it));
@@ -1483,10 +1536,16 @@ var Inv = (function () {
   }
 
   function restockAll() {
-    var list = App.restockList();
-    if (!list.length) return;
+    var all = App.restockList();
+    var list = all.filter(function (x) { return !noShelf(x.type, x.it); });
+    var skip = all.length - list.length;
+    if (!list.length) {
+      if (skip) App.toast(skip + " كتاب بلا رف: انقلها واحداً واحداً بزر «نقل» لتختار رف كل كتاب.", "warn");
+      return;
+    }
     var n = list.reduce(function (a, x) { return a + x.suggest; }, 0);
-    App.confirm("سيُنقل " + n + " نسخة من غرفة الخزين إلى الرفوف (" + list.length + " صنف)، حسب العدد المقترح لكل صنف.", function () {
+    App.confirm("سيُنقل " + n + " نسخة من غرفة الخزين إلى الرفوف (" + list.length + " صنف)، حسب العدد المقترح لكل صنف." +
+      (skip ? " و" + skip + " كتاب بلا رف لا يُنقل هنا: انقله وحده بزر «نقل» لتختار رفه." : ""), function () {
       var moved = 0;
       list.forEach(function (x) { moved += App.moveStock(x.it, x.suggest, "in"); });
       App.save(); App.rerender();
@@ -1669,15 +1728,18 @@ var Inv = (function () {
 
   function mvConfirm() {
     if (!mv.lines.length) return;
-    var moved = 0, kinds = 0;
+    var moved = 0, kinds = 0, kept = [];
     mv.lines.forEach(function (l) {
       var it = App.findItem(l.type, l.id);
       if (!it) return;
+      if (mv.dir === "in" && noShelf(l.type, it)) { kept.push(l); return; }
       var k = App.moveStock(it, l.n, mv.dir);
       if (k) { moved += k; kinds++; }
     });
-    mv.lines = [];
+    mv.lines = kept;
     App.save(); App.rerender();
+    if (kept.length) App.toast(kept.length + " كتاب بلا رف بقي في القائمة: انقله وحده لتختار رفه.", "warn");
+    if (!moved) return;
     if (App.celebrate) App.celebrate(mv.dir === "in" ? "نُقلت إلى الرفوف" : "نُقلت إلى المخزن", moved + " نسخة · " + kinds + " صنف");
   }
 
