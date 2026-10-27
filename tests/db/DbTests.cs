@@ -827,6 +827,26 @@ static class DbTests
         Ok(b.Report.Check == "ok" && L(b, "SELECT COUNT(*) FROM invoices") == L(d, "SELECT COUNT(*) FROM invoices") &&
            L(b, "SELECT COUNT(*) FROM change_log") == L(d, "SELECT COUNT(*) FROM change_log"), "النسخة تُفتح سليمة وفيها كل شيء");
         b.Dispose();
+
+        /* النسخة اليومية من اتصال قراءة منفصل: تكتمل وأمرٌ جارٍ يمسك القاعدة */
+        System.Threading.ManualResetEvent inside = new System.Threading.ManualResetEvent(false), release = new System.Threading.ManualResetEvent(false);
+        System.Threading.Thread w = new System.Threading.Thread(delegate ()
+        {
+            d.Run("test-hold", 1, delegate (Cmd c) { inside.Set(); release.WaitOne(10000); });
+        });
+        w.Start();
+        inside.WaitOne(10000);
+        System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+        string snap = d.SnapshotTo(Path.Combine(Root, "نسخ", "qirtasiya-2026-10-27.db"));
+        long held = sw.ElapsedMilliseconds;
+        release.Set();
+        w.Join();
+        ShopDb sn = ShopDb.Open(snap, null);
+        Ok(held < 5000 && sn.Report.Check == "ok" && sn.FullCheck().Count == 0 &&
+           L(sn, "SELECT COUNT(*) FROM invoices") == L(d, "SELECT COUNT(*) FROM invoices"),
+            "النسخة اليومية تكتمل والبيع جارٍ (لا تنتظره)، وتُفتح سليمة", held + " ms");
+        sn.Dispose();
+
         d.Read<int>(delegate (Sqlite c) { c.Run("UPDATE item_stock SET qty = qty + 1 WHERE id = (SELECT MIN(id) FROM item_stock)"); return 0; });
         List<string> bad = d.FullCheck();
         Ok(bad.Count == 1 && bad[0].StartsWith("كمية"), "تعديل كمية من خارج المنظومة يُكتشف", string.Join("؛ ", bad.ToArray()));

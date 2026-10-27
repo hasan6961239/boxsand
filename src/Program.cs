@@ -301,7 +301,7 @@ namespace Qirtasiya
                 catch { }
 
                 EnableTls();
-                MakeDailyBackup();
+                MakeDailyBackup(false);
                 PruneBackups(30);
 
                 Port = StartServer();
@@ -568,8 +568,16 @@ namespace Qirtasiya
         /* نسخة اليوم كانت تُنسخ من store.json دون فحصه: بعد انقطاع الكهرباء
            يصير الملف أصفاراً، فتصير «أحدث نسخة» في شاشة الاستعادة نسخةً من
            الملف التالف نفسه. الآن لا تُؤخذ نسخة من ملف تالف. */
-        static void MakeDailyBackup()
+        static void MakeDailyBackup(bool closing)
         {
+            /* بعد النقل store.json مجمّد: النسخة اليومية للقاعدة الجديدة. عند الفتح في
+               الخلفية (نسخة 100 ألف كتاب ثانيتان، والنافذة لا تنتظرها) */
+            if (Db != null)
+            {
+                if (closing) DailyDbBackup(true);
+                else ThreadPool.QueueUserWorkItem(delegate { DailyDbBackup(false); });
+                return;
+            }
             try
             {
                 if (!File.Exists(StoreFile)) return;
@@ -577,6 +585,74 @@ namespace Qirtasiya
                 string name = "backup-" + DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".json";
                 string target = Path.Combine(BackupDir, name);
                 if (!File.Exists(target)) { File.Copy(StoreFile, target); CopyOutside(name); }
+            }
+            catch { }
+        }
+
+        static readonly object DbBackupLock = new object();
+
+        /* القاعدة الجديدة كل يوم، مثل store.json في 3.3:
+           - عند الفتح إن لم تؤخذ نسخة اليوم، وعند كل إغلاق تُحدَّث نسخة اليوم فتحمل
+             آخر ما بيع فيه.
+           - من اتصال قراءة منفصل: البيع لا ينتظرها.
+           - تُنسخ للمجلد الإضافي، و30 يوماً ونسخة من كل شهر هنا وهناك.
+           ملف تالف لا تُؤخذ منه نسخة: تبقى نسخ الأيام السليمة. */
+        static void DailyDbBackup(bool refresh)
+        {
+            lock (DbBackupLock)
+            {
+                ShopDb d = Db;
+                if (d == null || d.Report.Check != "ok") return;
+                string name = "qirtasiya-" + DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".db";
+                try
+                {
+                    if (!refresh && File.Exists(Path.Combine(BackupDir, name))) return;
+                    Stopwatch sw = Stopwatch.StartNew();
+                    d.SnapshotTo(Path.Combine(BackupDir, name));
+                    Log("نسخة القاعدة اليومية: " + name + " (" + sw.ElapsedMilliseconds + " ms)");
+                    CopyOutside(name);
+                }
+                catch (Exception ex) { Log("تعذّرت نسخة القاعدة اليومية: " + ex.Message); }
+                PruneDbBackups(BackupDir);
+                if (ExtraBackupDir.Length > 0) PruneDbBackups(ExtraBackupDir);
+            }
+        }
+
+        /* qirtasiya-YYYY-MM-DD.db فقط: نسخ ما قبل الترقية وبعد النقل لا تُمس */
+        static bool IsDailyDbName(string n)
+        {
+            if (n.Length != 23 || !n.StartsWith("qirtasiya-", StringComparison.Ordinal) || !n.EndsWith(".db", StringComparison.Ordinal)) return false;
+            for (int i = 10; i < 20; i++)
+            {
+                bool dash = i == 14 || i == 17;
+                if (dash ? n[i] != '-' : (n[i] < '0' || n[i] > '9')) return false;
+            }
+            return true;
+        }
+
+        /* مثل PruneBackups: آخر 30 نسخة يومية، وأول نسخة من كل شهر تبقى */
+        static void PruneDbBackups(string dir)
+        {
+            try
+            {
+                List<string> files = new List<string>();
+                foreach (string f in Directory.GetFiles(dir, "qirtasiya-*.db"))
+                    if (IsDailyDbName(Path.GetFileName(f))) files.Add(f);
+                if (files.Count <= 30) return;
+                files.Sort(StringComparer.Ordinal);
+                Dictionary<string, bool> month = new Dictionary<string, bool>();
+                List<string> keep = new List<string>();
+                foreach (string f in files)
+                {
+                    string ym = Path.GetFileName(f).Substring(10, 7);
+                    if (!month.ContainsKey(ym)) { month[ym] = true; keep.Add(f); }
+                }
+                for (int i = 0; i < files.Count - 30; i++)
+                {
+                    if (keep.Contains(files[i])) continue;
+                    try { File.Delete(files[i]); }
+                    catch { }
+                }
             }
             catch { }
         }
@@ -1817,7 +1893,7 @@ namespace Qirtasiya
 
         static void ExitApp()
         {
-            try { MakeDailyBackup(); }
+            try { MakeDailyBackup(true); }
             catch { }
             try { if (Tray != null) { Tray.Visible = false; Tray.Dispose(); } }
             catch { }

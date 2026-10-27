@@ -113,6 +113,19 @@ function ok(cond, name, detail) {
     r = await E.call(port, '/api/v2/items.page', { q: it.title.split(' ')[0], limit: 5 }, S);
     ok(r.body.ok && r.body.data.total > 0 && r.body.data.items.length > 0, 'صفحة الأصناف بالبحث', r.body.data && r.body.data.total);
 
+    /* مجلد نسخ إضافي (فلاشة أو قرص ثانٍ) من الإعدادات، كما في 3.3 */
+    const extra = path.join(tmp, 'extra-backups');
+    r = await E.call(port, '/api/backup-dir', { dir: extra }, owner);
+    ok(r.body && r.body.ok, 'مجلد النسخ الإضافي يُحفظ', r.body);
+
+    /* نسخ يومية قديمة (46 يوماً في أغسطس وسبتمبر)، ونسخة قبل ترقية لا تُمس */
+    const bdir = path.join(dir, 'data', 'backups');
+    for (let d0 = new Date(2026, 7, 1); d0 <= new Date(2026, 8, 15); d0.setDate(d0.getDate() + 1)) {
+      fs.writeFileSync(path.join(bdir, 'qirtasiya-' + d0.getFullYear() + '-' + String(d0.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d0.getDate()).padStart(2, '0') + '.db'), 'old');
+    }
+    fs.writeFileSync(path.join(bdir, 'qirtasiya-before-v9-test.db'), 'keep');
+
     console.log('\n== قتل المحرك فجأة ثم تشغيله ==');
     E.stopEngine(eng);
     await E.sleep(800);
@@ -128,6 +141,28 @@ function ok(cond, name, detail) {
     ok(r.status === 401, 'والجلسة القديمة انتهت مع المحرك', r.status);
     const log = fs.readFileSync(path.join(dir, 'data', 'log.txt'), 'utf8');
     ok(/القاعدة الجديدة: SQLite [0-9.]+، الترقية \d+، الفحص: ok/.test(log), 'سجل المحرك يذكر فتح القاعدة وفحصها');
+
+    console.log('\n== النسخة اليومية للقاعدة الجديدة ==');
+    const t = new Date();
+    const day = 'qirtasiya-' + t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0') + '.db';
+    const daily = path.join(dir, 'data', 'backups', day);
+    const dailyCount = () => fs.readdirSync(bdir).filter(f => /^qirtasiya-\d{4}-\d{2}-\d{2}\.db$/.test(f)).length;
+    for (let i = 0; i < 80 && !(fs.existsSync(daily) && fs.existsSync(path.join(extra, day)) && dailyCount() <= 31); i++) await E.sleep(250);
+    ok(fs.existsSync(daily), 'عند الفتح: نسخة اليوم من القاعدة (' + day + ')');
+    ok(fs.existsSync(path.join(extra, day)), 'ونسخة منها في المجلد الإضافي');
+    const dailies = fs.readdirSync(bdir).filter(f => /^qirtasiya-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
+    ok(dailies.length === 31 && dailies[0] === 'qirtasiya-2026-08-01.db' && dailies.includes(day) &&
+      fs.existsSync(path.join(bdir, 'qirtasiya-before-v9-test.db')),
+      'تبقى آخر 30 نسخة يومية وأول نسخة من كل شهر، ونسخ الترقية لا تُمس', dailies.length + ' ' + dailies.slice(0, 3).join(','));
+    r = await E.call(port, '/api/v2/sale', { lines: [{ itemId: it.id, qty: 1 }] }, S2);
+    const lastNo = r.body.data && r.body.data.no;
+    const exited = new Promise(res => eng.on('exit', res));
+    await E.call(port, '/api/quit', {});
+    await Promise.race([exited, E.sleep(30000)]);
+    const { DatabaseSync } = require('node:sqlite');
+    const maxNo = f => { const db = new DatabaseSync(f, { readOnly: true }); try { return db.prepare('SELECT MAX(no) AS n FROM invoices').get().n; } finally { db.close(); } };
+    ok(lastNo > saleNo && maxNo(daily) === lastNo, 'عند الإغلاق: نسخة اليوم تُحدَّث وفيها آخر بيعة', [lastNo, maxNo(daily)]);
+    ok(maxNo(path.join(extra, day)) === lastNo, 'والمجلد الإضافي كذلك', maxNo(path.join(extra, day)));
   } catch (e) {
     fail++; failures.push('استثناء: ' + e.message); console.log('  FAIL  ' + e.stack);
   } finally {

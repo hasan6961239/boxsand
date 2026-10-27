@@ -322,6 +322,16 @@ namespace Qirtasiya.Data
             }
         }
 
+        /* نسخة كاملة من اتصال قراءة منفصل (النسخة اليومية): صورة متّسقة للحظة
+           بدايتها، والبيع لا ينتظرها (WAL)، بخلاف BackupTo الذي يمسك القفل. */
+        public string SnapshotTo(string dest)
+        {
+            string dir = Path.GetDirectoryName(Path.GetFullPath(dest));
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            using (Sqlite r = Sqlite.Open(FilePath, true, false))
+                return VacuumInto(r, dest);
+        }
+
         /* فحص كامل: سلامة الملف، والمفاتيح، وأن كل كمية ودين = مجموع حركاته.
            يعيد قائمة المشاكل، وفارغة = سليمة. أبطأ من فحص الفتح، فيُشغَّل مع
            النسخة اليومية وفي الاختبارات. */
