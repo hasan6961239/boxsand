@@ -24,7 +24,7 @@ export async function currentUser() {
  * the date below (after that this is dead code). Spending still counts
  * against the monthly cap.
  */
-const DIAG_UNTIL = Date.parse('2026-10-25T00:00:00Z');
+const DIAG_UNTIL = Date.parse('2026-10-29T00:00:00Z');
 export function diagAllowed(req) {
   const key = process.env.DIAG_KEY || '';
   return key.length >= 32 && Date.now() < DIAG_UNTIL && req.headers.get('x-diag') === key;

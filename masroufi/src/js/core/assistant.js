@@ -263,7 +263,7 @@ function handle(msg) {
         conv.waiting.results[u.id] = toolResult(u.id, `query failed: ${e.message}`, true);
       }
     } else if (u.name === 'ask_user') {
-      const questions = (Array.isArray(input.questions) ? input.questions : []).slice(0, 3)
+      const questions = (Array.isArray(input.questions) ? input.questions : []).slice(0, 4)
         .map((q) => ({ question: String(q.question || ''), options: (q.options || []).map(String).slice(0, 6), multi: Boolean(q.multi), other: Boolean(q.allow_other) }));
       if (!questions.length) conv.waiting.results[u.id] = toolResult(u.id, 'No questions were given.', true);
       else view({ k: 'ask', id: u.id, questions, done: false });

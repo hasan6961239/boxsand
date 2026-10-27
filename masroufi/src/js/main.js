@@ -77,6 +77,13 @@ function onRoute(cur) {
   tabbar.querySelectorAll('.tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === cur.route.tab));
 }
 
+// iOS sometimes restores a stale tab bar when the app comes back to the
+// foreground or the keyboard closes: re-apply it for the page on screen.
+const resyncTabbar = () => { const c = router.current(); if (c && tabbar) onRoute(c); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resyncTabbar(); });
+window.addEventListener('pageshow', resyncTabbar);
+document.addEventListener('focusout', () => setTimeout(resyncTabbar, 300));
+
 /* ---------------------------------------------------------------- service worker */
 
 function registerSW() {

@@ -67,9 +67,12 @@ function filtered(data) {
   });
 }
 
+const INFLOW = new Set(['income', 'salary', 'state', 'advance']);
+
 function summary(items) {
   const out = sum(items.filter((i) => i.kind === 'txn' && i.rec.type === 'expense'), (i) => i.rec.amount);
-  const inn = sum(items.filter((i) => i.effect > 0), (i) => i.effect);
+  // same meaning as on the home screen: money earned, not borrowed money or debts paid back
+  const inn = sum(items.filter((i) => i.kind === 'txn' && INFLOW.has(i.rec.type)), (i) => i.rec.amount);
   return h('div.hist-sum',
     h('div', h('small', 'صرفت'), moneyEl(out)),
     h('div', h('small', 'دخل'), moneyEl(inn, { tone: inn ? 'pos' : 'none' })),

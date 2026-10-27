@@ -47,6 +47,16 @@ function openDebtsOf(p) {
   }));
 }
 
+/** The last few debts/payments with a person, so "I paid X back" can be checked against what's recorded. */
+function recentWith(data, personId, t) {
+  return personLedger(data, personId, t).rows.slice(-4).map((r) => ({
+    date: r.date,
+    what: r.kind === 'debt' ? (r.rec.dir === 'in' ? 'lent to them' : 'borrowed from them') : (r.debt.dir === 'in' ? 'they paid back' : 'you paid back'),
+    amount: D(r.rec.amount),
+    ...(r.rec.note ? { note: r.rec.note } : {}),
+  }));
+}
+
 function peopleList(data, t) {
   return debtsOverview(data, t).people.map((p) => ({
     id: p.person.id,
@@ -54,6 +64,7 @@ function peopleList(data, t) {
     they_owe_you: D(p.theyOwe),
     you_owe_them: D(p.iOweThem),
     open_debts: openDebtsOf(p),
+    recent: recentWith(data, p.person.id, t),
   }));
 }
 

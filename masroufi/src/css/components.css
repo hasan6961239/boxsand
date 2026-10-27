@@ -396,6 +396,14 @@ html.has-sheet .tabbar { pointer-events: none; }
 .dialog h3 { font-size: 1.15rem; font-weight: 700; }
 .dialog p { color: var(--text-2); font-size: 0.93rem; }
 .dialog-actions { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 14px; }
+.choice-list { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 12px; }
+.choice { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); text-align: start; }
+.choice.is-primary { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent-line); }
+.choice-ic { width: 38px; height: 38px; flex-shrink: 0; border-radius: 12px; display: grid; place-items: center; background: var(--surface); color: var(--accent); }
+.choice-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.choice-text b { font-size: 0.98rem; }
+.choice-text small { color: var(--text-2); font-size: 0.82rem; line-height: 1.5; }
+.sheet-dialog .dialog-actions { margin-top: 6px; }
 
 .action-list { display: flex; flex-direction: column; gap: 4px; padding-bottom: 6px; }
 .action-item { display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 14px; border-radius: var(--r-md); font-weight: 600; text-align: start; }
@@ -464,7 +472,15 @@ html.has-sheet .tabbar { pointer-events: none; }
   box-shadow: 0 -1px 0 var(--line);
   transition: transform var(--dur-3) var(--ease);
 }
-.tabbar.is-hidden { transform: translateY(calc(100% + 40px)); } /* +40px: the FAB sticks out above the bar */
+/* +40px: the FAB sticks out above the bar. Also invisible once slid away: on
+   iPhone a fixed bar moved off-screen by a transform could reappear (after
+   the keyboard or returning to the app) over a page that has no tab bar. */
+.tabbar.is-hidden {
+  transform: translateY(calc(100% + 40px));
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform var(--dur-3) var(--ease), visibility 0s linear var(--dur-3);
+}
 .tab {
   height: 100%;
   display: flex;

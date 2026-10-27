@@ -97,6 +97,9 @@ function askCard(item, { live }) {
   const other = item.questions.map(() => '');
   const single = item.questions.length === 1 && !item.questions[0].multi;
   const okBtn = button({ label: 'تمام', icon: 'check', size: 'md', block: true, onClick: () => submit() });
+  // one question answers on tap; the button shows only once the owner starts typing their own answer
+  const okRow = h('div.ai-card-actions', okBtn);
+  okRow.hidden = single;
   const ready = () => picked.every((s, i) => s.size || other[i].trim());
   const paintOk = () => { okBtn.disabled = !ready(); };
   const answers = () => item.questions.map((q, i) => [...picked[i], other[i].trim()].filter(Boolean).join('، '));
@@ -108,10 +111,18 @@ function askCard(item, { live }) {
 
   const body = item.questions.map((q, qi) => {
     const box = h('div.ai-q');
-    const otherInput = h('input.input.ai-q-other', {
+    // a text area that grows, so a long answer stays readable while typing
+    const otherInput = h('textarea.input.ai-q-other', {
+      rows: 1,
       placeholder: 'اكتب جوابك…',
       enterkeyhint: 'done',
-      oninput: (e) => { other[qi] = e.target.value; paintOk(); },
+      dir: 'auto',
+      oninput: (e) => {
+        other[qi] = e.target.value;
+        e.target.style.height = 'auto';
+        e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+        paintOk();
+      },
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); if (single) submit(); else e.target.blur(); } },
     });
     otherInput.hidden = true;
@@ -147,6 +158,7 @@ function askCard(item, { live }) {
             chipsEl.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === e.currentTarget));
           }
           otherInput.hidden = false;
+          okRow.hidden = false;
           otherInput.focus();
           paintOk();
         },
@@ -162,7 +174,7 @@ function askCard(item, { live }) {
   return h('div.ai-card.ai-ask', { class: { 'is-done': item.done } },
     h('div.ai-card-head', h('span.ai-card-ic', icon('circle-help', { size: 18 })), h('b', item.done ? 'جاوبت' : 'محتاج نتأكد من حاجة')),
     body,
-    !item.done && !single ? h('div.ai-card-actions', okBtn) : null);
+    !item.done ? okRow : null);
 }
 
 function itemNode(item) {

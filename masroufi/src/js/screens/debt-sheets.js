@@ -2,14 +2,15 @@
 // a person — plus the WhatsApp / call helpers used by the debt screens.
 
 import { h } from '../ui/dom.js';
-import { sheet, segmented, button, iconButton, toast, confirm, field, input, chips, toggle, haptic, confetti } from '../ui/kit.js';
+import { sheet, segmented, button, iconButton, toast, confirm, choose, field, input, chips, toggle, haptic, confetti } from '../ui/kit.js';
 import { amountPad } from '../ui/keypad.js';
 import { dateChips, colorPicker, dateOverlay } from '../ui/pickers.js';
 import * as store from '../core/store.js';
 import { today, addDays, fmtMoney, fmtDate, intlPhone, latinDigits } from '../core/util.js';
-import { debtInfo, paysByDebt } from '../core/finance.js';
+import { debtInfo, paysByDebt, balance } from '../core/finance.js';
 import { SWATCHES } from '../core/defaults.js';
 import { go, current } from '../core/router.js';
+import { openTxnSheet } from './txn-sheet.js';
 
 const DIR = {
   in: { label: 'سلّفت حد', short: 'ليّ', hint: 'فلوس ليك عند حد', cash: 'سلّمته الفلوس كاش؟', cashHint: 'تنقص من رصيدك توة، وترجع لما يسدّد.' },
@@ -137,29 +138,66 @@ export function openDebtSheet({ dir = 'in', person, id } = {}) {
       field(st.dir === 'in' ? 'لمين سلّفت؟' : 'من مين استلفت؟', h('div.stack-sm', personChips, newFields)),
       field('تاريخ الدين', dateChips({ value: st.date, onChange: (d) => { st.date = d; } })),
       field('موعد السداد', dueField, { hint: st.dir === 'in' ? 'نذكّرك يوم قبل الموعد ويوم الموعد.' : 'نذكّرك قبل ما يجي موعد السداد.' }),
-      h('div.toggle-row', h('div', h('b', DIR[st.dir].cash), h('small', DIR[st.dir].cashHint)), toggle({ checked: st.cash, label: DIR[st.dir].cash, onChange: (v) => { st.cash = v; } })),
+      // a new debt asks about the balance after «حفظ» (askCash); editing shows the switch
+      existing ? h('div.toggle-row', h('div', h('b', DIR[st.dir].cash), h('small', DIR[st.dir].cashHint)), toggle({ checked: st.cash, label: DIR[st.dir].cash, onChange: (v) => { st.cash = v; } })) : null,
       field('ملاحظة', input({ value: st.note, placeholder: 'اختياري — مثلاً: سلفة للسيارة', maxlength: 120, onInput: (v) => { st.note = v; } })),
       err);
   }
 
-  function submit() {
+  /** Does this new debt move the balance? 'cash' | 'buy' (borrowed to buy something) | 'record' | null */
+  function askCash(name) {
+    const m = fmtMoney(st.amount);
+    const bal = balance(store.data());
+    if (st.dir === 'out') {
+      return choose({
+        title: `استلفت ${m} من ${name}`,
+        body: 'الفلوس هذي كيف نحسبها في رصيدك؟',
+        icon: 'wallet',
+        options: [
+          { value: 'cash', primary: true, icon: 'arrow-down-left', label: 'دخلت لجيبي — زيدها لرصيدي', sub: `رصيدك يولي ${fmtMoney(bal + st.amount)}، وتنقص لما ترجّعها` },
+          { value: 'buy', icon: 'receipt-text', label: 'شريت بيها حاجة على طول', sub: 'نسجّل الدين، وبعدها نفتحلك مصروف بنفس المبلغ تختار بنده' },
+          { value: 'record', icon: 'pencil', label: 'تسجيل الدين بس', sub: 'رصيدك يبقى زي ما هو (مثلاً دين قديم)' },
+        ],
+      });
+    }
+    return choose({
+      title: `سلّفت ${name} ${m}`,
+      body: 'الفلوس هذي طلعت من رصيدك؟',
+      icon: 'wallet',
+      options: [
+        { value: 'cash', primary: true, icon: 'arrow-up-right', label: 'إيه — نقصها من رصيدي', sub: `رصيدك يولي ${fmtMoney(bal - st.amount)}، وترجع لما يسدّد` },
+        { value: 'record', icon: 'pencil', label: 'لا، تسجيل الدين بس', sub: 'رصيدك يبقى زي ما هو (مثلاً دين قديم من قبل التطبيق)' },
+      ],
+    });
+  }
+
+  async function submit() {
     if (!st.amount) return;
     let personId = st.person;
-    if (!personId || personId === '__new') {
-      const name = st.newName.trim();
-      if (!name) { err.textContent = 'اختار الشخص أو اكتب اسمه'; return; }
-      personId = store.put('person', { name, phone: latinDigits(st.newPhone).trim() || undefined, color: nextColor() }).id;
-    }
+    const isNew = !personId || personId === '__new';
+    const name = isNew ? st.newName.trim() : (store.get(personId) || {}).name || '';
+    if (isNew && !name) { err.textContent = 'اختار الشخص أو اكتب اسمه'; return; }
     if (st.due && st.due < st.date) { err.textContent = 'موعد السداد لازم يكون بعد تاريخ الدين'; return; }
     if (existing) {
       const paid = debtInfo(existing, paysByDebt(store.data()).get(existing.id) || [], today()).paid;
       if (st.amount < paid) { err.textContent = `سدّد ${fmtMoney(paid)} قبل — المبلغ ما يقدرش يكون أقل من هكي`; return; }
     }
+    let how = null;
+    if (!existing) {
+      how = await askCash(name);
+      if (!how) return; // back to the form
+      st.cash = how !== 'record';
+    }
+    if (isNew) personId = store.put('person', { name, phone: latinDigits(st.newPhone).trim() || undefined, color: nextColor() }).id;
     const rec = store.put('debt', { ...(existing || {}), person: personId, dir: st.dir, amount: st.amount, date: st.date, due: st.due || undefined, note: st.note.trim() || undefined, cash: st.cash });
     haptic(12);
     api.close(rec);
-    const name = (store.get(personId) || {}).name || '';
-    toast(existing ? 'تم حفظ التعديل' : st.dir === 'in' ? `سجّلنا ${fmtMoney(st.amount)} ليك عند ${name}` : `سجّلنا ${fmtMoney(st.amount)} عليك لـ${name}`, {
+    if (how === 'buy') {
+      setTimeout(() => openTxnSheet({ type: 'expense', preset: { amount: st.amount, date: st.date, note: `بدين من ${name}` } }), 350);
+      return;
+    }
+    const effect = !existing && st.cash ? (st.dir === 'in' ? ' — نقصت من رصيدك' : ' — زادت على رصيدك') : '';
+    toast(existing ? 'تم حفظ التعديل' : (st.dir === 'in' ? `سجّلنا ${fmtMoney(st.amount)} ليك عند ${name}` : `سجّلنا ${fmtMoney(st.amount)} عليك لـ${name}`) + effect, {
       tone: 'pos',
       action: existing ? undefined : { label: 'تراجع', onClick: () => store.remove(rec.id) },
     });

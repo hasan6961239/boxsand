@@ -387,6 +387,29 @@ export function confirm({ title, body, ok = 'تمام', cancel = 'إلغاء', d
   return api.result.then(Boolean);
 }
 
+/**
+ * A question with a few answers, each with a line of explanation.
+ * options: [{ value, label, sub, icon, primary }] → Promise<value | null>
+ */
+export function choose({ title, body, icon: ic, options, cancel = 'رجوع' }) {
+  const api = sheet({
+    cls: 'sheet-dialog',
+    body: (a) => h('div.dialog',
+      ic ? h('div.dialog-icon.tone-accent', icon(ic, { size: 28 })) : null,
+      h('h3', title),
+      body ? h('p', body) : null,
+      h('div.choice-list', options.map((o) => h('button.choice.tap.ripple', {
+        type: 'button',
+        class: { 'is-primary': o.primary },
+        onclick: () => { haptic(8); a.close(o.value); },
+      },
+      o.icon ? h('span.choice-ic', icon(o.icon, { size: 20 })) : null,
+      h('span.choice-text', h('b', o.label), o.sub ? h('small', o.sub) : null)))),
+      h('div.dialog-actions', button({ label: cancel, variant: 'plain', block: true, onClick: () => a.close(null) }))),
+  });
+  return api.result.then((v) => (v === undefined ? null : v));
+}
+
 /** Action menu: items [{ label, icon, tone, onClick }] */
 export function actions({ title, items }) {
   const api = sheet({
