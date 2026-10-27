@@ -52,6 +52,7 @@ static class DbTests
         Section("نقل بيانات 3.x", delegate { ImportTests.Run(Ok); });
         Section("أوامر المحرك والصلاحيات", delegate { ApiTests.Run(Ok); });
         Section("البحث بالاسم", delegate { SearchTests.Run(Ok); });
+        Section("بيانات التجربة (قرار 0021)", Demo);
 
         Console.WriteLine();
         Console.WriteLine("==================================================");
@@ -796,6 +797,30 @@ static class DbTests
         Ok(sa == sb && sa.Length > 0 && bad.Count == 0 && f.Report.SearchFixed == 0 && f.Report.SearchBuilt < 0,
             "وفهرس البحث فيها مثل الأصل وسليم، بلا إصلاح عند فتحها", string.Join("؛ ", bad.ToArray()));
         f.Dispose();
+        d.Dispose();
+    }
+
+    static void Demo()
+    {
+        ShopDb d = Fresh();
+        System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+        int n = d.SeedDemo(1);
+        long ms = sw.ElapsedMilliseconds;
+        Ok(n >= 150 && L(d, "SELECT COUNT(*) FROM items WHERE kind = 'stat'") > 10 && L(d, "SELECT COUNT(*) FROM invoices WHERE kind = 'sale'") > 5 &&
+           L(d, "SELECT COUNT(*) FROM places WHERE kind = 'store'") == 1 && L(d, "SELECT COUNT(*) FROM customers WHERE balance > 0") > 0,
+            "مكتبة تجربة: " + n + " صنف، أماكن ومخزن، زبائن بديون، وبيعات اليوم (" + ms + " ms)");
+        List<string> bad = d.FullCheck();
+        bad.AddRange(d.CheckSearchIndex());
+        Ok(bad.Count == 0, "وكلها سليمة: الكميات من حركاتها، والفهرس", string.Join("؛ ", bad.ToArray()));
+        Ok(S(d, "SELECT value FROM settings WHERE key = 'demo'") == "true", "وعليها علامة «نسخة تجربة»");
+        SearchOptions o = new SearchOptions();
+        o.Limit = 8;
+        SearchResult r = d.SearchItems("الفيزياء الاساسيه", o);
+        Ok(r.Ids.Count > 0 && d.GetItem(r.Ids[0]).Title == "الفيزياء الأساسية" && r.Names == 1, "والبحث فيها: «الفيزياء الاساسيه» أولاً");
+        bool threw = false;
+        try { d.SeedDemo(1); }
+        catch (ShopException) { threw = true; }
+        Ok(threw, "ولا تُضاف مرة ثانية فوق أصناف موجودة");
         d.Dispose();
     }
 
