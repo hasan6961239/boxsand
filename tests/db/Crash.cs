@@ -168,7 +168,11 @@ static class Crash
             bool exited = child.WaitForExit(waitMs);
             if (!exited)
             {
-                try { child.Kill(); } catch (InvalidOperationException) { }
+                try { child.Kill(); }
+                catch (InvalidOperationException) { }
+                /* ويندوز يرفض قتل ابن يخرج في هذه اللحظة نفسها («Access is denied»): خرج وحده.
+                   إن بقي يعمل فالقتل فشل فعلاً، والخطأ يظهر */
+                catch (System.ComponentModel.Win32Exception) { if (!child.WaitForExit(5000)) throw; }
                 child.WaitForExit();
             }
             else child.WaitForExit();
