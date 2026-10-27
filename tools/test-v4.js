@@ -63,6 +63,7 @@ function ok(cond, name, detail) {
     ok(await page.$eval(top + ' #f_city', e => e.value) === 'طرابلس', 'المدينة طرابلس افتراضياً');
     ok(await page.$eval(top + ' #f_demo', e => e.value) === 'yes', 'وبيانات التجربة مختارة افتراضياً');
     await page.fill(top + ' #f_shopName', 'مكتبة التجربة');
+    await E.sleep(350);
     await shot('02-new-branch');
     await page.click(top + ' .m-foot .btn.primary');
 
@@ -73,6 +74,9 @@ function ok(cond, name, detail) {
     ok(await page.$eval('#demoTag', e => !e.hidden), 'علامة «نسخة تجربة» ظاهرة');
     ok(await text('#brandName') === 'مكتبة التجربة', 'اسم المحل في الأعلى', await text('#brandName'));
     ok(await text('#branchTag') === 'فرع طرابلس', 'وشارة الفرع', await text('#branchTag'));
+    const ver = (fs.readFileSync(path.join(E.ROOT, 'src', 'Program.cs'), 'utf8').match(/AppVersion = "([^"]+)"/) || [])[1];
+    ok(await page.waitForFunction(v => document.getElementById('ver').textContent === 'v' + v, ver, { timeout: 5000 }).then(() => true, () => false),
+      'ورقم النسخة في الشريط الجانبي', ver);
     await page.waitForSelector('#dashStats .stat');
     await page.waitForSelector('#dashInv table tbody tr');
     const dashRows = await page.$$eval('#dashInv table tbody tr', r => r.length);
@@ -116,6 +120,7 @@ function ok(cond, name, detail) {
     await shot('05-pos-cart');
     await page.press('#scan', 'Enter');
     await page.waitForSelector(top + ' .pay-choices');
+    await E.sleep(350);
     await shot('06-pos-pay');
     await page.keyboard.press('1');
     ok(await toastHas('تمت البيعة'), 'Enter على حقل فارغ ← الدفع، و1 = نقداً: تمت البيعة');
@@ -134,6 +139,7 @@ function ok(cond, name, detail) {
     const shown = await page.$$eval(top + ' .m-body table tbody tr', r => r.length);
     ok(shown === lines, 'عرض الفاتورة: أسطرها كما بيعت', [shown, lines]);
     ok((await text(top + ' .m-body')).indexOf(net) >= 0, 'والصافي نفسه', net);
+    await E.sleep(350);
     await shot('08-invoice');
     await page.click(top + ' [data-x]');
 
@@ -156,6 +162,7 @@ function ok(cond, name, detail) {
     await page.fill(top + ' #f_barcode', '9990001112223');
     await page.fill(top + ' #f_price', '12.5');
     await page.fill(top + ' #f_qty', '3');
+    await E.sleep(350);
     await shot('10-item-add');
     await page.click(top + ' .m-foot .btn.primary');
     ok(await toastHas('أُضيف: كتاب الاختبار الآلي'), 'إضافة كتاب');
@@ -242,6 +249,7 @@ function ok(cond, name, detail) {
     await page.waitForSelector('#view >> text=ابدأ من جديد بلا بيانات التجربة');
     await page.click('#view >> text=ابدأ من جديد بلا بيانات التجربة');
     await page.waitForSelector(top + ' >> text=امسح وابدأ من جديد');
+    await E.sleep(350);
     await shot('13-demo-reset');
     await page.click(top + ' >> text=امسح وابدأ من جديد');
     await page.waitForFunction(() => document.getElementById('demoTag').hidden && document.querySelector('#dashStats .stat'), null, { timeout: 20000 });

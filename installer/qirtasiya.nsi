@@ -13,6 +13,10 @@ Unicode true
 !ifndef VERSION
   !define VERSION "2.5"
 !endif
+; «-test» وما شابه: في اسم الملف والرسائل، لا في رقم ويندوز
+!ifndef TAG
+  !define TAG ""
+!endif
 
 !define APPNAME   "منظومة المكتبة والقرطاسية"
 !define SHORTNAME "Qirtasiya"
@@ -22,7 +26,7 @@ Unicode true
 !define APPKEY    "Software\${SHORTNAME}"
 
 Name "${APPNAME}"
-OutFile "../build/Qirtasiya-Setup-${VERSION}.exe"
+OutFile "../build/Qirtasiya-Setup-${VERSION}${TAG}.exe"
 InstallDir "$PROGRAMFILES64\${SHORTNAME}"
 InstallDirRegKey HKLM "${APPKEY}" "InstallDir"
 RequestExecutionLevel admin
@@ -92,7 +96,7 @@ Function UpgradePage
   !insertmacro MUI_HEADER_TEXT "توجد نسخة مثبَّتة" "سيجري تحديثها، وبياناتك تبقى كما هي."
 
   nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD}|${SS_RIGHT} 0 0 0 100% 60u \
-    "وُجدت النسخة $OldVersion على هذا الجهاز.$\r$\n$\r$\nسيُحدَّث البرنامج إلى النسخة ${VERSION}.$\r$\n$\r$\nكتبك وقرطاسيتك وفواتيرك وزبائنك وكل إعداداتك تبقى كما هي — البيانات محفوظة في مجلد منفصل لا يمسّه التحديث، ويؤخذ منها نسخ احتياطي يومي."
+    "وُجدت النسخة $OldVersion على هذا الجهاز.$\r$\n$\r$\nسيُحدَّث البرنامج إلى النسخة ${VERSION}${TAG}.$\r$\n$\r$\nكتبك وقرطاسيتك وفواتيرك وزبائنك وكل إعداداتك تبقى كما هي — البيانات محفوظة في مجلد منفصل لا يمسّه التحديث، ويؤخذ منها نسخ احتياطي يومي."
   Pop $0
 
   nsDialogs::Show
@@ -121,18 +125,18 @@ Section "البرنامج" SecMain
 
   ;  علامة «مثبَّت»: البرنامج يقرأها فيكتب بياناته في مجلد المستخدم
   FileOpen $0 "$INSTDIR\installed.flag" w
-  FileWrite $0 "${VERSION}"
+  FileWrite $0 "${VERSION}${TAG}"
   FileClose $0
 
   ;  مجلد البيانات — يُنشأ إن لم يوجد، ولا يُمسّ إن وُجد
   CreateDirectory "$LOCALAPPDATA\${SHORTNAME}\data"
 
   WriteRegStr HKLM "${APPKEY}" "InstallDir" "$INSTDIR"
-  WriteRegStr HKLM "${APPKEY}" "Version"    "${VERSION}"
+  WriteRegStr HKLM "${APPKEY}" "Version"    "${VERSION}${TAG}"
 
   ;  يظهر في «التطبيقات المثبَّتة» مثل أي برنامج رسمي
   WriteRegStr   HKLM "${REGKEY}" "DisplayName"     "${APPNAME}"
-  WriteRegStr   HKLM "${REGKEY}" "DisplayVersion"  "${VERSION}"
+  WriteRegStr   HKLM "${REGKEY}" "DisplayVersion"  "${VERSION}${TAG}"
   WriteRegStr   HKLM "${REGKEY}" "Publisher"       "${PUBLISHER}"
   WriteRegStr   HKLM "${REGKEY}" "DisplayIcon"     "$INSTDIR\${EXENAME}"
   WriteRegStr   HKLM "${REGKEY}" "InstallLocation" "$INSTDIR"

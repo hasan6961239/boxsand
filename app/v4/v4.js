@@ -215,6 +215,9 @@ var V4 = (function () {
       document.getElementById("demoTag").hidden = !(shop.demo === true || shop.demo === "true");
       document.getElementById("userChip").innerHTML = '<span class="user-chip">' + App.icon("people", 14) + App.esc(me.name) + "</span>";
       document.getElementById("logoutBtn").hidden = false;
+      App.apiJson("/api/info").then(function (d) {
+        if (d && d.version) document.getElementById("ver").textContent = "v" + d.version;
+      }).catch(function () { });
       buildNav();
       route();
     });

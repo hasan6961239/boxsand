@@ -16,6 +16,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-$(grep -oP 'AppVersion = "\K[^"]+' src/Program.cs)}"
+# ويندوز يقبل رقماً فقط في خصائص الملف (4.0)، و«-test» يبقى في الاسم
+NUM="${VERSION%%-*}"
+TAG="${VERSION#"$NUM"}"
 STAMP="${STAMP:-$(date -u +%Y-%m-%d)}"
 mkdir -p build
 echo "namespace Qirtasiya { static class BuildInfo { public const string Stamp = \"$STAMP\"; } }" > build/BuildInfo.cs
@@ -37,5 +40,5 @@ cp vendor/sqlite/x86/sqlite3.dll build/x86/
 cp vendor/webview2/Microsoft.Web.WebView2.Core.dll vendor/webview2/Microsoft.Web.WebView2.WinForms.dll build/
 cp vendor/webview2/x64/WebView2Loader.dll build/x64/
 cp vendor/webview2/x86/WebView2Loader.dll build/x86/
-makensis -V2 -DVERSION="$VERSION" installer/qirtasiya.nsi
+makensis -V2 -DVERSION="$NUM" -DTAG="$TAG" installer/qirtasiya.nsi
 ls -la build/Qirtasiya-1.exe "build/Qirtasiya-Setup-$VERSION.exe"

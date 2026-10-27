@@ -21,7 +21,7 @@ namespace Qirtasiya
     static class Program
     {
         const string AppTitle = "منظومة المكتبة والقرطاسية";
-        const string AppVersion = "3.3";
+        const string AppVersion = "4.0-test";   // ملف التثبيت: الرقم لويندوز، و«-test» في اسمه
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
            في مجلد يكتب فيه المستخدم — فمن يضع app\index.html معدّلاً يتخطّى
