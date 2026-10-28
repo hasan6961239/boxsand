@@ -122,6 +122,30 @@
   لمن يملك `view_cost`.
 - **`publishers.list`:** ومعه `books`، عدد الكتب المسجّلة باسم كل دار نشر.
 
+## الأرباح والتقارير، رمز الأرباح، الإشعارات (قرار 0024)
+
+- **`profits.summary`** (`reports`):
+  - `today` و`month` و`year`: المبيعات وعدد الفواتير، والربح لمن يرى الأرباح.
+  - `stockRetail`: المخزون كله بسعر البيع، و`stockCost` بسعر الشراء لمن يراه.
+  - `debts`: ديون الزبائن.
+  - `months`: آخر 12 شهراً.
+- **`report.period`** (`reports`): `from` و`to`.
+  - الإجمالي وعدد الفواتير ومتوسطها، والإرجاعات، والخصومات، والربح لمن يراه.
+  - `days`: المبيعات يوماً بيوم.
+  - `top`: الأكثر مبيعاً بعد خصم الإرجاعات.
+  - `dead`: الراكد منذ 60 يوماً، الأكثر مالاً مجمَّداً أولاً.
+- **رمز الأرباح:** جلسة حساب بلا كلمة سر على جهاز له رمز تبدأ مقفلة: لا `view_cost` حتى يُكتب
+  الرمز. `me` ومعه `locked` و`lockable`.
+  - `profit.unlock` (أي موظف): `code`. بعد 5 محاولات خاطئة انتظار 5 دقائق.
+  - `profit.lock` (أي موظف): يقفل جلسته من جديد.
+  - `profit.code` (`view_cost`): رمز جديد، 4 أحرف على الأقل.
+- **الإشعارات** (`settings`): الإعداد صف `notify` بشكل 3.x نفسه.
+  - `notify.get`: الإعداد، و`log` آخر ما أُرسل.
+  - `notify.set`: `enabled` و`topic` و`server` و`kinds` و`bigAmount` (بالدينار) و`dailyHour`
+    و`dailyProfit`.
+  - `notify.test`: إشعار تجريبي (`topic` و`server` اختياريان). الرفض بسبب الفشل.
+  - **يُرسلها المحرك بعد `sale` و`payment.add`،** حيث يُنفَّذ الأمر، وملخص اليوم مع كل دورة.
+
 ## المزامنة (قرار 0023)
 
 - **أوامر البرنامج** (`Program.cs`):
@@ -156,11 +180,11 @@
 - **`login.users`:** أسماء الموظفين العاملين ومن له كلمة سر، لشاشة الدخول. المدير وحده بلا
   كلمة سر يدخل مباشرة.
 
-## الأوامر (83) وصلاحية كل منها
+## الأوامر (91) وصلاحية كل منها
 
 | الصلاحية | الأوامر |
 |---|---|
-| أي موظف داخل | `me` (ومعه `hasPassword`)، `me.password`، `shop.info` (ومعه `demo`) |
+| أي موظف داخل | `me` (ومعه `hasPassword` و`locked`)، `me.password`، `shop.info` (ومعه `demo`)، `profit.unlock`، `profit.lock` |
 | `sell` البيع | `sale`، `invoice.get`، `invoices.page`، `customers.list` |
 | `search` البحث | `search`، `items.page`، `item.find`، `categories.list` |
 | `view_stock` مشاهدة المخزون | `item.get`، `places.list`، `alerts`، `places.summary`، `place.items` |
@@ -169,7 +193,7 @@
 | `delete_invoice` حذف الفواتير | `invoice.delete` |
 | `edit_items` الأصناف | `item.add`، `item.edit`، `item.delete`، `stock.adjust`، `labels.printed`، `labels.unprint`، `labels.barcodes`، `suppliers.list`، `publishers.list` |
 | `edit_prices` تعديل الأسعار | (مع `item.edit` حين يتغير سعر) |
-| `view_cost` سعر الشراء والأرباح | (يُظهر `cost` و`profit` في الردود) |
+| `view_cost` سعر الشراء والأرباح | `profit.code` (ويُظهر `cost` و`profit` في الردود) |
 | `receive` إدخال البضاعة | `receive`، `purchases.page`، `purchase.get` |
 | `move_stock` النقل بين الأماكن | `stock.move` |
 | `count` الجرد | `count.start`، `count.set`، `count.apply`، `count.cancel`، `count.current`، `count.page`، `count.rest`، `counts.page`، `count.get` |
@@ -177,10 +201,10 @@
 | `debts` الديون | `payment.add`، `customer.balance` (ودين سابق عند `customer.add`) |
 | `suppliers` الموردون ودور النشر | `supplier.add`، `supplier.edit`، `supplier.delete`، `suppliers.page`، `publisher.save`، `publisher.delete` |
 | `consign` المباع | `consign.in`، `consign.back`، `consign.pay`، `consignors.list`، `consignor.get`، `consignor.edit` |
-| `reports` التقارير | `report.range`، `stale` |
+| `reports` التقارير | `report.range`، `stale`، `profits.summary`، `report.period` |
 | `closing` إقفال اليوم | `day.close`، `takings` |
 | `places` الأماكن والمخازن | `place.add`، `place.edit`، `place.delete` |
-| `settings` الإعدادات | `settings.get`، `setting.set`، `categories.set`، `health` |
+| `settings` الإعدادات | `settings.get`، `setting.set`، `categories.set`، `health`، `notify.get`، `notify.set`، `notify.test` |
 | `users` الموظفون | `users.list`، `user.add`، `user.password`، `user.perms`، `user.active`، `perms.list` |
 | `log` سجل العمليات | `ops.page` |
 

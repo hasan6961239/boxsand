@@ -378,6 +378,7 @@ namespace Qirtasiya.Engine
             RegisterSync();
             RegisterShop();
             RegisterStock();
+            RegisterReports();
         }
 
         /* سطر بلا سعر: سعر الصنف الحالي (الجملة في بيع الجملة إن كان له سعر جملة) */

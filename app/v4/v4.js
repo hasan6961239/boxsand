@@ -83,7 +83,9 @@ var V4 = (function () {
   function dirhams(v) { return Math.round(App.num(v) * 1000); }
   function currency() { return (shop && shop.meta && shop.meta.currency) || "د.ل"; }
 
-  function can(p) { return !!me && (me.role === "admin" || me.perms.indexOf(p) >= 0); }
+  /* perms من المحرك: كل ما تملكه الجلسة الآن (المدير كلها)، وبلا سعر الشراء والأرباح
+     ما دام رمز الأرباح لم يُكتب (قرار 0024) */
+  function can(p) { return !!me && me.perms.indexOf(p) >= 0; }
 
   function today() {
     var d = new Date(), p = function (x) { return (x < 10 ? "0" : "") + x; };

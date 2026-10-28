@@ -383,6 +383,17 @@ namespace Qirtasiya
             Api a = new Api(d, null);
             a.AdoptSessions(keepSessions);
             a.Queued = delegate { WakeSync(false); };
+            /* رمز الأرباح نفسه الذي في 3.x، والإشعارات من هنا (قرار 0024) */
+            a.ProfitLock = delegate { return !Tripoli || File.Exists(ProfitCodePath()); };
+            a.ProfitCheck = ProfitCodeMatches;
+            a.ProfitSet = delegate (string code)
+            {
+                File.WriteAllText(ProfitCodePath(), HashCode(code.Trim()), new UTF8Encoding(false));
+                Log("غُيّر رمز الأرباح");
+            };
+            a.Notified = delegate (List<Note> notes) { ThreadPool.QueueUserWorkItem(delegate { foreach (Note n in notes) SendNote(n); }); };
+            a.NotifyTest = SendNote;
+            a.NotifyLog = NoteLogList;
             V2 = a;
             WarmSearch(d);
         }
@@ -615,9 +626,89 @@ namespace Qirtasiya
                     }
                 }
                 catch (Exception ex) { Log("المزامنة: " + ex.Message); }
+                try { DailyNotify(); }
+                catch (Exception ex) { Log("ملخص اليوم: " + ex.Message); }
                 lock (SyncTickGate) { SyncTicks++; Monitor.PulseAll(SyncTickGate); }
                 SyncWake.WaitOne(SyncEveryMs);
             }
+        }
+
+        /* ---------- الإشعارات من 4.0 (قرار 0024) ----------
+           المحرك يحسب الإشعار بعد البيع أو التسديد، وهنا يُرسل في الخلفية فلا ينتظره البائع.
+           سجل ما أُرسل (آخر 60) ويوم آخر ملخص في ملفين بجانب القاعدة. */
+
+        static readonly object NoteGate = new object();
+        static string NoteLogFile { get { return Path.Combine(DataDir, "notify-log.json"); } }
+        static string NoteDailyFile { get { return Path.Combine(DataDir, "notify-daily.txt"); } }
+
+        static readonly Dictionary<string, string> NoteTags = new Dictionary<string, string> {
+            { "low", "warning" }, { "out", "rotating_light" }, { "sale", "shopping_cart" }, { "bigsale", "moneybag" },
+            { "debt", "memo" }, { "pay", "white_check_mark" }, { "daily", "bar_chart" }, { "test", "bell" } };
+
+        /* null = أُرسل، وإلا سبب الفشل */
+        static string SendNote(Note n)
+        {
+            string err = null;
+            try
+            {
+                string url = (n.Server.Trim().Length > 0 ? n.Server.Trim() : "https://ntfy.sh").TrimEnd(new char[] { '/' });
+                if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    throw new Exception("عنوان خادم الإشعارات غير صالح");
+                Dictionary<string, object> p = new Dictionary<string, object>();
+                p["topic"] = n.Topic.Trim(); p["title"] = n.Title; p["message"] = n.Message; p["priority"] = (long)n.Priority;
+                string tag;
+                if (NoteTags.TryGetValue(n.Kind, out tag)) p["tags"] = new List<object> { tag };
+                HttpSend(url + "/", "POST", null, Json.Write(p));
+            }
+            catch (Exception ex) { err = CleanNetError(ex); }
+            try
+            {
+                lock (NoteGate)
+                {
+                    List<object> log = NoteLogList();
+                    Dictionary<string, object> e = new Dictionary<string, object>();
+                    e["at"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                    e["kind"] = n.Kind; e["title"] = n.Title; e["message"] = n.Message; e["ok"] = err == null;
+                    if (err != null) e["error"] = err;
+                    log.Insert(0, e);
+                    if (log.Count > 60) log.RemoveRange(60, log.Count - 60);
+                    File.WriteAllText(NoteLogFile, Json.Write(log), new UTF8Encoding(false));
+                }
+            }
+            catch (Exception ex) { Log("سجل الإشعارات: " + ex.Message); }
+            return err;
+        }
+
+        static List<object> NoteLogList()
+        {
+            lock (NoteGate)
+            {
+                try
+                {
+                    if (File.Exists(NoteLogFile))
+                    {
+                        List<object> l = Json.Parse(File.ReadAllText(NoteLogFile, Encoding.UTF8)) as List<object>;
+                        if (l != null) return l;
+                    }
+                }
+                catch (Exception) { }
+                return new List<object>();
+            }
+        }
+
+        /* ملخص آخر اليوم: مع كل دورة (كل دقيقة)، مرة في اليوم بعد الساعة التي يختارها صاحب المحل */
+        static void DailyNotify()
+        {
+            Api a = V2;
+            if (a == null || DataDir == null) return;
+            string sent = "";
+            try { if (File.Exists(NoteDailyFile)) sent = File.ReadAllText(NoteDailyFile).Trim(); }
+            catch (Exception) { }
+            string day;
+            Note n = a.DailyNote(sent, out day);
+            if (n == null) return;
+            File.WriteAllText(NoteDailyFile, day);
+            if (n.Title.Length > 0) SendNote(n);
         }
 
         /* دورة كاملة الآن وانتظار انتهائها (زر «حدّث الآن»، والاختبار) */

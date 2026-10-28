@@ -118,7 +118,7 @@ namespace Qirtasiya.Engine
             if (err == null)
             {
                 ShopDb.BeginRemote(rc);
-                try { cmd.Run(new Ctx(this, s, body)); }
+                try { AfterRun(rc.Cmd, body, cmd.Run(new Ctx(this, s, body))); }
                 catch (ShopException e) { err = e.Message; }
                 catch (FormatException e) { err = e.Message; }
                 catch (ObjectDisposedException) { throw; }

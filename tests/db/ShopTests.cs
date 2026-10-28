@@ -240,6 +240,120 @@ static class ShopTests
         ok(stale.Count >= 1 && D(stale[0]).ContainsKey("price") && D(stale[0]).ContainsKey("cost"), "الراكدة بعد 200 يوم: بسعرها وسعر شرائها", Json.Write(stale.Count));
         now = now.AddDays(-200);
 
+        /* ---------- الأرباح والتقارير ---------- */
+        Dictionary<string, object> tk = D(Data("takings", "{}"));
+        Dictionary<string, object> ps = D(Data("profits.summary", "{}"));
+        Dictionary<string, object> td = D(ps["today"]);
+        ok(L(td["sales"]) == L(tk["total"]) && L(td["profit"]) == L(tk["profit"]) && L(td["n"]) == L(tk["sales"]),
+            "ملخص الأرباح: اليوم كجرد اليوم", Json.Write(td));
+        List<object> months = A(ps["months"]);
+        ok(months.Count == 12 && (string)D(months[11])["key"] == "2026-10" && (string)D(months[0])["key"] == "2025-11" &&
+            L(D(months[11])["profit"]) == L(D(ps["month"])["profit"]), "آخر 12 شهراً، وآخرها هذا الشهر", Json.Write(months[11]));
+        ok(L(ps["stockCost"]) > 0 && L(ps["stockRetail"]) > L(ps["stockCost"]) && L(ps["debts"]) == L(D(Data("customers.page", "{}"))["totalDebt"]),
+            "قيمة المخزون شراءً وبيعاً، والديون", Json.Write(ps["debts"]));
+        Dictionary<string, object> rp = D(Data("report.period", "{\"from\":\"2026-10-01\",\"to\":\"2026-10-28\"}"));
+        ok(L(rp["total"]) == L(tk["total"]) && L(rp["profit"]) == L(tk["profit"]) && L(rp["n"]) == L(tk["sales"]) &&
+            L(rp["returns"]) == L(tk["returns"]) && L(rp["returnsTotal"]) == -L(tk["returnsTotal"]) && A(rp["days"]).Count == 1,
+            "تقرير الشهر: كجرد اليوم (كل البيع اليوم)", Json.Write(rp["total"]));
+        long soldA = 0;
+        foreach (object o in A(tk["sold"])) if ((string)D(o)["name"] == "كتاب الجرد") soldA = L(D(o)["qty"]);
+        Dictionary<string, object> top0 = D(A(rp["top"])[0]);
+        ok((string)top0["name"] == "كتاب الجرد" && L(top0["qty"]) == soldA && top0.ContainsKey("profit"), "الأكثر مبيعاً بعد خصم الإرجاعات", Json.Write(top0));
+        ok(A(D(Data("report.period", "{\"from\":\"2026-11-01\",\"to\":\"2026-11-30\"}"))["days"]).Count == 0, "وفترة بلا بيع فارغة");
+
+        /* ---------- رمز الأرباح (قرار 0024) ---------- */
+        string newCode = null;
+        api.ProfitLock = delegate { return true; };
+        api.ProfitCheck = delegate (string x) { return x == "1234"; };
+        api.ProfitSet = delegate (string x) { newCode = x; };
+        string T0 = T;
+        T = (string)D(Data("login", "{\"login\":\"admin\",\"password\":\"\"}"))["token"];
+        Dictionary<string, object> me = D(Data("me", "{}"));
+        ok((bool)me["locked"] && (bool)me["lockable"] && !A(me["perms"]).Contains("view_cost") && A(me["perms"]).Contains("reports"),
+            "المدير بلا كلمة سر على جهاز له رمز: الأرباح مقفلة", Json.Write(me));
+        ok(!D(Data("item.get", "{\"id\":" + a + "}")).ContainsKey("cost") && !D(D(Data("profits.summary", "{}"))["today"]).ContainsKey("profit") &&
+            !D(Data("report.period", "{}")).ContainsKey("profit"), "ولا يرى سعر الشراء ولا الأرباح في أي أمر");
+        ok(Error("profit.code", "{\"code\":\"9999\"}") != null, "ولا يغيّر الرمز وهو مقفل");
+        for (int i = 0; i < 4; i++) ok(Error("profit.unlock", "{\"code\":\"0000\"}") == "الرمز غير صحيح.", "رمز خاطئ " + (i + 1));
+        string fifth = Error("profit.unlock", "{\"code\":\"0000\"}");
+        string sixth = Error("profit.unlock", "{\"code\":\"1234\"}");
+        ok(fifth == "الرمز غير صحيح." && sixth != null && sixth.Contains("محاولات كثيرة"), "بعد 5 محاولات خاطئة: انتظار ولو كان الرمز صحيحاً", sixth);
+        now = now.AddMinutes(6);
+        me = D(Data("profit.unlock", "{\"code\":\"1234\"}"));
+        ok(!(bool)me["locked"] && A(me["perms"]).Contains("view_cost") && D(Data("item.get", "{\"id\":" + a + "}")).ContainsKey("cost"),
+            "بعد دقائق، الرمز الصحيح يفتحها: سعر الشراء يظهر", Json.Write(me["locked"]));
+        ok(Error("profit.code", "{\"code\":\"12\"}") != null && Data("profit.code", "{\"code\":\" 5678 \"}") == null && newCode == "5678",
+            "تغيير الرمز (4 على الأقل)");
+        ok((bool)D(Data("profit.lock", "{}"))["locked"] && !D(Data("item.get", "{\"id\":" + a + "}")).ContainsKey("cost"), "«إقفال» يقفلها من جديد");
+        Data("user.add", "{\"name\":\"محاسب\",\"login\":\"acc\",\"password\":\"acc-pass-1\",\"perms\":[\"view_cost\",\"reports\"]}");
+        string Tacc = (string)D(Data("login", "{\"login\":\"acc\",\"password\":\"acc-pass-1\"}"))["token"];
+        string Tkeep = T;
+        T = Tacc;
+        me = D(Data("me", "{}"));
+        ok(!(bool)me["locked"] && !(bool)me["lockable"] && A(me["perms"]).Contains("view_cost"), "من له كلمة سر لا يُسأل عن الرمز", Json.Write(me));
+        T = T0;
+        ok(!(bool)D(Data("me", "{}"))["locked"], "والجلسة القديمة (قبل الرمز) كما هي");
+        api.ProfitLock = null;
+
+        /* ---------- الإشعارات ---------- */
+        List<Note> got = new List<Note>();
+        api.Notified = delegate (List<Note> l) { got.AddRange(l); };
+        ok(Error("notify.set", "{\"server\":\"ntfy.sh\"}") != null, "خادم إشعارات بلا https:// يُرفض");
+        Data("notify.set", "{\"enabled\":true,\"topic\":\" shop-x7k \",\"server\":\"https://ntfy.example\",\"bigAmount\":100," +
+            "\"kinds\":{\"sale\":true,\"debt\":true,\"pay\":true,\"low\":true,\"out\":true,\"daily\":true}}");
+        Dictionary<string, object> nc = D(Data("notify.get", "{}"));
+        ok((bool)nc["enabled"] && (string)nc["topic"] == "shop-x7k" && A(nc["log"]).Count == 0, "إعداد الإشعارات يُحفظ", Json.Write(nc));
+        long xi = L(Data("item.add", "{\"kind\":\"book\",\"title\":\"صنف التنبيه\",\"price\":10000,\"qty\":3,\"min\":2}"));
+        long n1 = L(D(Data("sale", "{\"lines\":[{\"itemId\":" + xi + ",\"qty\":1}]}"))["no"]);
+        ok(got.Count == 2 && got[0].Kind == "sale" && got[0].Title == "فاتورة " + n1 + " — 10.00 د.ل" && got[0].Message == "صنف التنبيه ×1" &&
+            got[0].Topic == "shop-x7k" && got[0].Server == "https://ntfy.example" &&
+            got[1].Kind == "low" && got[1].Title == "قارب على النفاد: صنف التنبيه" && got[1].Message.StartsWith("المتبقي 2 فقط (حد التنبيه 2)"),
+            "بيعة: إشعار الفاتورة، و«قارب على النفاد» عند عبور الحد", got.Count > 1 ? got[1].Message : got.Count.ToString());
+        got.Clear();
+        Sale(xi, 2, "credit", c, 0);
+        Note debt = got.Find(delegate (Note q) { return q.Kind == "debt"; }), outN = got.Find(delegate (Note q) { return q.Kind == "out"; });
+        long bal = L(D(Data("customer.statement", "{\"id\":" + c + "}"))["balance"]);
+        ok(got.Count == 3 && debt != null && debt.Title == "دين جديد: 20.00 د.ل" && debt.Message == "زبون الآجل — إجمالي دينه الآن " + (bal / 1000m).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " د.ل" &&
+            outN != null && outN.Title == "نفد: صنف التنبيه" && outN.Priority == 4, "بيع آجل نفد به الصنف: دين جديد، ونفد", got.Count + " " + (debt != null ? debt.Message : ""));
+        got.Clear();
+        Data("payment.add", "{\"customerId\":" + c + ",\"amount\":1000}");
+        ok(got.Count == 1 && got[0].Kind == "pay" && got[0].Title == "تسديد: 1.00 د.ل" && got[0].Message.StartsWith("زبون الآجل — المتبقي عليه"), "تسديد دين", got.Count == 1 ? got[0].Message : "");
+        got.Clear();
+        Data("notify.set", "{\"kinds\":{\"bigsale\":true}}");
+        long y = L(Data("item.add", "{\"kind\":\"book\",\"title\":\"موسوعة\",\"price\":150000,\"qty\":5}"));
+        Sale(a, 1, "cash", 0, 0);
+        int small = got.Count;
+        Sale(y, 1, "cash", 0, 0);
+        ok(small == 0 && got.Count == 1 && got[0].Kind == "bigsale" && got[0].Priority == 4 && got[0].Title == "فاتورة كبيرة: 150.00 د.ل",
+            "«فاتورة كبيرة فقط»: 150 فوق 100، لا 10", small + "/" + got.Count);
+        got.Clear();
+        Data("notify.set", "{\"enabled\":false}");
+        Sale(y, 1, "cash", 0, 0);
+        ok(got.Count == 0, "موقوفة: لا شيء");
+        Note tested = null;
+        api.NotifyTest = delegate (Note q) { tested = q; return null; };
+        ok(Data("notify.test", "{}") == null && tested != null && tested.Topic == "shop-x7k" && tested.Kind == "test", "إشعار تجريبي بالقناة المحفوظة");
+        api.NotifyTest = delegate (Note q) { return "لا يوجد اتصال بالإنترنت"; };
+        ok(Error("notify.test", "{\"topic\":\"other\"}") == "تعذّر الإرسال: لا يوجد اتصال بالإنترنت", "وفشله يظهر بسببه");
+
+        /* ملخص آخر اليوم: بعد الساعة المختارة، مرة واحدة */
+        Data("notify.set", "{\"enabled\":true,\"kinds\":{\"daily\":true},\"dailyHour\":20}");
+        string nday;
+        ok(api.DailyNote("", out nday) == null && nday == "2026-10-28", "قبل الثامنة مساءً: لا ملخص");
+        DateTime keep = now;
+        now = new DateTime(2026, 10, 28, 20, 5, 0);
+        Note dn = api.DailyNote("", out nday);
+        Dictionary<string, object> tk2 = D(Data("takings", "{}"));
+        ok(dn != null && dn.Title == "ملخص اليوم — " + (L(tk2["total"]) / 1000m).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " د.ل" &&
+            dn.Message.StartsWith("عدد الفواتير: " + L(tk2["sales"]) + "\nأصناف تحتاج شراء: ") && !dn.Message.Contains("الربح"),
+            "بعد الثامنة: ملخص اليوم بلا الربح", dn != null ? dn.Title + " | " + dn.Message : "null");
+        ok(api.DailyNote("2026-10-28", out nday) == null, "ومرة واحدة في اليوم");
+        Data("notify.set", "{\"dailyProfit\":true}");
+        ok(api.DailyNote("", out nday).Message.Contains("\nالربح: "), "والربح إن اختاره صاحب المحل");
+        now = keep;
+        api.Notified = null;
+        T = Tkeep;
+
         db.Dispose();
         foreach (string f in new string[] { path, path + "-wal", path + "-shm" })
             try { File.Delete(f); } catch { }

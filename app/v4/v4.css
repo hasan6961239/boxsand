@@ -57,3 +57,11 @@ tr.near-row td { color: var(--ink-soft); }
 /* نافذة بجدول أسطر عريض (استلام كتب على المباع) */
 .modal.xwide { max-width: min(1200px, 96vw); }
 .line-stack { display: grid; gap: 6px; }
+
+/* أعمدة الأرباح والمبيعات (كما في 3.x) */
+.pf-bars { display: flex; align-items: flex-end; gap: 5px; padding-top: 10px; }
+.pf-bar { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.pf-bar i { display: block; width: 100%; max-width: 46px; background: var(--accent); opacity: .85; border-radius: 4px 4px 0 0; }
+.pf-bar .v, .pf-bar .k { font-size: 10px; color: var(--muted); }
+.pf-bar .v { margin-bottom: 3px; }
+.pf-bar .k { margin-top: 5px; }

@@ -32,8 +32,17 @@ namespace Qirtasiya.Engine
         public string Name, Role;
         public readonly List<string> Perms = new List<string>();
         public DateTime Seen;
+        /* رمز الأرباح (قرار 0024): حساب بلا كلمة سر على جهاز له رمز أرباح لا يرى سعر الشراء
+           ولا الأرباح حتى يُكتب الرمز، كما في 3.x. Lockable: يُقفل من جديد بزر «إقفال» */
+        public bool Locked, Lockable;
+        public int CodeFails;
+        public DateTime CodeWait;
 
-        public bool Can(string perm) { return Role == "admin" || Perms.Contains(perm); }
+        public bool Can(string perm)
+        {
+            if (Locked && perm == "view_cost") return false;
+            return Role == "admin" || Perms.Contains(perm);
+        }
     }
 
     public sealed partial class Api
@@ -124,9 +133,12 @@ namespace Qirtasiya.Engine
                 if (s == null) return Fail(401, "انتهت الجلسة. ادخل من جديد.", "session");
                 if (cmd.Perm != AnyUser && !s.Can(cmd.Perm))
                     return Fail(403, "لا تملك صلاحية: " + PermLabel(cmd.Perm), "perm", cmd.Perm);
-                try { return Ok(cmd.Run(new Ctx(this, s, req))); }
+                object res;
+                try { res = cmd.Run(new Ctx(this, s, req)); }
                 /* جهاز ثانٍ (قرار 0023): الأمر ينتظر جهاز المحل */
                 catch (ReplicaWriteException) { return Ok(Queue(s, name, req)); }
+                AfterRun(name, req, res);
+                return Ok(res);
             }
             catch (ShopException e) { return Fail(200, e.Message); }
             catch (FormatException e) { return Fail(400, e.Message); }
@@ -209,6 +221,8 @@ namespace Qirtasiya.Engine
             Session s = new Session();
             s.Token = NewToken(); s.UserId = r.UserId; s.Name = r.Name; s.Role = r.Role; s.Seen = clock();
             s.Perms.AddRange(r.Perms);
+            bool pw = db.Read<long>(delegate (Sqlite c) { return c.Long("SELECT pass_hash <> '' FROM users WHERE id = ?", 0, s.UserId); }) == 1;
+            s.Lockable = s.Locked = !pw && ProfitLock != null && ProfitLock();
             lock (gate) sessions[s.Token] = s;
             Dictionary<string, object> o = MeNow(s);
             o["token"] = s.Token;
@@ -262,6 +276,7 @@ namespace Qirtasiya.Engine
             List<object> perms = new List<object>();
             for (int i = 0; i < PermList.GetLength(0); i++) if (s.Can(PermList[i, 0])) perms.Add(PermList[i, 0]);
             o["perms"] = perms;
+            o["locked"] = s.Locked; o["lockable"] = s.Lockable;
             return o;
         }
 

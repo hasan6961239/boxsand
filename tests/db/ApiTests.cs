@@ -53,9 +53,10 @@ static class ApiTests
         List<string> open = new List<string>();
         foreach (KeyValuePair<string, string> kv in perms) if (kv.Value == Api.AnyUser) open.Add(kv.Key);
         open.Sort();
-        /* outbox.*: ما ينتظر جهاز المحل على هذا الجهاز الثاني (قرار 0023)، يراه كل موظف عنده */
-        ok(string.Join(",", open.ToArray()) == "me,me.password,outbox.dismiss,outbox.list,shop.info",
-            "والمفتوحة لكل موظف: me وme.password وshop.info، وما ينتظر جهاز المحل", string.Join(",", open.ToArray()));
+        /* outbox.*: ما ينتظر جهاز المحل على هذا الجهاز الثاني (قرار 0023)، يراه كل موظف عنده.
+           profit.*: فتح الأرباح برمزها وإقفالها لجلسته هو (قرار 0024) */
+        ok(string.Join(",", open.ToArray()) == "me,me.password,outbox.dismiss,outbox.list,profit.lock,profit.unlock,shop.info",
+            "والمفتوحة لكل موظف: me وme.password وshop.info، وما ينتظر جهاز المحل، وفتح الأرباح وإقفالها", string.Join(",", open.ToArray()));
 
         Call("items.page", null, "{}", out st);
         ok(st == 401, "بلا جلسة: 401", st);

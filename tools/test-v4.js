@@ -422,6 +422,8 @@ function ok(cond, name, detail) {
     ok(true, 'كتب على المباع: فارغة في البداية');
     await page.click('#cnHost button:has-text("استلام كتب جديدة")');
     await page.waitForSelector(top + ' #cnName');
+    /* النافذة تضع المؤشر في الاسم بعد 60 ms: الكتابة قبله قد تقع فيه */
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'cnName', null, { timeout: 3000 }).catch(() => { });
     /* الخانة تُقرأ مع change (كما عند الخروج منها) */
     const cnLine = async (i, col, v) => {
       const sel = top + ' #cnLines tbody tr:nth-child(' + (i + 1) + ') ' + (col === 3 ? 'td:nth-child(2) input:nth-child(2)' :
@@ -573,6 +575,113 @@ function ok(cond, name, detail) {
     await page.click(top + ' .m-foot button:has-text("حذف")');
     await page.waitForSelector('#spPubs >> text=لا دور نشر مسجّلة');
     ok(true, 'حذف دار النشر');
+
+    console.log('\n== الأرباح والتقارير، رمز الأرباح، الإشعارات ==');
+    await page.click('#nav .nav-item[data-k="profits"]');
+    await page.waitForSelector('#pfHost .stat');
+    ok((await text('#pfHost')).indexOf('هذه السنة') >= 0 && await page.$('#pfTabSum.on') !== null && (await text('#pfHost')).indexOf('أرباح آخر 12 شهراً') >= 0,
+      'الأرباح: اليوم والشهر والسنة وآخر 12 شهراً (بلا رمز بعد على هذا الجهاز)');
+    ok(await page.$('#view button:has-text("إقفال")') === null, 'ولا «إقفال» ما دام لا رمز على الجهاز');
+    await shot('15a-profits');
+    await page.click('#pfTabRep');
+    await page.waitForSelector('#pfRep .stat');
+    let rep = await text('#pfRep');
+    ok(rep.indexOf('إجمالي المبيعات') >= 0 && rep.indexOf('صافي الربح') >= 0 && rep.indexOf('الأكثر مبيعاً في الفترة') >= 0 && rep.indexOf('بضاعة راكدة') >= 0,
+      'التقارير: الإجمالي والربح والأكثر مبيعاً والراكد');
+    await page.click('#pfHost button:has-text("آخر 7 أيام")');
+    await page.waitForFunction(() => document.getElementById('pfFrom').value !== document.getElementById('pfTo').value);
+    await page.click('#pfHost button:has-text("اليوم")');
+    await page.waitForFunction(() => document.getElementById('pfFrom').value === document.getElementById('pfTo').value);
+    ok(true, 'أزرار الفترة: آخر 7 أيام، اليوم');
+    const pr0 = await page.evaluate(() => window.__printed || 0);
+    await page.click('#pfHost button:has-text("طباعة التقرير")');
+    ok(await page.waitForFunction(n => window.__printed === n + 1, pr0, { timeout: 3000 }).then(() => true, () => false), 'طباعة التقرير');
+    await shot('15b-reports');
+    await page.click('#view .toolbar button:has-text("تغيير الرمز")');
+    await page.waitForSelector(top + ' #f_code');
+    await formReady();
+    await page.fill(top + ' #f_code', '12');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('قصير جداً'), 'رمز قصير يُرفض');
+    await page.fill(top + ' #f_code', 'ui4321');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('تغيّر الرمز'), 'وُضع رمز للأرباح');
+    await page.click('#logoutBtn');
+    await page.waitForSelector('body.v4:not(.out) #nav .nav-item');
+    await page.click('#nav .nav-item[data-k="dash"]');
+    await page.waitForSelector('#view .stat');
+    await E.sleep(400);
+    ok((await text('#view')).indexOf('ربح اليوم') < 0, 'بعد الدخول من جديد بلا كلمة سر: لا «ربح اليوم» في اللوحة');
+    await page.click('#nav .nav-item[data-k="profits"]');
+    await page.waitForSelector('#pfCode');
+    ok(true, 'والأرباح مقفلة تطلب الرمز، كما في 3.x');
+    await shot('15c-profits-locked');
+    await page.fill('#pfCode', '0000');
+    await page.press('#pfCode', 'Enter');
+    ok(await toastHas('الرمز غير صحيح'), 'رمز خاطئ يُرفض');
+    await page.fill('#pfCode', 'ui4321');
+    await page.press('#pfCode', 'Enter');
+    ok(await toastHas('الأرباح مفتوحة'), 'الرمز الصحيح يفتحها');
+    await page.waitForSelector('#pfHost .stat');
+    ok(await page.$('#view button:has-text("إقفال")') !== null, 'ومعها «إقفال»');
+    await page.click('#nav .nav-item[data-k="dash"]');
+    await page.waitForSelector('#view .stat >> text=ربح اليوم');
+    ok(true, 'و«ربح اليوم» رجع للوحة');
+    await page.click('#nav .nav-item[data-k="profits"]');
+    await page.click('#view button:has-text("إقفال")');
+    await page.waitForSelector('#pfCode');
+    ok(await toastHas('أُقفلت الأرباح'), '«إقفال» يقفلها من جديد');
+    await page.fill('#pfCode', 'ui4321');
+    await page.press('#pfCode', 'Enter');
+    await page.waitForSelector('#pfHost .stat');
+
+    /* خادم ntfy محلي يستقبل ما يرسله البرنامج */
+    const ntfy = [];
+    const nsrv = require('http').createServer((q, r) => {
+      let b = '';
+      q.on('data', c => { b += c; });
+      q.on('end', () => { try { ntfy.push(JSON.parse(b)); } catch (e) { ntfy.push({ raw: b }); } r.writeHead(200, { 'Content-Type': 'application/json' }); r.end('{"id":"t"}'); });
+    });
+    await new Promise(r => nsrv.listen(0, '127.0.0.1', r));
+    const nurl = 'http://127.0.0.1:' + nsrv.address().port;
+    await page.click('#nav .nav-item[data-k="notify"]');
+    await page.waitForSelector('#ntTopic');
+    ok((await text('#ntHost .card-head')).indexOf('غير مفعّلة') >= 0, 'الإشعارات: غير مفعّلة في البداية');
+    /* كل تغيير يُحفظ ثم تُرسم الصفحة من جديد: ننتظر الرسم قبل الخطوة التالية */
+    const ntSaved = async act => {
+      const w = page.waitForResponse(r => r.url().endsWith('/api/v2/notify.get'));
+      await act();
+      await w;
+      await E.sleep(50);
+    };
+    await ntSaved(async () => { await page.fill('#ntServer', nurl); await page.dispatchEvent('#ntServer', 'change'); });
+    ok(await page.$eval('#ntServer', e => e.value) === nurl, 'خادم الإشعارات يُحفظ');
+    await page.click('#ntTest');
+    ok(await toastHas('اكتب اسم القناة أولاً'), 'التجريبي بلا قناة: «اكتب اسم القناة أولاً»');
+    await ntSaved(async () => { await page.fill('#ntTopic', 'shop-test-x7'); await page.dispatchEvent('#ntTopic', 'change'); });
+    await page.click('#ntTest');
+    ok(await toastHas('أُرسل الإشعار'), 'إشعار تجريبي');
+    ok(ntfy.length === 1 && ntfy[0].topic === 'shop-test-x7' && ntfy[0].title === 'تجربة من مكتبة التجربة' && ntfy[0].tags[0] === 'bell',
+      'ووصل خادم ntfy بالقناة والعنوان', ntfy);
+    await page.waitForSelector('#ntHost .badge.ok >> text=أُرسل');
+    ok(true, 'وفي «آخر الإشعارات المرسلة»');
+    await ntSaved(() => page.selectOption('#ntOn', 'yes'));
+    ok(await page.$('#ntHost .card-head .badge.ok') !== null, 'التفعيل');
+    await ntSaved(() => page.check('#ntHost input[data-kind="sale"]'));
+    await ntSaved(() => page.check('#ntHost input[data-kind="daily"]'));
+    await page.waitForSelector('#ntHour');
+    ok(await page.$eval('#ntHour', e => e.value) === '20' && await page.$('#ntProfit:not(:checked)') !== null, 'الملخص اليومي: الساعة 20، والربح مطفأ');
+    await ntSaved(() => page.check('#ntHost input[data-kind="bigsale"]'));
+    await page.waitForSelector('#ntBig');
+    await shot('15d-notify');
+    const sold = await page.evaluate(() => V4.call('items.page', { kind: 'book', limit: 50 }).then(d => d.items.filter(x => x.qty > 3)[0]).then(it =>
+      V4.call('sale', { lines: [{ itemId: it.id, qty: 1 }], discount: 0, method: 'cash', mode: 'retail' }).then(r => [it.title, r.no])));
+    for (let i = 0; i < 40 && ntfy.length < 2; i++) await E.sleep(150);
+    ok(ntfy.length === 2 && ntfy[1].title.indexOf('[طرابلس] فاتورة ' + sold[1] + ' — ') === 0 && ntfy[1].message.indexOf(sold[0]) === 0 && ntfy[1].tags[0] === 'shopping_cart',
+      'بيعة: يرسل المحرك إشعارها وحده، وعنوانه باسم الفرع كما في 3.x', ntfy[1]);
+    await ntSaved(() => page.selectOption('#ntOn', 'no'));
+    ok((await text('#ntHost .card-head')).indexOf('غير مفعّلة') >= 0, 'والإيقاف');
+    nsrv.close();
 
     console.log('\n== موظف بكلمة سر ==');
     await page.click('#nav .nav-item[data-k="settings"]');
