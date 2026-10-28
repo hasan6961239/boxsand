@@ -88,6 +88,25 @@
   - ما له باركود لا يُمسّ.
 - **`labels.unprint`:** يعيد الأصناف لـ«لم تُطبع».
 
+## المخزون والأماكن، جرد المخزون، التنبيهات، الراكدة
+
+- **`places.summary`** (`view_stock`): لكل مكان كم صنفاً وكم قطعة فيه (وقيمتها بسعر الشراء لمن
+  يملك `view_cost`). الشاشة تجمع ما تحت كل مكان.
+- **`place.items`** (`view_stock`): ما في مكان (وما تحته، إلا مع `sub: false`) صنفاً صنفاً.
+  - كل صنف بكميته هناك (`placeQty`) وكميته في المحل كله.
+  - مع `q`: بترتيب البحث.
+- **جرد المخزون الفعلي** (`count`):
+  - `count.page`: الجرد المفتوح.
+    - ملخّصه: عُدّ، مطابق، ناقص، زائد، قطع وقيمة النقص.
+    - أصناف النطاق صفحة صفحة: غير المعدود أولاً ثم الأكبر فرقاً، و`show: left|diff`، و`q`.
+  - `count.set` مع `add` بدل `counted`: مسحة بالقارئ (+1 أو −1)، والرد العدد الجديد.
+  - صنف خارج نطاق الجرد يُرفض («خارج نطاق هذا الجرد»)، فالتصحيح لا يمسّ إلا ما في النطاق.
+  - `count.rest`: «الباقي مطابق» لكل غير المعدود، بأمر واحد.
+  - `counts.page` و`count.get`: الجرد السابق وفروقه.
+- **`alerts`:** ومعه المؤلف أو الماركة، والسعر، ومكان الصنف، وما في المخازن، وسعر الشراء لمن
+  يراه.
+- **`stale`:** ومعه المؤلف، وتاريخ الإضافة، والسعر، وسعر الشراء لمن يراه، والمكان، والتصنيف.
+
 ## المزامنة (قرار 0023)
 
 - **أوامر البرنامج** (`Program.cs`):
@@ -122,14 +141,14 @@
 - **`login.users`:** أسماء الموظفين العاملين ومن له كلمة سر، لشاشة الدخول. المدير وحده بلا
   كلمة سر يدخل مباشرة.
 
-## الأوامر (74) وصلاحية كل منها
+## الأوامر (80) وصلاحية كل منها
 
 | الصلاحية | الأوامر |
 |---|---|
 | أي موظف داخل | `me` (ومعه `hasPassword`)، `me.password`، `shop.info` (ومعه `demo`) |
 | `sell` البيع | `sale`، `invoice.get`، `invoices.page`، `customers.list` |
 | `search` البحث | `search`، `items.page`، `item.find`، `categories.list` |
-| `view_stock` مشاهدة المخزون | `item.get`، `places.list`، `alerts` |
+| `view_stock` مشاهدة المخزون | `item.get`، `places.list`، `alerts`، `places.summary`، `place.items` |
 | `returns` الإرجاع | `return` |
 | `edit_invoice` تعديل الفواتير | `invoice.edit` |
 | `delete_invoice` حذف الفواتير | `invoice.delete` |
@@ -138,7 +157,7 @@
 | `view_cost` سعر الشراء والأرباح | (يُظهر `cost` و`profit` في الردود) |
 | `receive` إدخال البضاعة | `receive`، `purchases.page`، `purchase.get` |
 | `move_stock` النقل بين الأماكن | `stock.move` |
-| `count` الجرد | `count.start`، `count.set`، `count.apply`، `count.cancel`، `count.current` |
+| `count` الجرد | `count.start`، `count.set`، `count.apply`، `count.cancel`، `count.current`، `count.page`، `count.rest`، `counts.page`، `count.get` |
 | `customers` الزبائن | `customer.add`، `customer.edit`، `customer.delete`، `customer.get`، `customers.page`، `customer.statement` |
 | `debts` الديون | `payment.add`، `customer.balance` (ودين سابق عند `customer.add`) |
 | `suppliers` الموردون ودور النشر | `supplier.add`، `supplier.edit`، `supplier.delete`، `publisher.save`، `publisher.delete` |

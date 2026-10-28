@@ -242,6 +242,7 @@ namespace Qirtasiya.Data
             {
                 if (db.Long("SELECT COUNT(*) FROM count_sessions WHERE id = ? AND status = 'open'", 0, sessionId) == 0) throw Err("لا جرد مفتوح.");
                 ItemRow it = ActiveItem(itemId);
+                CheckInScope(sessionId, it);
                 if (counted == null)
                 {
                     db.Run("DELETE FROM count_entries WHERE session_id = ? AND item_id = ?", sessionId, itemId);
@@ -256,6 +257,66 @@ namespace Qirtasiya.Data
                 c.Detail = "جرد: " + it.Title + " → " + counted.Value;
                 c.RefType = "count"; c.RefId = sessionId;
             });
+        }
+
+        /* مسحة بالقارئ: العدد المعدود يزيد (أو ينقص) واحداً، من صفر إن لم يُعدّ بعد */
+        public long CountAdd(long sessionId, long itemId, long delta, long userId)
+        {
+            return Run<long>("count-set", userId, delegate (Cmd c)
+            {
+                if (db.Long("SELECT COUNT(*) FROM count_sessions WHERE id = ? AND status = 'open'", 0, sessionId) == 0) throw Err("لا جرد مفتوح.");
+                ItemRow it = ActiveItem(itemId);
+                CheckInScope(sessionId, it);
+                long cur = db.Long("SELECT counted_qty FROM count_entries WHERE session_id = ? AND item_id = ?", 0, sessionId, itemId);
+                long n = Math.Max(cur + delta, 0);
+                db.Run("INSERT INTO count_entries(session_id, item_id, name, base_qty, counted_qty, cost, counted_at) VALUES(?, ?, ?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(session_id, item_id) DO UPDATE SET base_qty = excluded.base_qty, counted_qty = excluded.counted_qty, " +
+                    "cost = excluded.cost, counted_at = excluded.counted_at",
+                    sessionId, itemId, it.Title, ShopQty0(itemId), n, it.Cost, c.At);
+                c.Detail = "جرد: " + it.Title + " → " + n;
+                c.RefType = "count"; c.RefId = sessionId;
+                return n;
+            });
+        }
+
+        /* صنف خارج نطاق الجرد (قرطاسية في جرد الكتب) لا يُعدّ: التصحيح يمسّ ما في النطاق وحده */
+        void CheckInScope(long sessionId, ItemRow it)
+        {
+            List<object[]> ss = db.Rows("SELECT scope, scope_value FROM count_sessions WHERE id = ?", sessionId);
+            object arg;
+            string where = ScopeWhere((string)ss[0][0], (string)ss[0][1], out arg);
+            long n = arg == null ? db.Long("SELECT COUNT(*) FROM items i WHERE i.id = ? AND " + where, 0, it.Id)
+                : db.Long("SELECT COUNT(*) FROM items i WHERE i.id = ? AND " + where, 0, it.Id, arg);
+            if (n == 0) throw Err("«" + it.Title + "» خارج نطاق هذا الجرد.");
+        }
+
+        /* «الباقي مطابق»: كل صنف في النطاق لم يُعدّ يُعتبر مطابقاً للمسجَّل الآن، بأمر واحد */
+        public long CountRest(long sessionId, long userId)
+        {
+            return Run<long>("count-rest", userId, delegate (Cmd c)
+            {
+                List<object[]> ss = db.Rows("SELECT scope, scope_value FROM count_sessions WHERE id = ? AND status = 'open'", sessionId);
+                if (ss.Count == 0) throw Err("لا جرد مفتوح.");
+                object arg;
+                string where = ScopeWhere((string)ss[0][0], (string)ss[0][1], out arg);
+                const string q = "(SELECT IFNULL(SUM(s.qty), 0) FROM item_stock s JOIN places p ON p.id = s.place_id WHERE s.item_id = i.id AND p.kind <> 'store')";
+                string sql = "INSERT INTO count_entries(session_id, item_id, name, base_qty, counted_qty, cost, counted_at) " +
+                    "SELECT ?, i.id, i.title, " + q + ", " + q + ", i.cost, ? FROM items i WHERE " + where +
+                    " AND NOT EXISTS (SELECT 1 FROM count_entries e WHERE e.session_id = ? AND e.item_id = i.id)";
+                long n = arg == null ? db.Run(sql, sessionId, c.At, sessionId) : db.Run(sql, sessionId, c.At, arg, sessionId);
+                c.Detail = "جرد: " + n + " صنف اعتُبر مطابقاً";
+                c.RefType = "count"; c.RefId = sessionId;
+                return n;
+            });
+        }
+
+        /* شرط نطاق الجرد على الأصناف (i) وقيمته، للأوامر التي تعرض الجرد */
+        public string ScopeWhere(string scope, string value, out object arg)
+        {
+            object a;
+            string where = ScopeSql(scope, out a);
+            arg = a == null ? null : (a is long ? (object)ParseLong(value) : (object)(value ?? ""));
+            return where;
         }
 
         /* يصحّح المخزون: الكمية الآن + (المعدود − المسجَّل وقت العدّ). ما بِيع

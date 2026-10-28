@@ -161,8 +161,8 @@ namespace Qirtasiya.Engine
             {
                 return db.MoveStock(c.Long("itemId"), c.Long("from"), c.Long("to"), c.Long("qty"), c.User);
             });
-            Add("alerts", "view_stock", delegate (Ctx c) { return Alerts(c.Long("limit", 500)); });
-            Add("stale", "reports", delegate (Ctx c) { return Stale(c.Long("days", 150), c.Long("limit", 500)); });
+            Add("alerts", "view_stock", delegate (Ctx c) { return Alerts(c.Long("limit", 500), c.S.Can("view_cost")); });
+            Add("stale", "reports", delegate (Ctx c) { return Stale(c.Long("days", 150), c.Long("limit", 500), c.S.Can("view_cost")); });
 
             /* ---------- الزبائن والديون ---------- */
             Add("customers.list", "sell", delegate (Ctx c)
@@ -310,6 +310,8 @@ namespace Qirtasiya.Engine
             Add("count.start", "count", delegate (Ctx c) { return db.CountStart(c.Has("scope") ? c.Str("scope") : "all", c.Str("value"), c.User); });
             Add("count.set", "count", delegate (Ctx c)
             {
+                /* مسحة بالقارئ: add بدل العدد، والرد العدد الجديد */
+                if (c.Has("add")) return db.CountAdd(c.Long("sessionId"), c.Long("itemId"), c.Long("add"), c.User);
                 long? n = c.Has("counted") ? (long?)c.Long("counted") : null;
                 db.CountSet(c.Long("sessionId"), c.Long("itemId"), n, c.User);
                 return null;
@@ -342,6 +344,7 @@ namespace Qirtasiya.Engine
 
             RegisterSync();
             RegisterShop();
+            RegisterStock();
         }
 
         /* سطر بلا سعر: سعر الصنف الحالي (الجملة في بيع الجملة إن كان له سعر جملة) */

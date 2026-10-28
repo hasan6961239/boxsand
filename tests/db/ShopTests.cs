@@ -167,6 +167,52 @@ static class ShopTests
         Data("labels.unprint", "{\"ids\":[" + has + "]}");
         ok(ids("need", null).Contains(has), "وإرجاع العلامة يعيدها");
 
+        /* ---------- الأماكن والمخازن ---------- */
+        Dictionary<long, Dictionary<string, object>> sum = new Dictionary<long, Dictionary<string, object>>();
+        foreach (object o in A(Data("places.summary", "{}"))) sum[L(D(o)["id"])] = D(o);
+        ok(sum.ContainsKey(store) && L(sum[store]["pieces"]) == 4 && L(sum[store]["items"]) == 1, "ملخّص الأماكن: في المخزن 4 قطع من صنف واحد", Json.Write(sum[store]));
+        Dictionary<string, object> pi = D(Data("place.items", "{\"placeId\":" + store + "}"));
+        ok(L(pi["total"]) == 1 && L(D(A(pi["items"])[0])["placeQty"]) == 4 && (string)D(A(pi["items"])[0])["title"] == "كتاب الجرد", "ما في المخزن: كتاب الجرد × 4", Json.Write(pi));
+        long shopQty = L(D(Data("item.get", "{\"id\":" + a + "}"))["qty"]);
+        Data("stock.move", "{\"itemId\":" + a + ",\"from\":" + store + ",\"to\":1,\"qty\":3}");
+        ok(L(D(A(D(Data("place.items", "{\"placeId\":" + store + "}"))["items"])[0])["placeQty"]) == 1 &&
+            L(D(Data("item.get", "{\"id\":" + a + "}"))["qty"]) == shopQty + 3, "النقل من المخزن للمحل: 3 قطع");
+        ok(L(D(Data("place.items", "{\"placeId\":1,\"q\":\"كتاب الجرد\"}"))["total"]) >= 1, "والبحث داخل مكان");
+
+        /* ---------- جرد المخزون الفعلي ---------- */
+        long sess = L(Data("count.start", "{\"scope\":\"books\"}"));
+        Dictionary<string, object> cp0 = D(Data("count.page", "{}"));
+        long nBooks = L(cp0["total"]);
+        ok(L(cp0["id"]) == sess && L(cp0["done"]) == 0 && L(cp0["shown"]) == nBooks, "الجرد: كل كتب النطاق، لم يُعدّ شيء", Json.Write(cp0["total"]));
+        long recA = shopQty + 3;
+        ok(L(Data("count.set", "{\"sessionId\":" + sess + ",\"itemId\":" + a + ",\"add\":1}")) == 1, "مسحة: العدد 1");
+        ok(L(Data("count.set", "{\"sessionId\":" + sess + ",\"itemId\":" + a + ",\"add\":1}")) == 2, "مسحة ثانية: 2");
+        long pen = L(Data("item.add", "{\"kind\":\"stat\",\"title\":\"قلم خارج النطاق\",\"price\":500,\"qty\":3}"));
+        string outErr = Error("count.set", "{\"sessionId\":" + sess + ",\"itemId\":" + pen + ",\"add\":1}");
+        ok(outErr != null && outErr.Contains("خارج نطاق"), "صنف خارج نطاق الجرد لا يُعدّ", outErr);
+        Sale(a, 1, "cash", 0, 0);                            // بيعة أثناء الجرد: لا تُحسب على العدّ
+        Dictionary<string, object> cp1 = D(Data("count.page", "{\"show\":\"diff\"}"));
+        Dictionary<string, object> row = D(A(cp1["items"])[0]);
+        ok(L(cp1["done"]) == 1 && L(row["id"]) == a && L(row["rec"]) == recA && L(row["counted"]) == 2 && L(row["diff"]) == 2 - recA,
+            "المسجَّل وقت العدّ لا وقت التصحيح", Json.Write(row));
+        ok(L(D(Data("count.page", "{\"q\":\"كتاب له كود\"}"))["shown"]) == 1, "البحث داخل الجرد");
+        long rest = L(Data("count.rest", "{\"sessionId\":" + sess + "}"));
+        Dictionary<string, object> cp2 = D(Data("count.page", "{}"));
+        ok(rest == nBooks - 1 && L(cp2["done"]) == nBooks && L(cp2["less"]) == 1, "«الباقي مطابق»: كل غير المعدود بأمر واحد", rest + " / " + Json.Write(cp2["done"]));
+        Dictionary<string, object> ap = D(Data("count.apply", "{\"sessionId\":" + sess + "}"));
+        ok(L(ap["fixed"]) == 1 && L(ap["lossQty"]) == recA - 2, "التصحيح: صنف واحد، والنقص بقطعه", Json.Write(ap));
+        ok(L(D(Data("item.get", "{\"id\":" + a + "}"))["qty"]) == 1, "الكمية بعد التصحيح: المعدود (2) ناقص ما بيع بعده (1)");
+        ok(Data("count.page", "{}") == null, "لا جرد مفتوح بعده");
+        List<object> past = A(Data("counts.page", "{}"));
+        ok(past.Count == 1 && L(D(past[0])["less"]) == 1 && A(Data("count.get", "{\"id\":" + sess + "}")).Count == 1, "الجرد في السجل بتفاصيل فروقه");
+
+        /* ---------- الراكدة ---------- */
+        now = now.AddDays(200);
+        T = (string)D(Data("login", "{\"login\":\"admin\",\"password\":\"\"}"))["token"];
+        List<object> stale = A(Data("stale", "{\"days\":150}"));
+        ok(stale.Count >= 1 && D(stale[0]).ContainsKey("price") && D(stale[0]).ContainsKey("cost"), "الراكدة بعد 200 يوم: بسعرها وسعر شرائها", Json.Write(stale.Count));
+        now = now.AddDays(-200);
+
         db.Dispose();
         foreach (string f in new string[] { path, path + "-wal", path + "-shm" })
             try { File.Delete(f); } catch { }

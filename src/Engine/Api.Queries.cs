@@ -186,24 +186,32 @@ namespace Qirtasiya.Engine
         }
 
         /* نفد (صفر أو أقل في المحل) وقارب على النفاد (عند حدّ التنبيه أو تحته) */
-        object Alerts(long limit)
+        object Alerts(long limit, bool cost)
         {
-            const string sql = "SELECT i.id, i.kind, i.code, i.title, i.min_qty, IFNULL(q.qty, 0) AS qty, IFNULL(w.qty, 0) FROM items i " +
+            const string sql = "SELECT i.id, i.kind, i.code, i.title, i.min_qty, IFNULL(q.qty, 0) AS qty, IFNULL(w.qty, 0), " +
+                "CASE WHEN i.author <> '' THEN i.author ELSE i.brand END, i.price, i.cost, i.home_place_id, i.barcode FROM items i " +
                 "LEFT JOIN (SELECT s.item_id, SUM(s.qty) AS qty FROM item_stock s JOIN places p ON p.id = s.place_id WHERE p.kind <> 'store' GROUP BY s.item_id) q ON q.item_id = i.id " +
                 "LEFT JOIN (SELECT s.item_id, SUM(s.qty) AS qty FROM item_stock s JOIN places p ON p.id = s.place_id WHERE p.kind = 'store' GROUP BY s.item_id) w ON w.item_id = i.id " +
                 "WHERE i.active = 1 AND {0} ORDER BY IFNULL(q.qty, 0), i.title LIMIT ?";
-            string[] names = { "id", "kind", "code", "title", "min", "qty", "inStores" };
-            return O("out", Rows(string.Format(sql, "IFNULL(q.qty, 0) <= 0"), names, Math.Min(Math.Max(limit, 1), 2000)),
-                "low", Rows(string.Format(sql, "i.min_qty > 0 AND IFNULL(q.qty, 0) > 0 AND IFNULL(q.qty, 0) <= i.min_qty"), names, Math.Min(Math.Max(limit, 1), 2000)));
+            string[] names = { "id", "kind", "code", "title", "min", "qty", "inStores", "by", "price", "cost", "homePlaceId", "barcode" };
+            List<Dictionary<string, object>> o = Rows(string.Format(sql, "IFNULL(q.qty, 0) <= 0"), names, Math.Min(Math.Max(limit, 1), 2000));
+            List<Dictionary<string, object>> l = Rows(string.Format(sql, "i.min_qty > 0 AND IFNULL(q.qty, 0) > 0 AND IFNULL(q.qty, 0) <= i.min_qty"), names, Math.Min(Math.Max(limit, 1), 2000));
+            if (!cost) { foreach (Dictionary<string, object> r in o) r.Remove("cost"); foreach (Dictionary<string, object> r in l) r.Remove("cost"); }
+            return O("out", o, "low", l);
         }
 
-        object Stale(long days, long limit)
+        /* لم يُبع منذ days يوماً (أو لم يُبع أبداً) وعليه كمية في المحل، والأقدم أولاً */
+        object Stale(long days, long limit, bool cost)
         {
             string since = ShopDb.Day(clock().AddDays(-Math.Max(days, 1)));
-            return Rows("SELECT i.id, i.kind, i.code, i.title, i.last_sold, " + QtyExpr + " AS qty FROM items i " +
+            List<Dictionary<string, object>> rows = Rows("SELECT i.id, i.kind, i.code, i.title, CASE WHEN i.author <> '' THEN i.author ELSE i.brand END, " +
+                "i.last_sold, substr(i.created_at, 1, 10), i.price, i.cost, i.home_place_id, i.cat, " + QtyExpr + " AS qty FROM items i " +
                 "WHERE i.active = 1 AND (i.last_sold = '' OR i.last_sold < ?) AND i.created_at < ? AND " + QtyExpr + " > 0 " +
-                "ORDER BY i.last_sold, i.title LIMIT ?", new string[] { "id", "kind", "code", "title", "lastSold", "qty" },
-                since, since, Math.Min(Math.Max(limit, 1), 2000));
+                "ORDER BY i.last_sold, i.title LIMIT ?",
+                new string[] { "id", "kind", "code", "title", "by", "lastSold", "createdAt", "price", "cost", "homePlaceId", "cat", "qty" },
+                since, since, Math.Min(Math.Max(limit, 1), 5000));
+            if (!cost) foreach (Dictionary<string, object> r in rows) r.Remove("cost");
+            return rows;
         }
 
         /* ---------- الزبائن ---------- */

@@ -52,6 +52,12 @@ function ok(cond, name, detail) {
     const shot = n => page.screenshot({ path: path.join(shots, n + '.png') });
     const top = '#modalHost .overlay:last-child';
     const text = sel => page.$eval(sel, e => e.textContent.trim()).catch(() => '');
+    /* النموذج يركّز خانته الأولى بعد 60 ms: الكتابة قبلها قد تقع في الخانة الأولى */
+    const formReady = () => page.waitForFunction(() => {
+      const ov = document.querySelector('#modalHost .overlay:last-child');
+      const f = ov && ov.querySelector('.m-body input,.m-body select,.m-body textarea');
+      return f && document.activeElement === f;
+    }, null, { timeout: 3000 }).catch(() => { });
     const toastHas = s => page.waitForFunction(t => Array.prototype.some.call(document.querySelectorAll('#toasts .toast'),
       x => x.textContent.indexOf(t) >= 0), s, { timeout: 8000 }).then(() => true, () => false);
 
@@ -163,6 +169,7 @@ function ok(cond, name, detail) {
     ok(true, 'البحث في صفحة الأصناف', await text('#itCount'));
     await page.click('.toolbar .btn.primary');
     await page.waitForSelector(top + ' #f_title');
+    await formReady();
     await page.fill(top + ' #f_title', 'كتاب الاختبار الآلي');
     await page.fill(top + ' #f_by', 'مؤلف الاختبار');
     await page.fill(top + ' #f_barcode', '9990001112223');
@@ -180,6 +187,7 @@ function ok(cond, name, detail) {
     ok((await text('#itBody table tbody tr td.num:nth-of-type(5)')) === '12.50' || (await text('#itBody')).indexOf('12.50') >= 0, 'بالباركود يظهر بسعره 12.50');
     await page.click('#itBody table tbody tr .btn');
     await page.waitForSelector(top + ' #f_price');
+    await formReady();
     await page.fill(top + ' #f_price', '15');
     await page.click(top + ' .m-foot .btn.primary');
     ok(await toastHas('حُفظ: كتاب الاختبار الآلي'), 'تعديل السعر');
@@ -199,6 +207,7 @@ function ok(cond, name, detail) {
     ok(/إجمالي الديون على الزبائن/.test(await text('#cuStats')), 'صفحة الزبائن: إجمالي الديون وعدد الزبائن');
     await page.click('#view button:has-text("+ زبون جديد")');
     await page.waitForSelector(top + ' #f_name');
+    await formReady();
     await page.fill(top + ' #f_name', 'زبون الاختبار');
     await page.fill(top + ' #f_phone', '0912345678');
     await page.fill(top + ' #f_opening', '40');
@@ -210,6 +219,7 @@ function ok(cond, name, detail) {
     ok((await text('#cuList')).indexOf('40.00') >= 0, 'والبحث يجده بدينه 40');
     await page.click('#cuList button:has-text("تسديد")');
     await page.waitForSelector(top + ' #f_amount');
+    await formReady();
     ok(await page.$eval(top + ' #f_amount', e => e.value) === '40.00', 'التسديد يقترح الدين كله');
     await page.fill(top + ' #f_amount', '15');
     await page.click(top + ' .m-foot .btn.primary');
@@ -236,6 +246,7 @@ function ok(cond, name, detail) {
     await page.waitForSelector('#payNewCust');
     await page.click('#payNewCust');
     await page.waitForSelector(top + ' #f_name');
+    await formReady();
     await page.fill(top + ' #f_name', 'زبون من البيع');
     await page.click(top + ' .m-foot .btn.primary');
     ok(await page.waitForFunction(() => { const x = document.getElementById('payCust'); return x && x.selectedOptions[0] && x.selectedOptions[0].textContent === 'زبون من البيع'; },
@@ -311,6 +322,7 @@ function ok(cond, name, detail) {
     await page.click('#nav .nav-item[data-k="items"]');
     await page.click('#view button:has-text("+ صنف جديد")');
     await page.waitForSelector(top + ' #f_title');
+    await formReady();
     await page.fill(top + ' #f_title', 'دفتر بلا باركود');
     await page.fill(top + ' #f_price', '3');
     await page.fill(top + ' #f_qty', '2');
@@ -331,11 +343,85 @@ function ok(cond, name, detail) {
     const found = await page.evaluate(b => V4.call('item.find', { barcode: b }), gen);
     ok(found && found.title === 'دفتر بلا باركود', 'ويُمسح في البيع');
 
+    console.log('\n== المخزون والأماكن، التنبيهات، الراكدة، جرد المخزون ==');
+    await page.click('#nav .nav-item[data-k="stock"]');
+    await page.waitForSelector('#stHost .branch-card');
+    const cards = await page.$$eval('#stHost .branch-card .bc-tag', x => x.map(e => e.textContent));
+    ok(cards[0] === 'المحل' && cards.indexOf('مخزن') > 0, 'المخزون: بطاقة المحل وبطاقة لكل مخزن', cards);
+    await page.click('#stHost .branch-card:has(.bc-tag.wh)');
+    await page.waitForSelector('#stItems tbody tr');
+    const firstStore = await text('#stItems tbody tr:first-child b.name');
+    ok(firstStore.length > 0, 'ما في المخزن صنفاً صنفاً', firstStore);
+    await page.click('#stItems tbody tr:first-child button:has-text("نقل")');
+    await page.waitForSelector(top + ' #f_qty');
+    await formReady();
+    await page.fill(top + ' #f_qty', '1');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('نُقل 1 من «' + firstStore + '»'), 'نقل نسخة من المخزن إلى مكانها');
+    await page.click('#stHost button:has-text("نقل بالقارئ")');
+    await page.waitForSelector(top + ' #mvScan');
+    await page.fill(top + ' #mvScan', firstStore);
+    await page.press(top + ' #mvScan', 'Enter');
+    await page.waitForSelector(top + ' #mvLines tbody tr');
+    await shot('12c-scan-move');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('نُقلت 1 نسخة'), 'النقل بالقارئ: مسحة ثم تأكيد');
+    await page.click('#stHost button:has-text("كل الأماكن")');
+    await page.waitForSelector('#stHost button:has-text("+ إضافة مخزن")');
+    await page.click('#stHost button:has-text("+ إضافة مخزن")');
+    await page.waitForSelector(top + ' #f_name');
+    await formReady();
+    await page.fill(top + ' #f_name', 'مخزن الاختبار');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('أُضيف: مخزن الاختبار'), 'إضافة مخزن');
+    await page.waitForSelector('#stHost >> text=مخزن الاختبار');
+    await page.click('#stHost button:has-text("شجرة الأماكن")');
+    await page.waitForSelector(top + ' #ptree');
+    ok((await text(top + ' #ptree')).indexOf('مخزن الاختبار') >= 0, 'وشجرة الأماكن فيها');
+    await shot('12d-places-tree');
+    await page.keyboard.press('Escape');
+
+    await page.click('#nav .nav-item[data-k="alerts"]');
+    await page.waitForSelector('#alStats .stat');
+    ok(/نفدت تماماً/.test(await text('#alStats')) && await page.$('#alList table, #alList .empty') !== null, 'التنبيهات: النافد والقارب وقائمة الشراء');
+    await page.click('#nav .nav-item[data-k="stale"]');
+    await page.waitForSelector('#stStats .stat');
+    ok(/حد الركود/.test(await text('#stStats')), 'البضاعة الراكدة: البطاقات وحد الركود');
+
+    await page.click('#nav .nav-item[data-k="count"]');
+    await page.waitForSelector('#cnScope');
+    await page.selectOption('#cnScope', 'stat');
+    await page.waitForFunction(() => /صنف في هذا النطاق/.test(document.getElementById('cnN').textContent));
+    await page.click('#cnHost button:has-text("ابدأ الجرد")');
+    await page.waitForSelector('#cnScan');
+    await page.fill('#cnScan', '621000000000');
+    await page.press('#cnScan', 'Enter');
+    ok(await toastHas('قلم جاف أزرق → 1'), 'جرد القرطاسية: مسحة القلم → 1');
+    await page.fill('#cnScan', '621000000000');
+    await page.press('#cnScan', 'Enter');
+    ok(await toastHas('قلم جاف أزرق → 2'), 'ومسحة ثانية → 2');
+    const bookCode = await page.evaluate(() => V4.call('items.page', { kind: 'book', limit: 200 }).then(d => d.items.filter(x => x.barcode)[0].barcode));
+    await page.fill('#cnScan', bookCode);
+    await page.press('#cnScan', 'Enter');
+    ok(await toastHas('خارج نطاق هذا الجرد'), 'كتاب في جرد القرطاسية: «خارج نطاق هذا الجرد»',
+      [bookCode, await page.$$eval('#toasts .toast', t => t.map(x => x.textContent).slice(-4))]);
+    await page.waitForFunction(() => /عُدّ 1 من/.test(document.getElementById('cnDone').textContent));
+    await shot('12e-count');
+    await page.click('#cnHost button:has-text("الباقي مطابق")');
+    await page.click(top + ' >> text=اعتبرها مطابقة');
+    ok(await toastHas('اعتُبر'), '«الباقي مطابق»');
+    await page.click('#cnHost button:has-text("إنهاء وتصحيح المخزون")');
+    await page.click(top + ' >> text=صحّح المخزون');
+    ok(await toastHas('صُحّح 1 صنفاً'), 'التصحيح: صنف واحد فيه فرق (القلم)');
+    await page.waitForSelector('#cnPast tbody tr');
+    ok(true, 'والجرد في عمليات الجرد السابقة');
+
     console.log('\n== موظف بكلمة سر ==');
     await page.click('#nav .nav-item[data-k="settings"]');
     await page.waitForSelector('#setUsers table');
     await page.click('#setUsers .btn.primary');
     await page.waitForSelector(top + ' #f_name');
+    await formReady();
     await page.fill(top + ' #f_name', 'سالم');
     await page.fill(top + ' #f_login', 'salem');
     await page.fill(top + ' #f_password', '4321');
@@ -373,6 +459,7 @@ function ok(cond, name, detail) {
     ok((await text('#bkOut')).indexOf('qirtasiya-') >= 0, 'آخر نسخة يومية ظاهرة', await text('#bkOut'));
     await page.click('#view button:has-text("المجلد الإضافي")');
     await page.waitForSelector(top + ' #f_dir');
+    await formReady();
     await page.fill(top + ' #f_dir', 'نسخ');
     await page.click(top + ' .m-foot .btn.primary');
     ok(await toastHas('اكتب المسار كاملاً'), 'مسار ناقص يُرفض');
@@ -404,6 +491,7 @@ function ok(cond, name, detail) {
     ok((await text('#syncCard')).indexOf('نسخة تجربة: لا تُربط بخادم الربط الحقيقي') >= 0, 'وتنبّه: نسخة التجربة لا تُربط بالخادم الحقيقي');
     await page.click('#syncCard button:has-text("هذا جهاز المحل")');
     await page.waitForSelector(top + ' #f_url');
+    await formReady();
     await page.fill(top + ' #f_url', 'https://maktaba-sync.example.workers.dev');
     await page.fill(top + ' #f_key', KEY);
     await page.click(top + ' .m-foot .btn.primary');
