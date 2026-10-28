@@ -193,6 +193,90 @@ function ok(cond, name, detail) {
     await page.waitForFunction(() => !document.querySelector('#itBody table tbody tr b.name'));
     ok(await page.$$eval('#modalHost .overlay', o => o.length) === 0, 'ونافذة التعديل أُغلقت معه');
 
+    console.log('\n== الزبائن والديون، الإرجاع، الجرد وإقفال اليوم ==');
+    await page.click('#nav .nav-item[data-k="customers"]');
+    await page.waitForSelector('#cuList table');
+    ok(/إجمالي الديون على الزبائن/.test(await text('#cuStats')), 'صفحة الزبائن: إجمالي الديون وعدد الزبائن');
+    await page.click('#view button:has-text("+ زبون جديد")');
+    await page.waitForSelector(top + ' #f_name');
+    await page.fill(top + ' #f_name', 'زبون الاختبار');
+    await page.fill(top + ' #f_phone', '0912345678');
+    await page.fill(top + ' #f_opening', '40');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('أُضيف: زبون الاختبار'), 'زبون جديد بدين سابق');
+    await page.fill('#cuQ', 'زبون الاختبار');
+    await page.waitForFunction(() => /زبون الاختبار/.test(document.getElementById('cuList').textContent) &&
+      document.querySelectorAll('#cuList tbody tr').length === 1);
+    ok((await text('#cuList')).indexOf('40.00') >= 0, 'والبحث يجده بدينه 40');
+    await page.click('#cuList button:has-text("تسديد")');
+    await page.waitForSelector(top + ' #f_amount');
+    ok(await page.$eval(top + ' #f_amount', e => e.value) === '40.00', 'التسديد يقترح الدين كله');
+    await page.fill(top + ' #f_amount', '15');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('المتبقي: 25.00'), 'تسديد 15: المتبقي 25');
+    await page.waitForFunction(() => /25\.00/.test(document.getElementById('cuList').textContent));
+    await page.click('#cuList button:has-text("كشف حساب")');
+    await page.waitForSelector(top + ' table tbody tr');
+    const stRows = await page.$$eval(top + ' table tbody tr', r => r.map(x => x.textContent));
+    ok(stRows.length === 2 && /تسديد/.test(stRows[0]) && /دين سابق/.test(stRows[1]) && /25\.00/.test(stRows[0]),
+      'كشف الحساب: الدين السابق ثم التسديد، والرصيد بعد كل حركة', stRows);
+    await shot('11a-statement');
+    await page.keyboard.press('Escape');
+    await page.click('#cuList button:has-text("حذف")');
+    ok(await toastHas('سدّده أولاً'), 'زبون عليه دين لا يُحذف');
+
+    await page.click('#nav .nav-item[data-k="pos"]');
+    await page.waitForSelector('#scan');
+    await page.fill('#scan', 'الفيزياء الأساسية');
+    await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cartArea .cart-line');
+    await page.click('#doneBtn');
+    await page.waitForSelector('#modalHost [data-m="credit"]');
+    await page.click('#modalHost [data-m="credit"]');
+    await page.waitForSelector('#payNewCust');
+    await page.click('#payNewCust');
+    await page.waitForSelector(top + ' #f_name');
+    await page.fill(top + ' #f_name', 'زبون من البيع');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await page.waitForFunction(() => { const x = document.getElementById('payCust'); return x && x.selectedOptions[0] && x.selectedOptions[0].textContent === 'زبون من البيع'; },
+      null, { timeout: 8000 }).then(() => true, () => false), 'نقطة البيع: «+ زبون جديد» من الآجل يُضاف ويُختار');
+    await page.fill('#payNow', '10');
+    await page.click('#payCredit');
+    ok(await toastHas('تمت البيعة'), 'بيعة آجلة 30 له، دفع منها 10');
+
+    await page.click('#nav .nav-item[data-k="invoices"]');
+    await page.waitForSelector('#invBody table');
+    await page.click('#invBody tbody tr:first-child button:has-text("إرجاع")');
+    await page.waitForSelector(top + ' .ret-q');
+    await page.fill(top + ' .ret-q', '1');
+    ok(await text(top + ' #retSum') === '30.00', 'نافذة الإرجاع: يُرجَع 30', await text(top + ' #retSum'));
+    await shot('11b-return');
+    await page.click(top + ' .m-foot .btn.danger');
+    ok(await toastHas('أُنقص من دين الزبون 20.00') && await toastHas('يُردّ نقداً 10.00'), 'الإرجاع الآجل: ينقص دينه 20 ويُردّ له 10 نقداً');
+    await page.waitForFunction(() => /إرجاع/.test(document.querySelector('#invBody tbody tr:first-child').textContent));
+    await page.click('#invBody tbody tr:nth-child(2) button:has-text("عرض")');
+    await page.waitForSelector(top + ' >> text=أُرجع منها');
+    ok((await text(top + ' table')).indexOf('أُرجع 1') >= 0 && await page.$(top + ' .m-foot button:has-text("إرجاع")') === null,
+      'الفاتورة تقول ما أُرجع منها، ولا إرجاع بعد أن أُرجع كلها');
+    await page.keyboard.press('Escape');
+
+    await page.click('#nav .nav-item[data-k="stocktake"]');
+    await page.waitForSelector('#closeCard');
+    const tk = await page.evaluate(() => V4.call('takings', {}));
+    ok(tk.cash === tk.salesCash + tk.upfront + tk.debtPaid - tk.refundCredit - tk.consOut && tk.debtPaid >= 15000 && tk.refundCredit >= 10000,
+      'الجرد بحساب 3.x: التسديد والمقدّم داخل الصندوق، والمردود نقداً خارج منه', tk);
+    const want = await page.evaluate(c => V4.money(c), tk.cash);
+    ok(await page.$eval('#closeCard input[disabled]', e => e.value) === want, 'إقفال الصندوق: النقد المفروض ' + want);
+    await page.fill('#cashCount', String((tk.cash - 1000) / 1000));
+    await page.click('#closeCard button:has-text("إقفال اليوم")');
+    ok(await toastHas('عجز 1.00'), 'عُدّ أقل بدينار: «عجز 1.00»');
+    await page.waitForSelector('#closeCard >> text=أُقفل');
+    ok((await text('#closeCard')).indexOf('عجز 1.00') >= 0, 'والإقفال محفوظ بفرقه');
+    await shot('11c-stocktake');
+    await page.click('#nav .nav-item[data-k="dash"]');
+    await page.waitForSelector('#dashStats .stat');
+    ok((await text('#dashStats')).indexOf(want) >= 0, 'ولوحة اليوم تقول نفس النقد', await text('#dashStats'));
+
     console.log('\n== موظف بكلمة سر ==');
     await page.click('#nav .nav-item[data-k="settings"]');
     await page.waitForSelector('#setUsers table');

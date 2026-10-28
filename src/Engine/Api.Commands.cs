@@ -222,13 +222,18 @@ namespace Qirtasiya.Engine
             {
                 InvoiceRow v = c.Has("no") ? db.GetInvoiceByNo(c.Long("no")) : db.GetInvoice(c.Long("id"));
                 if (v == null) throw new ShopException("الفاتورة غير موجودة.");
-                return InvoiceJson(v, c.S.Can("view_cost"));
+                Dictionary<string, object> j = InvoiceJson(v, c.S.Can("view_cost"));
+                AddReturned(j);
+                return j;
             });
             Add("invoices.page", "sell", delegate (Ctx c) { return InvoicesPage(c); });
             Add("day.close", "closing", delegate (Ctx c)
             {
-                db.CloseDay(c.Str("date"), c.Long("expected"), c.Long("counted"), c.Str("note"), c.User);
-                return null;
+                /* النقد المفروض يحسبه المحرك لحظة الإقفال (إن لم يُرسل)، بحساب 3.x */
+                string date = c.Str("date").Length > 0 ? c.Str("date") : ShopDb.Day(clock());
+                long expected = c.Has("expected") ? c.Long("expected") : ExpectedCash(date);
+                db.CloseDay(date, expected, c.Long("counted"), c.Str("note"), c.User);
+                return O("date", date, "expected", expected, "counted", c.Long("counted"), "diff", c.Long("counted") - expected);
             });
             Add("report.range", "reports", delegate (Ctx c) { return ReportRange(c.Str("from"), c.Str("to"), c.S.Can("view_cost")); });
 
@@ -312,6 +317,7 @@ namespace Qirtasiya.Engine
             });
 
             RegisterSync();
+            RegisterShop();
         }
 
         /* سطر بلا سعر: سعر الصنف الحالي (الجملة في بيع الجملة إن كان له سعر جملة) */

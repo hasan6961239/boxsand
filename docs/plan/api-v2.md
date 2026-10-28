@@ -52,6 +52,25 @@
 - **`backup.dir`:** المجلد الإضافي للنسخ (`backup-dir.txt`). بلا `dir` يقرأ، وبه يضبط: مسار كامل
   يُكتب فيه، أو فارغ ليتوقف. نسخة اليوم تُنسخ إليه فوراً.
 
+## شاشات المحل: الجرد وإقفال اليوم، الزبائن، الإرجاع
+
+- **`takings`** (`closing`): جرد المبيعات لفترة (`from`، `to`؛ اليوم افتراضياً).
+  - **ما دخل الصندوق بحساب 3.x نفسه:** النقد = البيع نقداً بعد ما رُدّ منه + المقدَّم في الآجل
+    + تسديد الديون − ما رُدّ نقداً من إرجاع آجل − ما دُفع لأصحاب المباع من الدرج.
+  - **ومعه:** البطاقة، والآجل غير المقبوض (`due`) من `creditTotal`، وعدد الفواتير بكل طريقة
+    دفع، والقطع صافية، والجملة، والأصناف المباعة بعد الإرجاعات.
+  - **الربح** لمن يملك `view_cost`، و`closing` (إقفال اليوم) إن كانت الفترة يوماً واحداً.
+- **`day.close`:** النقد المفروض يحسبه المحرك لحظة الإقفال إن لم يُرسل `expected`. يرد
+  `expected` و`counted` و`diff`.
+- **`report.range`:** النقد والبطاقة والآجل لكل يوم بالحساب نفسه، فلوحة اليوم والإقفال يقولان
+  الرقم نفسه. يوم فيه تسديد بلا فاتورة يظهر أيضاً.
+- **`customers.page`** (`customers`): كل الزبائن بعدد فواتيرهم، وإجمالي الديون، ومن عليه دين،
+  وتسديدات الشهر.
+- **`customer.statement`** (`customers`): حركات الدين بسببها ورقم فاتورتها والرصيد بعد كل حركة
+  (قرار 0018).
+- **`invoice.get`:** لكل سطر في فاتورة البيع `returned` (ما أُرجع منه)، و`returnsList` (عمليات
+  الإرجاع منها).
+
 ## المزامنة (قرار 0023)
 
 - **أوامر البرنامج** (`Program.cs`):
@@ -86,7 +105,7 @@
 - **`login.users`:** أسماء الموظفين العاملين ومن له كلمة سر، لشاشة الدخول. المدير وحده بلا
   كلمة سر يدخل مباشرة.
 
-## الأوامر (68 مع أوامر المزامنة الأربعة) وصلاحية كل منها
+## الأوامر (71) وصلاحية كل منها
 
 | الصلاحية | الأوامر |
 |---|---|
@@ -103,12 +122,12 @@
 | `receive` إدخال البضاعة | `receive`، `purchases.page` |
 | `move_stock` النقل بين الأماكن | `stock.move` |
 | `count` الجرد | `count.start`، `count.set`، `count.apply`، `count.cancel`، `count.current` |
-| `customers` الزبائن | `customer.add`، `customer.edit`، `customer.delete`، `customer.get` |
+| `customers` الزبائن | `customer.add`، `customer.edit`، `customer.delete`، `customer.get`، `customers.page`، `customer.statement` |
 | `debts` الديون | `payment.add`، `customer.balance` (ودين سابق عند `customer.add`) |
 | `suppliers` الموردون ودور النشر | `supplier.add`، `supplier.edit`، `supplier.delete`، `publisher.save`، `publisher.delete` |
 | `consign` المباع | `consign.in`، `consign.back`، `consign.pay`، `consignors.list` |
 | `reports` التقارير | `report.range`، `stale` |
-| `closing` إقفال اليوم | `day.close` |
+| `closing` إقفال اليوم | `day.close`، `takings` |
 | `places` الأماكن والمخازن | `place.add`، `place.edit`، `place.delete` |
 | `settings` الإعدادات | `settings.get`، `setting.set`، `categories.set`، `health` |
 | `users` الموظفون | `users.list`، `user.add`، `user.password`، `user.perms`، `user.active`، `perms.list` |

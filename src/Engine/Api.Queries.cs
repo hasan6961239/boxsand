@@ -265,13 +265,20 @@ namespace Qirtasiya.Engine
         {
             if (from.Length == 0) from = ShopDb.Day(clock());
             if (to.Length == 0) to = from;
-            List<Dictionary<string, object>> days = Rows(
-                "SELECT date, SUM(kind = 'sale'), SUM(kind = 'return'), SUM(total), SUM(profit), " +
-                "SUM(CASE WHEN kind = 'sale' AND method = 'cash' THEN total ELSE 0 END), " +
-                "SUM(CASE WHEN kind = 'sale' AND method = 'card' THEN total ELSE 0 END), " +
-                "SUM(CASE WHEN kind = 'sale' AND method = 'credit' THEN due ELSE 0 END) " +
-                "FROM invoices WHERE date BETWEEN ? AND ? AND deleted_at = '' GROUP BY date ORDER BY date",
-                new string[] { "date", "sales", "returns", "net", "profit", "cash", "card", "credit" }, from, to);
+            SortedDictionary<string, Dictionary<string, object>> byDate = new SortedDictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+            foreach (Dictionary<string, object> d in Rows(
+                "SELECT date, SUM(kind = 'sale'), SUM(kind = 'return'), SUM(total), SUM(profit) " +
+                "FROM invoices WHERE date BETWEEN ? AND ? AND deleted_at = '' GROUP BY date",
+                new string[] { "date", "sales", "returns", "net", "profit" }, from, to))
+                byDate[(string)d["date"]] = d;
+            /* النقد والبطاقة والآجل بحساب 3.x (Api.Shop.cs): تسديد الديون يدخل الصندوق ولو بلا فاتورة */
+            foreach (KeyValuePair<string, Dictionary<string, long>> t in TakingsByDay(from, to))
+            {
+                Dictionary<string, object> d;
+                if (!byDate.TryGetValue(t.Key, out d)) byDate[t.Key] = d = O("date", t.Key, "sales", 0L, "returns", 0L, "net", 0L, "profit", 0L);
+                d["cash"] = t.Value["cash"]; d["card"] = t.Value["card"]; d["credit"] = t.Value["due"];
+            }
+            List<Dictionary<string, object>> days = new List<Dictionary<string, object>>(byDate.Values);
             if (!cost) foreach (Dictionary<string, object> d in days) d.Remove("profit");
             return O("from", from, "to", to, "days", days);
         }

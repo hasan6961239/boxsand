@@ -313,14 +313,29 @@ var V4Pos = (function () {
       document.removeEventListener("keydown", keys);
       V4.run("customers.list").then(function (list) {
         box.innerHTML = '<div class="pay-amount">آجل — المطلوب <span class="num">' + money(t) + "</span></div>" +
-          '<div class="field" style="margin-bottom:12px"><label>الزبون</label><select class="inp" id="payCust">' +
+          '<div class="field" style="margin-bottom:12px"><label>الزبون</label><div class="row" style="gap:8px">' +
+          '<select class="inp" id="payCust" style="flex:1">' +
           '<option value="">— اختر الزبون —</option>' +
           list.map(function (c) {
             return '<option value="' + c.id + '">' + esc(c.name) + (c.balance ? " (عليه " + money(c.balance) + ")" : "") + "</option>";
-          }).join("") + "</select></div>" +
+          }).join("") + "</select>" +
+          (V4.can("customers") && window.V4People ? '<button class="btn" id="payNewCust" type="button">+ زبون جديد</button>' : "") +
+          "</div></div>" +
           '<div class="field"><label>المدفوع الآن (اختياري)</label><input class="inp num" id="payNow" data-num inputmode="decimal" value="0"></div>' +
           '<div class="row" style="margin-top:16px"><div class="spacer"></div>' +
           '<button class="btn primary lg" id="payCredit">تسجيل الدين وإتمام البيع</button></div>';
+        var nc = box.querySelector("#payNewCust");
+        /* زبون جديد من البيع نفسه: يُضاف ويُختار، ويكمل البائع بلا خروج من البيع */
+        if (nc) nc.onclick = function () {
+          V4People.edit(0, function (id, name) {
+            var sel = box.querySelector("#payCust");
+            if (!sel || !id) return;
+            var o = document.createElement("option");
+            o.value = id; o.textContent = name;
+            sel.appendChild(o);
+            sel.value = String(id);
+          });
+        };
         box.querySelector("#payCredit").onclick = function () {
           var cid = Number(box.querySelector("#payCust").value);
           if (!cid) { App.toast("اختر الزبون أولاً.", "warn"); return; }

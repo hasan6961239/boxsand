@@ -54,6 +54,7 @@ static class DbTests
         Section("البحث بالاسم", delegate { SearchTests.Run(Ok); });
         Section("بيانات التجربة (قرار 0021)", Demo);
         Section("المزامنة بين الأجهزة والفروع (قرار 0023)", delegate { SyncTests.Run(Ok); });
+        Section("شاشات المحل: الجرد وإقفال اليوم، الزبائن، الإرجاع", delegate { ShopTests.Run(Ok); });
 
         Console.WriteLine();
         Console.WriteLine("==================================================");
