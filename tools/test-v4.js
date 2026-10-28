@@ -277,6 +277,60 @@ function ok(cond, name, detail) {
     await page.waitForSelector('#dashStats .stat');
     ok((await text('#dashStats')).indexOf(want) >= 0, 'ولوحة اليوم تقول نفس النقد', await text('#dashStats'));
 
+    console.log('\n== إدخال بضاعة واللاصقات ==');
+    await page.evaluate(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; }; });
+    await page.click('#nav .nav-item[data-k="receive"]');
+    await page.waitForSelector('#rcQ');
+    await page.waitForFunction(() => document.querySelectorAll('#rcSup option').length >= 1);
+    await page.fill('#rcQ', 'قلم جاف أزرق');
+    await page.press('#rcQ', 'Enter');
+    await page.waitForSelector('#rcLines tbody tr');
+    await page.fill('#rcLines tbody tr input', '5');
+    await page.press('#rcLines tbody tr input', 'Tab');
+    await page.fill('#rcNote', 'فاتورة المورد 15');
+    await page.dispatchEvent('#rcNote', 'input');
+    const haveBefore = Number(await page.$eval('#rcLines tbody tr td:nth-child(2)', e => e.textContent));
+    ok((await text('#rcLines tbody tr td:nth-child(6)')).indexOf(String(haveBefore + 5)) === 0, 'السطر: الموجود + الواصل = «يصير»', [haveBefore, await text('#rcLines tbody tr td:nth-child(6)')]);
+    await shot('12a-receive');
+    await page.click('#rcSave');
+    ok(await toastHas('أُدخلت البضاعة: 1 صنف · 5 قطعة'), 'إدخال بضاعة: 5 أقلام للرفوف');
+    await page.waitForSelector('#rcHist tbody tr');
+    ok((await text('#rcHist tbody tr')).indexOf('فاتورة المورد 15') >= 0, 'وفي سجل الإدخالات بملاحظته');
+    await page.click(top + ' >> text=اطبع لاصقاتها');
+    await page.waitForSelector(top + ' #lblPreview .lbl-one svg', { timeout: 15000 });
+    ok(await page.$$eval(top + ' #lblPreview .lbl-one', x => x.length) === 5, 'اطبع لاصقاتها: 5 لاصقات للأقلام الخمسة');
+    await shot('12b-labels-preview');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('طُبعت 5 لاصقة') && await page.waitForFunction(() => window.__printed === 1, null, { timeout: 3000 }).then(() => true, () => false),
+      'الطباعة، وعلامة «طُبعت»');
+    await page.fill('#lblQ', 'قلم جاف أزرق');
+    await page.waitForFunction(() => /كل اللاصقات مطبوعة|لا أصناف/.test(document.getElementById('lblBody').textContent));
+    ok(true, 'وخرج من «لم تُطبع»');
+
+    /* صنف بلا باركود: يُولَّد له عند الطباعة ويُمسح بعدها */
+    await page.click('#nav .nav-item[data-k="items"]');
+    await page.click('#view button:has-text("+ صنف جديد")');
+    await page.waitForSelector(top + ' #f_title');
+    await page.fill(top + ' #f_title', 'دفتر بلا باركود');
+    await page.fill(top + ' #f_price', '3');
+    await page.fill(top + ' #f_qty', '2');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('أُضيف: دفتر بلا باركود'), 'صنف جديد بلا باركود');
+    await page.click('#nav .nav-item[data-k="labels"]');
+    await page.waitForSelector('#lblQ');
+    await page.fill('#lblQ', 'دفتر بلا باركود');
+    await page.waitForSelector('#lblBody >> text=يُولَّد عند الطباعة');
+    await page.click('#lblBody tbody tr input[type=checkbox]');
+    await page.click('#lblPrint');
+    ok(await toastHas('وُلِّد باركود لـ1 صنف'), 'المعاينة تولّد له باركوداً');
+    await page.waitForSelector(top + ' #lblPreview .lbl-one');
+    ok(await page.$$eval(top + ' #lblPreview .lbl-one', x => x.length) === 2, 'لاصقتان بعدد كميته');
+    await page.keyboard.press('Escape');
+    const gen = await page.evaluate(() => V4.call('items.page', { q: 'دفتر بلا باركود', limit: 1 }).then(d => d.items[0].barcode));
+    ok(/^[1-9]\d{7}$/.test(gen), 'باركود من 8 أرقام محفوظ على الصنف', gen);
+    const found = await page.evaluate(b => V4.call('item.find', { barcode: b }), gen);
+    ok(found && found.title === 'دفتر بلا باركود', 'ويُمسح في البيع');
+
     console.log('\n== موظف بكلمة سر ==');
     await page.click('#nav .nav-item[data-k="settings"]');
     await page.waitForSelector('#setUsers table');

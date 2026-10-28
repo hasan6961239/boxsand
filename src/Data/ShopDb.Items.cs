@@ -378,6 +378,62 @@ namespace Qirtasiya.Data
             });
         }
 
+        /* لاصقة طُبعت بالخطأ أو لم تُلصق: تعود الأصناف لـ«لم تُطبع» */
+        public int UnmarkLabels(IList<long> ids, long userId)
+        {
+            return Run<int>("labels-undo", userId, delegate (Cmd c)
+            {
+                int n = 0;
+                foreach (long id in ids) n += db.Run("UPDATE items SET label_printed = '' WHERE id = ? AND active = 1", id);
+                c.Detail = "لاصقات: أُعيدت علامة " + n + " صنف";
+                return n;
+            });
+        }
+
+        /* لاصقة لصنف بلا باركود: رمز أرقام فريد يُولَّد ويُحفظ عليه، فيُمسح في البيع
+           (كما في labels.js في 3.x). أرقام فقط لأنها تُضغط في CODE128 فيصغر الباركود،
+           ولا طول 10 ولا 13 فلا يشبه ISBN. ما سُجّل له باركود لا يُمسّ أبداً. */
+        static readonly Random codeRandom = new Random();
+
+        public Dictionary<long, string> AssignBarcodes(IList<long> ids, int maxDigits, string prefix, long userId)
+        {
+            return Run<Dictionary<long, string>>("labels-barcodes", userId, delegate (Cmd c)
+            {
+                Dictionary<long, string> made = new Dictionary<long, string>();
+                StringBuilder p = new StringBuilder();
+                foreach (char ch in prefix ?? "") if (ch >= '0' && ch <= '9' && p.Length < 3) p.Append(ch);
+                string pre = p.ToString();
+                int cap = Math.Max(4, Math.Min(8, maxDigits > 0 ? maxDigits : 8));
+                int len = Math.Max(1, cap - pre.Length);
+                foreach (long id in ids)
+                {
+                    if (made.ContainsKey(id)) continue;
+                    string cur = db.Text("SELECT barcode FROM items WHERE id = ? AND active = 1", id);
+                    if (cur == null || cur.Trim().Length > 0) continue;
+                    string code = null;
+                    for (int tries = 0; tries < 500 && code == null; tries++)
+                    {
+                        StringBuilder n = new StringBuilder(pre);
+                        lock (codeRandom)
+                        {
+                            n.Append((char)('1' + codeRandom.Next(9)));
+                            for (int i = 1; i < len; i++) n.Append((char)('0' + codeRandom.Next(10)));
+                        }
+                        string x = n.ToString();
+                        if (x.Length == 10 || x.Length == 13) continue;
+                        if (db.Long("SELECT COUNT(*) FROM items WHERE barcode = ? OR UPPER(code) = ?", 0, x, x) > 0) continue;
+                        code = x;
+                    }
+                    if (code == null) throw Err("تعذّر توليد باركود فريد. جرّب لاصقة أعرض.");
+                    db.Run("UPDATE items SET barcode = ?, updated_at = ? WHERE id = ?", code, c.At, id);
+                    IndexItem(id);
+                    made[id] = code;
+                }
+                c.Detail = "لاصقات: وُلِّد باركود لـ" + made.Count + " صنف";
+                return made;
+            });
+        }
+
         /* ---------- الموردون ودور النشر والتصنيفات والإعدادات ---------- */
 
         public long AddSupplier(string name, string phone, string city, string note, long userId)

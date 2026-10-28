@@ -126,6 +126,47 @@ static class ShopTests
         ok((string)first["name"] == "زبون الآجل" && L(first["invoices"]) == 1, "صاحب الدين أولاً، بعدد فواتيره", Json.Write(first));
         ok(Error("customer.delete", "{\"id\":" + c + "}") != null, "زبون عليه دين لا يُحذف");
 
+        /* ---------- إدخال البضاعة ---------- */
+        long store = L(Data("place.add", "{\"parentId\":1,\"kind\":\"store\",\"name\":\"المخزن الكبير\"}"));
+        long pur = L(Data("receive", "{\"note\":\"فاتورة 77\",\"lines\":[{\"itemId\":" + a + ",\"qty\":10,\"cost\":5500}," +
+            "{\"itemId\":" + a + ",\"qty\":4,\"cost\":0,\"placeId\":" + store + "}]}"));
+        Dictionary<string, object> pg = D(Data("purchase.get", "{\"id\":" + pur + "}"));
+        ok(A(pg["lines"]).Count == 2 && L(pg["total"]) == 55000 && L(D(A(pg["lines"])[1])["placeId"]) == store, "تفاصيل الإدخال: سطران، والثاني للمخزن", Json.Write(pg));
+        ok(L(D(Data("item.get", "{\"id\":" + a + "}"))["cost"]) == 5500, "سعر الشراء الجديد يحلّ محل القديم، والصفر لا يمسحه");
+        Dictionary<string, object> pp = D(A(Data("purchases.page", "{}"))[0]);
+        ok(L(pp["pieces"]) == 14 && L(pp["lines"]) == 2 && pp.ContainsKey("total"), "سجل الإدخالات: القطع والأسطر والتكلفة", Json.Write(pp));
+        Data("user.add", "{\"name\":\"أمين المخزن\",\"login\":\"clerk\",\"password\":\"1234\",\"perms\":[\"receive\",\"search\"]}");
+        string admin = T;
+        T = (string)D(Data("login", "{\"login\":\"clerk\",\"password\":\"1234\"}"))["token"];
+        Dictionary<string, object> pc = D(Data("purchase.get", "{\"id\":" + pur + "}"));
+        ok(!pc.ContainsKey("total") && !D(A(pc["lines"])[0]).ContainsKey("cost") && !D(A(Data("purchases.page", "{}"))[0]).ContainsKey("total"),
+            "ومن لا يرى سعر الشراء لا يرى التكلفة في الإدخالات");
+        T = admin;
+
+        /* ---------- اللاصقات ---------- */
+        long isbn = L(Data("item.add", "{\"kind\":\"book\",\"title\":\"كتاب عليه ردمك\",\"price\":1000,\"barcode\":\"978-9953-30-507-6\"}"));
+        long has = L(Data("item.add", "{\"kind\":\"book\",\"title\":\"كتاب له كود\",\"price\":1000,\"barcode\":\"K-55\"}"));
+        Func<string, string, List<long>> ids = delegate (string label, string q)
+        {
+            List<long> r = new List<long>();
+            foreach (object o in A(D(Data("items.page", "{\"label\":\"" + label + "\",\"limit\":500" + (q != null ? ",\"q\":\"" + q + "\"" : "") + "}"))["items"]))
+                r.Add(L(D(o)["id"]));
+            return r;
+        };
+        List<long> need = ids("need", null);
+        ok(need.Contains(a) && need.Contains(has) && !need.Contains(isbn), "«لم تُطبع»: بلا الكتاب الذي عليه باركود الناشر", string.Join(",", need.ConvertAll(x => x.ToString()).ToArray()));
+        ok(ids("printed", null).Contains(isbn) && ids("need", "ردمك").Count == 0 && ids("need", "كتاب له").Contains(has), "باركود الناشر وحده، والبحث داخل الفلتر");
+        List<object> made = A(Data("labels.barcodes", "{\"ids\":[" + a + "," + has + "," + isbn + "],\"maxDigits\":8}"));
+        string code = made.Count == 1 ? (string)D(made[0])["barcode"] : "";
+        ok(made.Count == 1 && L(D(made[0])["id"]) == a && code.Length == 8 && System.Text.RegularExpressions.Regex.IsMatch(code, "^[1-9][0-9]{7}$"),
+            "باركود يُولَّد لمن لا باركود له وحده: 8 أرقام", Json.Write(made));
+        ok(L(D(Data("item.find", "{\"barcode\":\"" + code + "\"}"))["id"]) == a, "ويُمسح فوراً في البيع");
+        ok(A(Data("labels.barcodes", "{\"ids\":[" + a + "]}")).Count == 0, "وما له باركود لا يُمسّ");
+        Data("labels.printed", "{\"ids\":[" + a + "," + has + "]}");
+        ok(!ids("need", null).Contains(a) && ids("done", null).Contains(a), "بعد الطباعة: تخرج من «لم تُطبع» إلى «طُبعت»");
+        Data("labels.unprint", "{\"ids\":[" + has + "]}");
+        ok(ids("need", null).Contains(has), "وإرجاع العلامة يعيدها");
+
         db.Dispose();
         foreach (string f in new string[] { path, path + "-wal", path + "-shm" })
             try { File.Delete(f); } catch { }

@@ -145,6 +145,14 @@ namespace Qirtasiya.Engine
             });
             Add("item.delete", "edit_items", delegate (Ctx c) { db.DeleteItem(c.Long("id"), c.User); return null; });
             Add("labels.printed", "edit_items", delegate (Ctx c) { return (long)db.MarkLabelsPrinted(c.Ids("ids"), c.Str("date"), c.User); });
+            Add("labels.unprint", "edit_items", delegate (Ctx c) { return (long)db.UnmarkLabels(c.Ids("ids"), c.User); });
+            Add("labels.barcodes", "edit_items", delegate (Ctx c)
+            {
+                List<object> made = new List<object>();
+                foreach (KeyValuePair<long, string> kv in db.AssignBarcodes(c.Ids("ids"), (int)c.Long("maxDigits", 8), c.Str("prefix"), c.User))
+                    made.Add(O("id", kv.Key, "barcode", kv.Value));
+                return made;
+            });
             Add("stock.adjust", "edit_items", delegate (Ctx c)
             {
                 return db.AdjustStock(c.Long("itemId"), c.Long("placeId", 0), c.Long("delta"), c.Str("note"), c.User);
@@ -247,9 +255,25 @@ namespace Qirtasiya.Engine
             });
             Add("purchases.page", "receive", delegate (Ctx c)
             {
-                return Rows("SELECT p.id, p.date, p.at, IFNULL(s.name, ''), p.note, p.total, (SELECT COUNT(*) FROM purchase_lines l WHERE l.purchase_id = p.id) " +
+                List<Dictionary<string, object>> rows = Rows("SELECT p.id, p.date, p.at, IFNULL(s.name, ''), p.note, p.total, " +
+                    "(SELECT COUNT(*) FROM purchase_lines l WHERE l.purchase_id = p.id), (SELECT IFNULL(SUM(qty), 0) FROM purchase_lines l WHERE l.purchase_id = p.id) " +
                     "FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id ORDER BY p.id DESC LIMIT ? OFFSET ?",
-                    new string[] { "id", "date", "at", "supplier", "note", "total", "lines" }, Limit(c, 100), c.Long("offset", 0));
+                    new string[] { "id", "date", "at", "supplier", "note", "total", "lines", "pieces" }, Limit(c, 100), c.Long("offset", 0));
+                /* التكلفة سعر شراء: لمن يملك view_cost وحده */
+                if (!c.S.Can("view_cost")) foreach (Dictionary<string, object> r in rows) r.Remove("total");
+                return rows;
+            });
+            Add("purchase.get", "receive", delegate (Ctx c)
+            {
+                List<Dictionary<string, object>> p = Rows("SELECT p.id, p.date, p.at, IFNULL(s.name, ''), p.note, p.total FROM purchases p " +
+                    "LEFT JOIN suppliers s ON s.id = p.supplier_id WHERE p.id = ?", new string[] { "id", "date", "at", "supplier", "note", "total" }, c.Long("id"));
+                if (p.Count == 0) throw new ShopException("الإدخال غير موجود.");
+                bool cost = c.S.Can("view_cost");
+                List<Dictionary<string, object>> lines = Rows("SELECT item_id, name, qty, cost, place_id FROM purchase_lines WHERE purchase_id = ? ORDER BY line_no",
+                    new string[] { "itemId", "name", "qty", "cost", "placeId" }, c.Long("id"));
+                if (!cost) { p[0].Remove("total"); foreach (Dictionary<string, object> l in lines) l.Remove("cost"); }
+                p[0]["lines"] = lines;
+                return p[0];
             });
 
             /* ---------- الكتب على المباع ---------- */

@@ -71,6 +71,23 @@
 - **`invoice.get`:** لكل سطر في فاتورة البيع `returned` (ما أُرجع منه)، و`returnsList` (عمليات
   الإرجاع منها).
 
+## إدخال البضاعة واللاصقات
+
+- **`purchase.get`** (`receive`): الإدخال بأسطره (الصنف، الكمية، سعر الشراء، المكان).
+- **`purchases.page`:** ومعه عدد القطع.
+- **سعر الشراء والتكلفة** لا يُرسلان لمن لا يملك `view_cost` في الأمرين.
+- **`items.page` مع `label`:**
+  - `need`: لم تُطبع لاصقته، وليس عليه باركود الناشر (ISBN: 10 أو 13 رقماً).
+  - `done`: طُبعت.
+  - `printed`: عليه باركود الناشر.
+  - يُجمع مع `q` والنوع.
+- **`labels.barcodes`** (`edit_items`): لكل صنف خانة باركوده فارغة، رمز أرقام فريد يُحفظ عليه
+  ويُمسح في البيع.
+  - طوله حتى `maxDigits` (8 أو أقل ليدخل على اللاصقة)، وبعد `prefix` إن وُجدت.
+  - لا 10 ولا 13 رقماً، فلا يشبه ISBN.
+  - ما له باركود لا يُمسّ.
+- **`labels.unprint`:** يعيد الأصناف لـ«لم تُطبع».
+
 ## المزامنة (قرار 0023)
 
 - **أوامر البرنامج** (`Program.cs`):
@@ -105,7 +122,7 @@
 - **`login.users`:** أسماء الموظفين العاملين ومن له كلمة سر، لشاشة الدخول. المدير وحده بلا
   كلمة سر يدخل مباشرة.
 
-## الأوامر (71) وصلاحية كل منها
+## الأوامر (74) وصلاحية كل منها
 
 | الصلاحية | الأوامر |
 |---|---|
@@ -116,10 +133,10 @@
 | `returns` الإرجاع | `return` |
 | `edit_invoice` تعديل الفواتير | `invoice.edit` |
 | `delete_invoice` حذف الفواتير | `invoice.delete` |
-| `edit_items` الأصناف | `item.add`، `item.edit`، `item.delete`، `stock.adjust`، `labels.printed`، `suppliers.list`، `publishers.list` |
+| `edit_items` الأصناف | `item.add`، `item.edit`، `item.delete`، `stock.adjust`، `labels.printed`، `labels.unprint`، `labels.barcodes`، `suppliers.list`، `publishers.list` |
 | `edit_prices` تعديل الأسعار | (مع `item.edit` حين يتغير سعر) |
 | `view_cost` سعر الشراء والأرباح | (يُظهر `cost` و`profit` في الردود) |
-| `receive` إدخال البضاعة | `receive`، `purchases.page` |
+| `receive` إدخال البضاعة | `receive`، `purchases.page`، `purchase.get` |
 | `move_stock` النقل بين الأماكن | `stock.move` |
 | `count` الجرد | `count.start`، `count.set`، `count.apply`، `count.cancel`، `count.current` |
 | `customers` الزبائن | `customer.add`، `customer.edit`، `customer.delete`، `customer.get`، `customers.page`، `customer.statement` |

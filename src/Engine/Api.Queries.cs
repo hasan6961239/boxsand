@@ -135,6 +135,16 @@ namespace Qirtasiya.Engine
                 where.Append(" AND i.home_place_id IN (WITH RECURSIVE t(id) AS (SELECT ? UNION ALL SELECT p.id FROM places p JOIN t ON p.parent_id = t.id) SELECT id FROM t)");
                 args.Add(c.Long("placeId"));
             }
+            /* اللاصقات (كما في 3.x): باركود الناشر (ISBN: 10 أو 13 رقماً) لا يحتاج لاصقة */
+            const string isbn = "(length(replace(replace(i.barcode, ' ', ''), '-', '')) IN (10, 13) AND replace(replace(i.barcode, ' ', ''), '-', '') NOT GLOB '*[^0-9]*')";
+            bool extra = true;
+            switch (c.Str("label"))
+            {
+                case "need": where.Append(" AND i.label_printed = '' AND NOT " + isbn); break;
+                case "done": where.Append(" AND i.label_printed <> ''"); break;
+                case "printed": where.Append(" AND " + isbn); break;
+                default: extra = false; break;
+            }
             long limit = Limit(c, 100), offset = Math.Max(c.Long("offset", 0), 0);
             string q = c.Str("q").Trim();
             if (q.Length > 0)
@@ -144,7 +154,7 @@ namespace Qirtasiya.Engine
                 o.Channel = c.S.Token + "|" + (c.Str("channel").Length > 0 ? c.Str("channel") : "items.page");
                 /* النوع من الفهرس نفسه، والتصنيف والمكان شرط على الصنف */
                 if (c.Str("kind").Length > 0) { o.Kind = c.Str("kind"); args.RemoveAt(0); where.Replace(" AND i.kind = ?", ""); }
-                if (args.Count > 0) { o.Filter = where.ToString(); o.FilterArgs = args.ToArray(); }
+                if (args.Count > 0 || extra) { o.Filter = where.ToString(); o.FilterArgs = args.ToArray(); }
                 long found;
                 bool more;
                 SearchResult r = db.SearchWindow(q, o, (int)Math.Min(offset + limit, int.MaxValue), out found, out more);
