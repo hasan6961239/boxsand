@@ -189,6 +189,15 @@ namespace Qirtasiya.Data
            نفسها: انقطاع الكهرباء في الوسط يعيد القطعة كاملة، لا نصفها */
         public long ApplyRemote(List<SyncRow> rows, long upTo)
         {
+            bool x3 = false;
+            long n = ApplyRemoteRows(rows, upTo, ref x3);
+            /* بيانات 3.x تغيّرت هنا، أو نفّذ جهاز المحل ما كان ينتظر: الواجهة تعيد التحميل */
+            if (x3) X3Touched();
+            return n;
+        }
+
+        long ApplyRemoteRows(List<SyncRow> rows, long upTo, ref bool x3)
+        {
             lock (gate)
             {
                 if (!replica) throw new ShopException("هذا ليس جهازاً ثانياً.");
@@ -205,6 +214,7 @@ namespace Qirtasiya.Data
                     {
                         if (r.Seq <= cur) continue;
                         ApplyRow(db, r.Table, r.RowId, r.Op, r.Row, items);
+                        if (r.Table == "x3_docs" || r.Table == "remote_cmds") x3 = true;
                         applied++;
                     }
                     /* صور الصفوف المطبّقة كتبتها المُطلِقات هنا أيضاً: هذا الجهاز لا يرفع سجلاً */
@@ -241,6 +251,8 @@ namespace Qirtasiya.Data
 
         /* الأمر الجاري على هذا الخيط من جهاز ثانٍ: Run يسجّله في معاملته */
         public static void BeginRemote(RemoteCmd r) { remote = r; }
+        /* الأمر الجاري هنا من جهاز ثانٍ؟ (أرقام فواتير 3.x تُعطى هنا) */
+        public static bool InRemote { get { return remote != null; } }
         public static void EndRemote() { remote = null; }
 
         void RecordRemote(RemoteCmd r, string at, bool ok, string error, long opId)

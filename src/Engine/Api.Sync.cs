@@ -71,6 +71,7 @@ namespace Qirtasiya.Engine
                 case "customer.add": return "زبون جديد: " + Json.Str(req, "name");
                 case "payment.add": return "تسديد دين";
                 case "me.password": return "تغيير كلمة السر";
+                case "x3.apply": return X3Label(req);
                 default: return "أمر: " + name;
             }
         }

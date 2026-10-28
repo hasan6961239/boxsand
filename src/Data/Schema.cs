@@ -56,6 +56,7 @@ namespace Qirtasiya.Data
                 "ALTER TABLE items ADD COLUMN label_printed TEXT NOT NULL DEFAULT '';", null));
             m.Add(new Migration(3, "فهرس البحث (FTS5 trigram)", V3Search, null));
             m.Add(new Migration(4, "المزامنة بين الأجهزة والفروع (قرار 0023)", V4Sync, null));
+            m.Add(new Migration(5, "واجهة 3.x فوق الأساس الجديد (قرار 0025)", V5X3, null));
             return m;
         }
 
@@ -475,6 +476,20 @@ CREATE TABLE local_state(
 ";
 
         /* المزامنة (قرار 0023) */
+        /* ملف 3.x سجلاً سجلاً كما هو (ShopDb.X3.cs): المفتاح «القسم + المعرّف»، والترتيب ord.
+           جدول مسجَّل: يصل الجهاز الثاني كأي جدول */
+        const string V5X3 = @"
+CREATE TABLE x3_docs(
+  id INTEGER PRIMARY KEY,
+  coll TEXT NOT NULL,
+  key TEXT NOT NULL,
+  ord REAL NOT NULL DEFAULT 0,
+  body TEXT NOT NULL
+) STRICT;
+CREATE UNIQUE INDEX x3_docs_key ON x3_docs(coll, key);
+CREATE INDEX x3_docs_ord ON x3_docs(coll, ord);
+";
+
         const string V4Sync = @"
 -- أوامر الأجهزة الثانية كما نفّذها جهاز المحل، في معاملة الأمر نفسه: لا يُنفَّذ أمر
 -- مرتين، والنتيجة ترجع للجهاز الثاني مع السجل. id = رقم الأمر على الخادم.
