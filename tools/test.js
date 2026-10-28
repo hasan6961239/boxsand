@@ -1471,7 +1471,9 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     const pg = await open();
     await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(600);
     await pg.evaluate(() => Inv.editBook()); await sleep(500);
-    const shown = () => pg.evaluate(() => ['f_lib', 'f_shelf'].map(id => !document.getElementById(id).closest('.field').hidden).join());
+    /* الظاهر فعلاً على الشاشة، لا علامة hidden وحدها: CSS كان يغلبها */
+    const shown = () => pg.evaluate(() => ['f_lib', 'f_shelf'].map(id => { const f = document.getElementById(id).closest('.field');
+      return getComputedStyle(f).display !== 'none' && f.getBoundingClientRect().height > 0; }).join());
     check('للرفوف: خانتا المكتبة والرف ظاهرتان', (await shown()) === 'true,true', await shown());
     await pg.click('#modalHost .dest-tabs button[data-to="store"]'); await sleep(200);
     check('«إضافة للمخزن»: تختفيان', (await shown()) === 'false,false', await shown());
@@ -1496,7 +1498,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
 
     /* النقل للرفوف: يسأل وين قبل أن ينقل */
     await pg.evaluate(id => Inv.move('book', id, 'in', 2), nb.id); await sleep(400);
-    check('النقل للرفوف يسأل المكتبة والرف', await pg.evaluate(() => !document.getElementById('mvPlace').hidden &&
+    check('النقل للرفوف يسأل المكتبة والرف', await pg.evaluate(() => getComputedStyle(document.getElementById('mvPlace')).display !== 'none' &&
       document.getElementById('mvLib').value === '' && document.getElementById('mvShelf').value === ''));
     await pg.click('#modalHost .overlay:last-child .m-foot .btn.primary'); await sleep(400);
     const still = await pg.evaluate(id => App.storeQty(App.findItem('book', id)), nb.id);
@@ -1512,7 +1514,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await pg.evaluate(() => Inv.move('book', 'b1', 'in')); await sleep(400);
     check('كتاب له مكان: المكتبة والرف معبّآن بمكانه', await pg.evaluate(() => document.getElementById('mvLib').value === 'A' && document.getElementById('mvShelf').value === '1'));
     await pg.click('#mvDir button[data-d="out"]'); await sleep(200);
-    check('ومن الرفوف للمخزن لا يسأل عن رف', await pg.evaluate(() => document.getElementById('mvPlace').hidden));
+    check('ومن الرفوف للمخزن لا يسأل عن رف', await pg.evaluate(() => getComputedStyle(document.getElementById('mvPlace')).display === 'none'));
     await pg.click('#modalHost .overlay:last-child [data-x]'); await sleep(300);
 
     /* النقل الجماعي لا ينقل كتاباً بلا رف */

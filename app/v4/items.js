@@ -212,5 +212,5 @@ var V4Items = (function () {
 
   V4.page({ o: 40, g: "المخزون", k: "items", t: "الكتب والقرطاسية", ic: "books", perm: "search", render: list, after: after });
 
-  return { search: search, kind: kind, more: more, edit: edit };
+  return { search: search, kind: kind, more: more, edit: edit, refreshWaiting: function () { waiting(); load(); } };
 })();

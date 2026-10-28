@@ -11,7 +11,7 @@
 var V4Sync = (function () {
   "use strict";
   var esc = App.esc, money = V4.money;
-  var status = null, timer = null;
+  var status = null, timer = null, lastQueue = "";
 
   /* ---------- الحالة ---------- */
 
@@ -30,6 +30,10 @@ var V4Sync = (function () {
     }
     return V4.call("sync.status").then(function (s) {
       status = s;
+      /* أمر نُفّذ عند جهاز المحل أو رُفض: صفحة الكتب تُحدَّث وحدها، فلا يبقى «ينتظر» بعد وصوله */
+      var queue = (s.waiting || 0) + ":" + (s.failed || 0) + ":" + (s.lastOk || "");
+      if (lastQueue && queue !== lastQueue && s.role === "second" && window.V4Items && V4.current() === "items") V4Items.refreshWaiting();
+      lastQueue = queue;
       paintChip();
       if (document.getElementById("syncCard")) paintCard();
       return s;
