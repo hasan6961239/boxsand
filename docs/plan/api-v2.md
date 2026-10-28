@@ -107,6 +107,21 @@
   يراه.
 - **`stale`:** ومعه المؤلف، وتاريخ الإضافة، والسعر، وسعر الشراء لمن يراه، والمكان، والتصنيف.
 
+## كتب على المباع، الموردون ودور النشر
+
+- **`consignors.list`** (`consign`): لكل صاحب بضاعة:
+  - `due`: المستحق له الآن (ما بِيع بسعره ناقص ما سُدّد).
+  - `left`: النسخ الباقية عندك.
+  - `titles` و`qty` و`sold`: العناوين، وما استُلم، وما بِيع.
+  - `myProfit`: ربحك منه، لمن يملك `view_cost`.
+- **`consignor.get`** (`consign`): كشف حسابه.
+  - `lines`: كل سطر بما استُلم وبِيع وأُعيد وبقي، وسعر صاحبه وسعر البيع، والصنف (`itemId`).
+  - `payments`: التسديدات، ومعها `fromDrawer` (من درج المحل أو من خارجه).
+- **`consignor.edit`** (`consign`): الاسم والهاتف والملاحظة.
+- **`suppliers.page`** (`suppliers`): كل مورد بعدد الإدخالات منه وآخر إدخال، وإجمالي المشتريات
+  لمن يملك `view_cost`.
+- **`publishers.list`:** ومعه `books`، عدد الكتب المسجّلة باسم كل دار نشر.
+
 ## المزامنة (قرار 0023)
 
 - **أوامر البرنامج** (`Program.cs`):
@@ -141,7 +156,7 @@
 - **`login.users`:** أسماء الموظفين العاملين ومن له كلمة سر، لشاشة الدخول. المدير وحده بلا
   كلمة سر يدخل مباشرة.
 
-## الأوامر (80) وصلاحية كل منها
+## الأوامر (83) وصلاحية كل منها
 
 | الصلاحية | الأوامر |
 |---|---|
@@ -160,8 +175,8 @@
 | `count` الجرد | `count.start`، `count.set`، `count.apply`، `count.cancel`، `count.current`، `count.page`، `count.rest`، `counts.page`، `count.get` |
 | `customers` الزبائن | `customer.add`، `customer.edit`، `customer.delete`، `customer.get`، `customers.page`، `customer.statement` |
 | `debts` الديون | `payment.add`، `customer.balance` (ودين سابق عند `customer.add`) |
-| `suppliers` الموردون ودور النشر | `supplier.add`، `supplier.edit`، `supplier.delete`، `publisher.save`، `publisher.delete` |
-| `consign` المباع | `consign.in`، `consign.back`، `consign.pay`، `consignors.list` |
+| `suppliers` الموردون ودور النشر | `supplier.add`، `supplier.edit`، `supplier.delete`، `suppliers.page`، `publisher.save`، `publisher.delete` |
+| `consign` المباع | `consign.in`، `consign.back`، `consign.pay`، `consignors.list`، `consignor.get`، `consignor.edit` |
 | `reports` التقارير | `report.range`، `stale` |
 | `closing` إقفال اليوم | `day.close`، `takings` |
 | `places` الأماكن والمخازن | `place.add`، `place.edit`، `place.delete` |

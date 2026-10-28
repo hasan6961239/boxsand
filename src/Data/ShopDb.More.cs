@@ -166,6 +166,19 @@ namespace Qirtasiya.Data
             lock (gate) return ConsignDue0(consignorId);
         }
 
+        public void UpdateConsignor(long id, string name, string phone, string note, long userId)
+        {
+            Run("consignor-edit", userId, delegate (Cmd c)
+            {
+                name = (name ?? "").Trim();
+                if (name.Length == 0) throw Err("اكتب اسم صاحب البضاعة.");
+                if (db.Run("UPDATE consignors SET name = ?, phone = ?, note = ? WHERE id = ?", name, phone ?? "", note ?? "", id) == 0)
+                    throw Err("صاحب البضاعة غير موجود.");
+                c.Detail = "صاحب بضاعة على المباع: " + name;
+                c.RefType = "consignor"; c.RefId = id;
+            });
+        }
+
         long ConsignDue0(long consignorId)
         {
             long due = db.Long("SELECT IFNULL(SUM(sold * owner_price), 0) FROM consignments WHERE consignor_id = ?", 0, consignorId);

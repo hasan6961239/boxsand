@@ -129,8 +129,18 @@ var V4Items = (function () {
   function edit(id) {
     var get = id ? V4.run("item.get", { id: id }) : Promise.resolve(null);
     Promise.all([get, loadPlaces(), V4.call("categories.list", { kind: "book" }).catch(function () { return []; }),
-      V4.call("categories.list", { kind: "stat" }).catch(function () { return []; })]).then(function (r) {
-      var it = r[0], pl = r[1], cats = r[2].concat(r[3]);
+      V4.call("categories.list", { kind: "stat" }).catch(function () { return []; }),
+      V4.call("publishers.list").catch(function () { return []; })]).then(function (r) {
+      var it = r[0], pl = r[1], cats = r[2].concat(r[3]), pubs = r[4];
+      /* سعر الجملة من خصم دار النشر، كما في 3.x: قطاعي 100 وخصمها 10% ← جملة 90 */
+      var pubOf = function (name) {
+        var n = App.norm(name).trim();
+        for (var i = 0; n && i < pubs.length; i++) if (App.norm(pubs[i].name).trim() === n) return pubs[i];
+        return null;
+      };
+      var fromPub = function (price, pub) {
+        return pub && pub.rateBp > 0 && pub.rateBp < 10000 ? Math.round(V4.dirhams(price) * (10000 - pub.rateBp) / 10000) : 0;
+      };
       var cost = V4.can("view_cost");
       var spots = pl.filter(function (p) { return p.kind !== "store"; }).map(function (p) { return { v: p.id, t: p.path }; });
       spots.unshift({ v: 1, t: "المحل (بلا مكان محدد)" });
@@ -146,7 +156,7 @@ var V4Items = (function () {
           it ? null : { k: "kind", label: "النوع", type: "select", options: [{ v: "book", t: "كتاب" }, { v: "stat", t: "قرطاسية" }] },
           { k: "title", label: "الاسم", required: true, full: true, placeholder: "مثلاً: الفيزياء الأساسية الجزء الثاني" },
           { k: "by", label: "المؤلف (أو الماركة للقرطاسية)", placeholder: "مثلاً: د. أشرف محمود" },
-          { k: "publisher", label: "دار النشر" },
+          { k: "publisher", label: "دار النشر", list: pubs.map(function (p) { return p.name; }) },
           { k: "barcode", label: "الباركود", placeholder: "امسحه بالقارئ هنا" },
           { k: "code", label: "الرمز", placeholder: "فارغ = يُعطى تلقائياً" },
           { k: "cat", label: "التصنيف", list: cats },
@@ -158,8 +168,19 @@ var V4Items = (function () {
           it ? null : { k: "qty", label: "الكمية الموجودة الآن", type: "number", min: 0, def: 0 },
           { k: "note", label: "ملاحظة", type: "textarea", full: true }
         ],
+        onChange: function (key, val, scope, vals) {
+          if (key !== "publisher" && key !== "price") return;
+          var pub = pubOf(vals.publisher), pw = fromPub(vals.price, pub);
+          if (pw <= 0) return;
+          App.setField(scope, "priceW", money(pw));
+          if (key === "publisher") App.toast("سعر الجملة بخصم " + Math.round(pub.rateBp) / 100 + "%: " + money(pw), "ok");
+        },
         onSave: function (v) {
           var k = it ? it.kind : v.kind;
+          if (App.num(v.priceW) <= 0 && v.publisher) {
+            var auto = fromPub(v.price, pubOf(v.publisher));
+            if (auto > 0) v.priceW = money(auto);
+          }
           var body = {
             title: v.title, publisher: v.publisher, barcode: App.digits(v.barcode).trim(), code: v.code, cat: v.cat,
             price: V4.dirhams(v.price), priceW: V4.dirhams(v.priceW), min: Math.round(App.num(v.min)),

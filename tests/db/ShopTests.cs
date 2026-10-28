@@ -206,6 +206,33 @@ static class ShopTests
         List<object> past = A(Data("counts.page", "{}"));
         ok(past.Count == 1 && L(D(past[0])["less"]) == 1 && A(Data("count.get", "{\"id\":" + sess + "}")).Count == 1, "الجرد في السجل بتفاصيل فروقه");
 
+        /* ---------- كتب على المباع ---------- */
+        Dictionary<string, object> own = null;
+        foreach (object o in A(Data("consignors.list", "{}"))) if (L(D(o)["id"]) == owner) own = D(o);
+        ok(own != null && L(own["due"]) == 1000 && L(own["left"]) == 1 && L(own["titles"]) == 1 && L(own["sold"]) == 1 && L(own["myProfit"]) == 1000,
+            "أصحاب المباع: بِيع 1 بـ4 لصاحبه، سُدّد 3، المستحق 1، ربحك 1", Json.Write(own));
+        Dictionary<string, object> cg = D(Data("consignor.get", "{\"id\":" + owner + "}"));
+        long line = L(D(A(cg["lines"])[0])["id"]);
+        ok(A(cg["lines"]).Count == 1 && L(D(A(cg["lines"])[0])["left"]) == 1 && A(cg["payments"]).Count == 1, "كشف صاحب البضاعة: الكتاب والتسديد", Json.Write(cg));
+        long before = L(D(Data("item.get", "{\"id\":" + b + "}"))["qty"]);
+        Data("consign.back", "{\"id\":" + line + ",\"qty\":1}");
+        ok(L(D(A(D(Data("consignor.get", "{\"id\":" + owner + "}"))["lines"])[0])["left"]) == 0 &&
+            L(D(Data("item.get", "{\"id\":" + b + "}"))["qty"]) == before - 1, "إرجاع النسخة الباقية لصاحبها يخصمها من المخزون");
+        Data("consignor.edit", "{\"id\":" + owner + ",\"name\":\"صاحب الأمانة الجديد\",\"phone\":\"0922\"}");
+        ok((string)D(Data("consignor.get", "{\"id\":" + owner + "}"))["name"] == "صاحب الأمانة الجديد", "تعديل بيانات صاحب البضاعة");
+
+        /* ---------- الموردون ودور النشر ---------- */
+        long sup = L(Data("supplier.add", "{\"name\":\"مكتبة الجملة\",\"city\":\"بنغازي\"}"));
+        Data("receive", "{\"supplierId\":" + sup + ",\"lines\":[{\"itemId\":" + a + ",\"qty\":2,\"cost\":5000}]}");
+        Dictionary<string, object> sp = null;
+        foreach (object o in A(Data("suppliers.page", "{}"))) if (L(D(o)["id"]) == sup) sp = D(o);
+        ok(sp != null && L(sp["purchases"]) == 1 && L(sp["total"]) == 10000 && (string)sp["last"] == "2026-10-28", "المورد: إدخال واحد بـ10 وتاريخه", Json.Write(sp));
+        Data("publisher.save", "{\"name\":\"دار الاختبار\",\"rateBp\":2000}");
+        Data("item.edit", "{\"id\":" + a + ",\"publisher\":\"دار الاختبار\"}");
+        Dictionary<string, object> pub = null;
+        foreach (object o in A(Data("publishers.list", "{}"))) if ((string)D(o)["name"] == "دار الاختبار") pub = D(o);
+        ok(pub != null && L(pub["rateBp"]) == 2000 && L(pub["books"]) == 1, "دار النشر بخصمها وعدد كتبها", Json.Write(pub));
+
         /* ---------- الراكدة ---------- */
         now = now.AddDays(200);
         T = (string)D(Data("login", "{\"login\":\"admin\",\"password\":\"\"}"))["token"];

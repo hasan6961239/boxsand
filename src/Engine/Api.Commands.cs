@@ -101,8 +101,18 @@ namespace Qirtasiya.Engine
             Add("supplier.delete", "suppliers", delegate (Ctx c) { db.DeleteSupplier(c.Long("id"), c.User); return null; });
             Add("publishers.list", "edit_items", delegate (Ctx c)
             {
-                return Rows("SELECT id, name, rate_bp, mode, phone, note FROM publishers ORDER BY name",
-                    new string[] { "id", "name", "rateBp", "mode", "phone", "note" });
+                return Rows("SELECT p.id, p.name, p.rate_bp, p.mode, p.phone, p.note, " +
+                    "(SELECT COUNT(*) FROM items i WHERE i.active = 1 AND i.publisher = p.name) FROM publishers p ORDER BY p.name",
+                    new string[] { "id", "name", "rateBp", "mode", "phone", "note", "books" });
+            });
+            Add("suppliers.page", "suppliers", delegate (Ctx c)
+            {
+                List<Dictionary<string, object>> rows = Rows("SELECT s.id, s.name, s.phone, s.city, s.note, " +
+                    "(SELECT COUNT(*) FROM purchases p WHERE p.supplier_id = s.id), IFNULL((SELECT SUM(total) FROM purchases p WHERE p.supplier_id = s.id), 0), " +
+                    "(SELECT MAX(date) FROM purchases p WHERE p.supplier_id = s.id) FROM suppliers s WHERE s.active = 1 ORDER BY s.name",
+                    new string[] { "id", "name", "phone", "city", "note", "purchases", "total", "last" });
+                if (!c.S.Can("view_cost")) foreach (Dictionary<string, object> r in rows) r.Remove("total");
+                return rows;
             });
             Add("publisher.save", "suppliers", delegate (Ctx c)
             {
@@ -279,11 +289,34 @@ namespace Qirtasiya.Engine
             /* ---------- الكتب على المباع ---------- */
             Add("consignors.list", "consign", delegate (Ctx c)
             {
-                return Rows("SELECT o.id, o.name, o.phone, " +
+                /* due: المستحق له الآن (ما بِيع بسعره ناقص ما سُدّد)، كما في 3.x */
+                List<Dictionary<string, object>> rows = Rows("SELECT o.id, o.name, o.phone, o.note, " +
                     "IFNULL((SELECT SUM(sold * owner_price) FROM consignments l WHERE l.consignor_id = o.id), 0) - " +
                     "IFNULL((SELECT SUM(amount) FROM consignment_payments p WHERE p.consignor_id = o.id), 0), " +
-                    "IFNULL((SELECT SUM(MAX(qty - sold - returned, 0)) FROM consignments l WHERE l.consignor_id = o.id), 0) " +
-                    "FROM consignors o ORDER BY o.name", new string[] { "id", "name", "phone", "due", "left" });
+                    "IFNULL((SELECT SUM(MAX(qty - sold - returned, 0)) FROM consignments l WHERE l.consignor_id = o.id), 0), " +
+                    "(SELECT COUNT(*) FROM consignments l WHERE l.consignor_id = o.id), " +
+                    "IFNULL((SELECT SUM(qty) FROM consignments l WHERE l.consignor_id = o.id), 0), " +
+                    "IFNULL((SELECT SUM(sold) FROM consignments l WHERE l.consignor_id = o.id), 0), " +
+                    "IFNULL((SELECT SUM(sold * (price - owner_price)) FROM consignments l WHERE l.consignor_id = o.id), 0) " +
+                    "FROM consignors o ORDER BY o.name", new string[] { "id", "name", "phone", "note", "due", "left", "titles", "qty", "sold", "myProfit" });
+                if (!c.S.Can("view_cost")) foreach (Dictionary<string, object> r in rows) r.Remove("myProfit");
+                return rows;
+            });
+            Add("consignor.get", "consign", delegate (Ctx c)
+            {
+                List<Dictionary<string, object>> o = Rows("SELECT id, name, phone, note FROM consignors WHERE id = ?", new string[] { "id", "name", "phone", "note" }, c.Long("id"));
+                if (o.Count == 0) throw new ShopException("صاحب البضاعة غير موجود.");
+                o[0]["lines"] = Rows("SELECT l.id, IFNULL(l.item_id, 0), l.kind, l.title, l.author, l.code, l.qty, l.sold, l.returned, MAX(l.qty - l.sold - l.returned, 0), " +
+                    "l.price, l.owner_price, l.date, IFNULL(i.home_place_id, 0) FROM consignments l LEFT JOIN items i ON i.id = l.item_id WHERE l.consignor_id = ? ORDER BY l.id",
+                    new string[] { "id", "itemId", "kind", "title", "author", "code", "qty", "sold", "returned", "left", "price", "ownerPrice", "date", "homePlaceId" }, c.Long("id"));
+                o[0]["payments"] = Rows("SELECT id, amount, date, at, note, from_drawer FROM consignment_payments WHERE consignor_id = ? ORDER BY id DESC",
+                    new string[] { "id", "amount", "date", "at", "note", "fromDrawer" }, c.Long("id"));
+                return o[0];
+            });
+            Add("consignor.edit", "consign", delegate (Ctx c)
+            {
+                db.UpdateConsignor(c.Long("id"), c.Str("name"), c.Str("phone"), c.Str("note"), c.User);
+                return null;
             });
             Add("consign.in", "consign", delegate (Ctx c)
             {
