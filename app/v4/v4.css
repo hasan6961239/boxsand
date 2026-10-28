@@ -15,6 +15,22 @@ body.v4.out #rail, body.v4.out #topbar { display: none; }
 .login-wrap .field { margin-bottom: 14px; }
 .login-wrap .btn.lg { width: 100%; }
 
+/* حالة الربط في الشريط العلوي (قرار 0023) */
+.sync-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font: inherit;
+  border-radius: 999px; padding: 3px 12px; font-size: 12.5px; font-weight: 700; border: 1px solid;
+}
+.sync-chip.ok   { background: var(--accent-wash); color: var(--accent-dim); border-color: #C3E0D9; }
+.sync-chip.warn { background: var(--amber-wash);  color: #7A5306;           border-color: #EDDCB0; }
+.sync-chip.bad  { background: var(--stamp-wash);  color: var(--stamp);      border-color: #EFC9C3; }
+
+/* «في الفروع الأخرى» حين لا يوجد الصنف هنا */
+.branch-hint {
+  background: var(--amber-wash); color: #7A5306; border-radius: 10px; padding: 8px 12px; margin-top: 8px;
+  font-size: 12.5px; line-height: 1.8;
+}
+.suggest .branch-hint { margin: 0; border-radius: 0; }
+
 .user-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
 
 /* شريط أدوات الصفحات */

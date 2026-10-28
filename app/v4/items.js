@@ -47,13 +47,22 @@ var V4Items = (function () {
       '<button data-k="stat" onclick="V4Items.kind(\'stat\')">قرطاسية</button></div>' +
       (V4.can("edit_items") ? '<button class="btn primary" onclick="V4Items.edit(0)">+ صنف جديد</button>' : "") +
       '</div><div class="muted small" id="itCount" style="margin:-4px 2px 10px"></div>' +
+      '<div id="itWait"></div>' +
       '<div class="card"><div id="itBody"><div class="card-body muted">…</div></div></div>' +
+      '<div id="itBranch"></div>' +
       '<div class="pager" id="itPager"></div>';
+  }
+
+  /* جهاز ثانٍ: الأصناف التي أُرسلت لجهاز المحل ولم تصل بعد، وما رُفض منها */
+  var ITEM_CMDS = ["item.add", "item.edit", "item.delete"];
+  function waiting() {
+    if (V4Sync.isSecond()) V4Sync.loadOutbox(document.getElementById("itWait"), ITEM_CMDS);
   }
 
   function after() {
     paintKind();
     loadPlaces().then(load, load);
+    waiting();
     var q = document.getElementById("itQ");
     if (q) q.focus();
   }
@@ -79,6 +88,7 @@ var V4Items = (function () {
       if (!body) return;
       var near = d.nearFrom === undefined ? -1 : d.nearFrom - f.offset;
       body.innerHTML = table(d.items, near);
+      V4Sync.hint(!d.items.length || d.nearFrom === 0 ? f.q : "", document.getElementById("itBranch"));
       document.getElementById("itCount").textContent = d.total + (d.more ? "+" : "") + " صنف" +
         (f.q.trim() ? " يطابق «" + f.q.trim() + "»" : "");
       document.getElementById("itPager").innerHTML =
@@ -159,12 +169,20 @@ var V4Items = (function () {
           if (cost) body.cost = V4.dirhams(v.cost);
           if (it) {
             body.id = it.id;
-            return V4.run("item.edit", body).then(function () { App.toast("حُفظ: " + v.title, "ok"); load(); });
+            return V4.run("item.edit", body).then(function (r) {
+              if (V4.queued(r, "تعديل «" + v.title + "»")) { waiting(); return; }
+              App.toast("حُفظ: " + v.title, "ok");
+              load();
+            });
           } else {
             body.kind = k;
             body.qty = Math.round(App.num(v.qty));
             body.placeId = body.homePlaceId;
-            return V4.run("item.add", body).then(function () { App.toast("أُضيف: " + v.title, "ok"); load(); });
+            return V4.run("item.add", body).then(function (r) {
+              if (V4.queued(r, "«" + v.title + "»")) { waiting(); return; }
+              App.toast("أُضيف: " + v.title, "ok");
+              load();
+            });
           }
         }
       });
@@ -183,9 +201,10 @@ var V4Items = (function () {
 
   function remove(it, m) {
     App.confirm("حذف «" + it.title + "»؟ فواتيره القديمة تبقى كما هي.", function () {
-      V4.run("item.delete", { id: it.id }).then(function () {
-        App.toast("حُذف: " + it.title, "ok");
+      V4.run("item.delete", { id: it.id }).then(function (r) {
         m.close();
+        if (V4.queued(r, "حذف «" + it.title + "»")) { waiting(); return; }
+        App.toast("حُذف: " + it.title, "ok");
         load();
       });
     }, { yes: "احذف", danger: true });

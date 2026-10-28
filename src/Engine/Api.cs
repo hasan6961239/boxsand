@@ -124,7 +124,9 @@ namespace Qirtasiya.Engine
                 if (s == null) return Fail(401, "انتهت الجلسة. ادخل من جديد.", "session");
                 if (cmd.Perm != AnyUser && !s.Can(cmd.Perm))
                     return Fail(403, "لا تملك صلاحية: " + PermLabel(cmd.Perm), "perm", cmd.Perm);
-                return Ok(cmd.Run(new Ctx(this, s, req)));
+                try { return Ok(cmd.Run(new Ctx(this, s, req))); }
+                /* جهاز ثانٍ (قرار 0023): الأمر ينتظر جهاز المحل */
+                catch (ReplicaWriteException) { return Ok(Queue(s, name, req)); }
             }
             catch (ShopException e) { return Fail(200, e.Message); }
             catch (FormatException e) { return Fail(400, e.Message); }
@@ -135,6 +137,24 @@ namespace Qirtasiya.Engine
         {
             Session s = SessionOf(token);
             return s != null && (perm == AnyUser || s.Can(perm));
+        }
+
+        /* 0 = مسموح، 401 = لا جلسة (ادخل من جديد)، 403 = بلا صلاحية */
+        public int Check(string token, string perm)
+        {
+            Session s = SessionOf(token);
+            if (s == null) return 401;
+            return perm == AnyUser || s.Can(perm) ? 0 : 403;
+        }
+
+        /* إعادة تحميل نسخة جهاز المحل للفرع نفسه (قرار 0023): الموظفون أنفسهم بأرقامهم،
+           فلا يُخرج البائع من الشاشة لأمر لم يفعله */
+        public void AdoptSessions(Api old)
+        {
+            if (old == null || old == this) return;
+            lock (old.gate)
+            lock (gate)
+                foreach (KeyValuePair<string, Session> kv in old.sessions) sessions[kv.Key] = kv.Value;
         }
 
         static string PermLabel(string p)

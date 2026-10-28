@@ -232,6 +232,24 @@ var App = (function () {
       });
   }
 
+  /* حفظ مؤكَّد قبل عملية تقرأ الملف من القرص (النقل لـ 4.0): ينتظر الحفظ الجاري،
+     ثم يكتب الحالة كما هي الآن، ويرفض الوعد إن لم تُكتب. saveNow لا يكفي هنا:
+     إن وجد حفظاً جارياً أجّل نفسه ورجع فوراً، ولا يرفض عند الفشل. */
+  function flushSave() {
+    if (readOnly) return Promise.reject(new Error(blockReason || "هذه النافذة للعرض فقط."));
+    return new Promise(function (done) {
+      (function wait() { if (!saving) done(); else setTimeout(wait, 100); })();
+    }).then(function () {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      fixStores();
+      saving = true;
+      setState("saving");
+      return apiWrite("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(S) })
+        .then(function () { saving = false; dirty = false; firstDirtyAt = 0; setState("ok"); },
+          function (e) { saving = false; setState("error"); throw e; });
+    });
+  }
+
   var disconnectedShown = false;
 
   function showDisconnected() {
@@ -2205,7 +2223,7 @@ var App = (function () {
   return {
     boot: boot, rerender: rerender, route: route,
     get S() { return S; },
-    save: save, saveNow: saveNow,
+    save: save, saveNow: saveNow, flushSave: flushSave,
     uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, busy: busy, lazyMore: lazyMore, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm, match: match, rank: rank, nearLabel: nearLabel, fold: fold, exactCount: exactCount, sugHead: sugHead,
     api: api, apiJson: apiJson, apiWrite: apiWrite, ensureWriteToken: ensureWriteToken,

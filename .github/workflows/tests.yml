@@ -67,6 +67,12 @@ jobs:
       - name: المحرك الحقيقي من البداية للنهاية (المرحلة 2)
         run: node tools/test-engine.js
 
+      - name: خادم الربط (cloud/worker.js على D1 وKV، قرار 0023)
+        run: node tools/test-cloud.js
+
+      - name: المزامنة بين الأجهزة والفروع على المحرك الحقيقي (قرار 0023)
+        run: node tools/test-sync.js
+
       - name: واجهة 4.0 على المحرك الحقيقي (المرحلة 4)
         env:
           SHOTS: shots-v4

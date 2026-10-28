@@ -81,7 +81,9 @@ var V4Pos = (function () {
     var host = document.getElementById("posResults");
     if (!host) return;
     if (!res || !res.items.length) {
-      host.innerHTML = res && res.forQ ? '<div class="suggest"><div class="s-head">لا يوجد صنف بهذا الاسم</div></div>' : "";
+      host.innerHTML = res && res.forQ ? '<div class="suggest"><div class="s-head">لا يوجد صنف بهذا الاسم</div><div id="posBranch"></div></div>' : "";
+      /* موجود في فرع آخر؟ يُقال للزبون وين يلقاه */
+      if (res && res.forQ) V4Sync.hint(res.forQ, document.getElementById("posBranch"));
       return;
     }
     /* القائمة مفتوحة: تتحدث مع كل حرف بلا حركة الظهور، فلا ترمش أثناء الكتابة */
@@ -100,7 +102,9 @@ var V4Pos = (function () {
         '<span class="sp"><span class="badge ' + st + '">المتوفر ' + it.qty + "</span></span>" +
         '<span class="pr"><span class="p1 num">' + money(it.price) + "</span>" +
         '<span class="p2 num">جملة ' + money(it.priceW || it.price) + "</span></span></button>";
-    }).join("") + "</div>";
+    }).join("") + (res.nearFrom === 0 ? '<div id="posBranch"></div>' : "") + "</div>";
+    /* لا شيء هنا بالضبط («هل تقصد؟» وحدها): ربما هو في فرع آخر */
+    if (res.nearFrom === 0) V4Sync.hint(res.forQ, document.getElementById("posBranch"));
   }
 
   function markHi(items) {
@@ -336,9 +340,11 @@ var V4Pos = (function () {
     };
     if (method === "credit") { body.customerId = customerId; body.paid = paid || 0; }
     V4.run("sale", body).then(function (r) {
-      last = { id: r.id, no: r.no, total: r.total };
       if (payModal) payModal.close();
       cart = []; discount = 0;
+      /* جهاز ثانٍ: البيعة تُنفَّذ عند جهاز المحل، ورقم فاتورتها يُعطى هناك */
+      if (V4.queued(r, "البيعة")) { last = null; paint(); focusScan(); return; }
+      last = { id: r.id, no: r.no, total: r.total };
       paint();
       App.toast("تمت البيعة: فاتورة رقم " + r.no + " · " + money(r.total), "ok");
       if (r.fromRoom && r.fromRoom.length) App.toast("خذ من غرفة الخزين: " + r.fromRoom.join("، "), "warn");

@@ -17,6 +17,7 @@ var V4Settings = (function () {
   function render() {
     var h = "";
     if (V4.can("settings")) h += card("المحل والإيصال", '<div class="muted">…</div>', "setShop");
+    h += V4Sync.card();
     h += card("كلمة سري", '<p class="muted" style="margin:0 0 12px">' +
       (V4.me().hasPassword === false ? "لا كلمة سر لك الآن: أي أحد يفتح البرنامج يدخل باسمك." : "تُطلب عند الدخول.") +
       '</p><button class="btn" onclick="V4Settings.myPassword()">' +
@@ -31,7 +32,7 @@ var V4Settings = (function () {
         '<button class="btn" onclick="V4Settings.check()">افحص البيانات الآن</button></div>' +
         '<div id="healthOut" class="muted small" style="margin-top:12px"></div>');
       var s = V4.shop() || {};
-      if (s.demo === true || s.demo === "true") {
+      if ((s.demo === true || s.demo === "true") && !V4Sync.isSecond()) {
         h += card("نسخة تجربة", '<p style="margin:0 0 12px;line-height:1.8">البيانات هنا للتجربة: كتب وزبائن وبيعات غير حقيقية. ' +
           "حين تجهز للعمل الحقيقي امسحها وابدأ بقاعدة فارغة باسم المحل نفسه. " +
           "نسخة التجربة تبقى محفوظة في مجلد backups.</p>" +
@@ -42,6 +43,7 @@ var V4Settings = (function () {
   }
 
   function after() {
+    V4Sync.after();
     if (V4.can("settings")) { loadShop(); loadBackups(); }
     if (V4.can("users")) loadUsers();
   }
@@ -74,7 +76,8 @@ var V4Settings = (function () {
         ],
         onSave: function (v) {
           m.shopName = v.shopName; m.phone = v.phone; m.footer = v.footer;
-          return V4.run("setting.set", { key: "meta", value: m }).then(function () {
+          return V4.run("setting.set", { key: "meta", value: m }).then(function (r) {
+            if (V4.queued(r, "بيانات المحل")) return;
             App.toast("حُفظ", "ok");
             V4.restart();
           });
@@ -97,7 +100,8 @@ var V4Settings = (function () {
       ],
       onSave: function (v) {
         if (v.next !== v.again) { App.toast("الكلمتان غير متطابقتين.", "warn"); return false; }
-        return V4.run("me.password", { current: v.current || "", next: v.next }).then(function () {
+        return V4.run("me.password", { current: v.current || "", next: v.next }).then(function (r) {
+          if (V4.queued(r, "كلمة السر")) return;
           App.toast("حُفظت كلمة السر.", "ok");
           V4.restart();
         });
@@ -140,7 +144,8 @@ var V4Settings = (function () {
         { k: "password", label: "كلمة السر", type: "password", hint: "فارغ = يدخل بلا كلمة سر" }
       ],
       onSave: function (v) {
-        return V4.run("user.add", { name: v.name, login: v.login, password: v.password }).then(function () {
+        return V4.run("user.add", { name: v.name, login: v.login, password: v.password }).then(function (r) {
+          if (V4.queued(r, "موظف جديد")) return;
           App.toast("أُضيف: " + v.name + " — يبدأ بالبيع والبحث ومشاهدة المخزون.", "ok");
           loadUsers();
         });
@@ -161,7 +166,8 @@ var V4Settings = (function () {
       size: "narrow",
       fields: [{ k: "password", label: "كلمة السر الجديدة", type: "password", hint: "فارغ = يدخل بلا كلمة سر" }],
       onSave: function (v) {
-        return V4.run("user.password", { id: id, password: v.password }).then(function () {
+        return V4.run("user.password", { id: id, password: v.password }).then(function (r) {
+          if (V4.queued(r, "كلمة سر " + u.name)) return;
           App.toast("حُفظت.", "ok");
           if (id === V4.me().userId) V4.restart(); else loadUsers();
         });
@@ -182,14 +188,17 @@ var V4Settings = (function () {
       actions: [{ label: "حفظ", kind: "primary", click: function (close, ov) {
         var l = [];
         Array.prototype.forEach.call(ov.querySelectorAll("input[type=checkbox]:checked"), function (c) { l.push(c.value); });
-        V4.run("user.perms", { id: id, perms: l }).then(function () { App.toast("حُفظت الصلاحيات.", "ok"); close(); loadUsers(); });
+        V4.run("user.perms", { id: id, perms: l }).then(function (r) {
+          if (!V4.queued(r, "صلاحيات " + u.name)) App.toast("حُفظت الصلاحيات.", "ok");
+          close(); loadUsers();
+        });
       } }],
       cancelLabel: "إلغاء"
     });
   }
 
   function userActive(id, active) {
-    V4.run("user.active", { id: id, active: active }).then(function () { loadUsers(); });
+    V4.run("user.active", { id: id, active: active }).then(function (r) { V4.queued(r); loadUsers(); });
   }
 
   /* ---------- النسخ الاحتياطية ---------- */

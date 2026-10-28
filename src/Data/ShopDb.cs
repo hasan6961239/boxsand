@@ -188,7 +188,11 @@ namespace Qirtasiya.Data
                 c.Exec("PRAGMA foreign_keys = ON");
             }
             ShopDb shop = new ShopDb(c, rep, clk);
-            try { shop.EnsureSearch(); }
+            try
+            {
+                shop.LoadRole();
+                shop.EnsureSearch();
+            }
             catch
             {
                 shop.Dispose();
@@ -273,8 +277,10 @@ namespace Qirtasiya.Data
             lock (gate)
             {
                 if (Report.ReadOnly) throw new ShopException("لا يمكن الحفظ: " + Report.ReadOnlyReason);
+                /* الجهاز الثاني نسخة من جهاز المحل: لا يكتب، والأمر يُرسل لجهاز المحل (قرار 0023) */
+                if (replica) throw new ReplicaWriteException();
                 db.Exec("BEGIN IMMEDIATE");
-                bool ok = false;
+                bool ok = false, recorded = false;
                 searchTouched = searchRebuilt = false;
                 try
                 {
@@ -282,11 +288,20 @@ namespace Qirtasiya.Data
                     db.Run("UPDATE cur_op SET op = ? WHERE id = 1", opId);
                     Cmd cmd = new Cmd(opId, clock(), userId, kind);
                     T r = body(cmd);
+                    /* أمر من جهاز ثانٍ: يُسجَّل في المعاملة نفسها، فلا يُنفَّذ مرتين ولو انقطعت الكهرباء */
+                    RemoteCmd rc = remote;
+                    if (rc != null && !rc.Recorded)
+                    {
+                        RecordRemote(rc, cmd.At, true, "", opId);
+                        recorded = true;
+                        if (string.IsNullOrEmpty(cmd.Device)) cmd.Device = rc.Label;
+                    }
                     db.Run("INSERT INTO ops(id, at, user_id, kind, detail, ref_type, ref_id, before, after, device) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         opId, cmd.At, userId > 0 ? (object)userId : null, kind, cmd.Detail ?? "", cmd.RefType ?? "", cmd.RefId,
                         cmd.Before ?? "", cmd.After ?? "", cmd.Device ?? "");
                     db.Exec("COMMIT");
                     ok = true;
+                    if (recorded) rc.Recorded = true;
                     if (searchTouched) Interlocked.Increment(ref searchGen);
                     if (searchRebuilt) lock (vocabGate) vocabEpoch++;
                     return r;
@@ -411,37 +426,11 @@ namespace Qirtasiya.Data
             target.Exec("PRAGMA foreign_keys = OFF");
             target.Exec("BEGIN IMMEDIATE");
             bool ok = false;
-            HashSet<long> items = new HashSet<long>();
             try
             {
+                HashSet<long> items = new HashSet<long>();
                 foreach (Change c in changes)
-                {
-                    if (!Schema.IsLogged(c.Table)) continue;
-                    if (c.Table == "items") items.Add(c.RowId);
-                    if (c.Op == "d")
-                    {
-                        target.Run("DELETE FROM \"" + c.Table + "\" WHERE id = ?", c.RowId);
-                        continue;
-                    }
-                    Dictionary<string, object> row = (Dictionary<string, object>)Json.Parse(c.Data);
-                    StringBuilder cols = new StringBuilder(), qs = new StringBuilder(), set = new StringBuilder();
-                    object[] vals = new object[row.Count];
-                    int i = 0;
-                    foreach (KeyValuePair<string, object> kv in row)
-                    {
-                        if (i > 0) { cols.Append(','); qs.Append(','); }
-                        cols.Append('"').Append(kv.Key).Append('"');
-                        qs.Append('?');
-                        if (kv.Key != "id")
-                        {
-                            if (set.Length > 0) set.Append(',');
-                            set.Append('"').Append(kv.Key).Append("\" = excluded.\"").Append(kv.Key).Append('"');
-                        }
-                        vals[i++] = kv.Value;
-                    }
-                    target.Run("INSERT INTO \"" + c.Table + "\"(" + cols + ") VALUES(" + qs + ") ON CONFLICT(id) DO " +
-                        (set.Length > 0 ? "UPDATE SET " + set : "NOTHING"), vals);
-                }
+                    ApplyRow(target, c.Table, c.RowId, c.Op, c.Op == "d" ? null : (Dictionary<string, object>)Json.Parse(c.Data), items);
                 /* فهرس البحث لا يُسجَّل: يُكتب هنا لكل صنف تغيّر */
                 if (items.Count > 0 && HasSearch(target)) foreach (long id in items) SearchIndex(target, id);
                 target.Exec("COMMIT");
@@ -452,6 +441,35 @@ namespace Qirtasiya.Data
                 if (!ok) Rollback(target);
                 target.Exec("PRAGMA foreign_keys = ON");
             }
+        }
+
+        /* صف واحد من السجل: حذف، أو إضافة/تعديل بصورته كاملة */
+        static void ApplyRow(Sqlite target, string table, long rowId, string op, Dictionary<string, object> row, HashSet<long> items)
+        {
+            if (!Schema.IsLogged(table)) return;
+            if (table == "items") items.Add(rowId);
+            if (op == "d")
+            {
+                target.Run("DELETE FROM \"" + table + "\" WHERE id = ?", rowId);
+                return;
+            }
+            StringBuilder cols = new StringBuilder(), qs = new StringBuilder(), set = new StringBuilder();
+            object[] vals = new object[row.Count];
+            int i = 0;
+            foreach (KeyValuePair<string, object> kv in row)
+            {
+                if (i > 0) { cols.Append(','); qs.Append(','); }
+                cols.Append('"').Append(kv.Key).Append('"');
+                qs.Append('?');
+                if (kv.Key != "id")
+                {
+                    if (set.Length > 0) set.Append(',');
+                    set.Append('"').Append(kv.Key).Append("\" = excluded.\"").Append(kv.Key).Append('"');
+                }
+                vals[i++] = kv.Value;
+            }
+            target.Run("INSERT INTO \"" + table + "\"(" + cols + ") VALUES(" + qs + ") ON CONFLICT(id) DO " +
+                (set.Length > 0 ? "UPDATE SET " + set : "NOTHING"), vals);
         }
 
         public void Dispose()

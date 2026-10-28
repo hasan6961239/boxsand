@@ -14,7 +14,10 @@
 'use strict';
 const fs = require('fs'), os = require('os'), path = require('path');
 const { chromium } = require('playwright-core');
+const zlib = require('zlib');
 const E = require('./engine');
+const C = require('./fake-cloud');
+const KEY = 'ui-test-key';
 
 const EXE = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
@@ -35,7 +38,7 @@ function ok(cond, name, detail) {
   console.log('يبني تطبيق طرابلس...');
   E.buildEngine(dir, 'tripoli');
 
-  let eng = E.startEngine(dir, home), lastPage = null;
+  let eng = E.startEngine(dir, home), lastPage = null, cloud = null;
   const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox'] });
   try {
     let port = await E.waitPort(dir);
@@ -247,6 +250,86 @@ function ok(cond, name, detail) {
     ok(copied.length === 1, 'ونسخة اليوم وصلته فوراً', copied);
     ok(fs.readFileSync(path.join(dir, 'data', 'backup-dir.txt'), 'utf8') === usb && (await text('#bkOut')).indexOf(usb) >= 0, 'ويبقى بعد إعادة التشغيل (backup-dir.txt)');
 
+    console.log('\n== الربط والفروع من الواجهة (قرار 0023) ==');
+    cloud = await C.start({ secret: KEY });
+    await page.click('#nav .nav-item[data-k="branches"]');
+    await page.waitForSelector('#brList >> text=لا فروع مربوطة بعد');
+    ok((await text('#brList')).indexOf('اربط هذا الجهاز أولاً') >= 0, 'صفحة الفروع قبل الربط: «اربط هذا الجهاز أولاً»');
+    await page.click('#view button:has-text("إضافة فرع")');
+    await page.waitForSelector(top + ' >> text=نفس عنوان خادم الربط');
+    ok(true, '«+ إضافة فرع» تشرح الخطوات');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('#modalHost .overlay'));
+    await page.click('#nav .nav-item[data-k="settings"]');
+    await page.waitForSelector('#syncCard button:has-text("هذا جهاز المحل")');
+    ok((await text('#syncState')) === 'غير مربوط' && (await text('#syncChip')) === '', 'الإعدادات: «غير مربوط»، وبلا شارة في الأعلى');
+    ok((await text('#syncCard')).indexOf('نسخة تجربة: لا تُربط بخادم الربط الحقيقي') >= 0, 'وتنبّه: نسخة التجربة لا تُربط بالخادم الحقيقي');
+    await page.click('#syncCard button:has-text("هذا جهاز المحل")');
+    await page.waitForSelector(top + ' #f_url');
+    await page.fill(top + ' #f_url', 'https://maktaba-sync.example.workers.dev');
+    await page.fill(top + ' #f_key', KEY);
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('هذه نسخة تجربة: لا تُربط بخادم الربط الحقيقي'), 'نسخة التجربة ترفض خادم ربط حقيقياً (قرار 0014)');
+    ok(!cloud.log.length, 'ولم تتصل بأي خادم');
+    await page.fill(top + ' #f_url', cloud.url);
+    await page.fill(top + ' #f_key', 'wrong-key');
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await toastHas('كلمة سر الربط غير صحيحة'), 'كلمة سر ربط خاطئة تُرفض');
+    ok(await page.$eval(top + ' #f_url', e => e.value) === cloud.url, 'والنموذج يبقى مفتوحاً بما كُتب فيه');
+    await page.fill(top + ' #f_key', KEY);
+    await page.click(top + ' .m-foot .btn.primary');
+    ok(await page.waitForFunction(() => /مربوط/.test(document.getElementById('syncChip').textContent) &&
+      document.getElementById('syncState').textContent === 'يعمل', null, { timeout: 60000 }).then(() => true, () => false),
+      'رُبط: الشارة «مربوط» والبطاقة «يعمل»', await text('#syncChip'));
+    ok(!(await page.$('#modalHost .overlay')), 'ونموذج الربط أُغلق');
+    ok(cloud.log.some(l => /^POST \/v2\/snap /.test(l)), 'ورفع نسخته الأولى لخادم الربط');
+    await shot('13a-sync-card');
+
+    /* فرع مصراتة مربوط من قبل: قائمته على الخادم كما يرفعها جهاز محله */
+    const catJson = JSON.stringify({ v: 1, branch: { id: 'misrata', name: 'مكتبة مصراتة', city: 'مصراتة', phone: '' }, at: '2026-10-28 10:00:00',
+      items: [['book', 'B1', 'كتاب في مصراتة وحدها', 'مؤلف بعيد', '9780000000001', '', 3, 2, 15000, 'ط1 · رف 2'],
+              ['book', 'B2', 'كتاب نفد في مصراتة', '', '', '', 0, 0, 9000, '']] });
+    const H = { 'X-Shop-Key': KEY };
+    let hr = await fetch(cloud.url + '/v2/hello?branch=misrata&device=misratamain01&role=main&name=x', { headers: H });
+    ok(hr.status === 200, 'جهاز محل مصراتة على الخادم', hr.status);
+    hr = await fetch(cloud.url + '/v2/catalog?branch=misrata&device=misratamain01&ver=catver0001&part=0&parts=1&n=2&name=' +
+      encodeURIComponent('مكتبة مصراتة') + '&city=' + encodeURIComponent('مصراتة'),
+      { method: 'POST', headers: H, body: zlib.gzipSync(Buffer.from(catJson)).toString('base64') });
+    ok(hr.status === 200, 'وقائمة كتبه منشورة', hr.status);
+    await page.click('#syncCard button:has-text("حدّث الآن")');
+    ok(await toastHas('تم التحديث'), '«حدّث الآن» يجلب قوائم الفروع');
+    await page.click('#nav .nav-item[data-k="branches"]');
+    await page.waitForSelector('#brList .stat');
+    const brCard = await text('#brList');
+    ok(brCard.indexOf('مكتبة مصراتة') >= 0 && brCard.indexOf('2 صنف') >= 0 && brCard.indexOf('5 قطعة') >= 0, 'صفحة الفروع: مصراتة بأصنافها وقطعها', brCard);
+    await page.fill('#brQ', 'مولف بعيد');
+    await page.waitForSelector('#brBody table tbody tr');
+    const brRow = await text('#brBody table tbody tr');
+    ok(brRow.indexOf('كتاب في مصراتة وحدها') >= 0 && brRow.indexOf('15.00') >= 0 && brRow.indexOf('ط1 · رف 2') >= 0,
+      'البحث بالمؤلف (بلا همزة): الكتاب بسعره ومكانه في مصراتة', brRow);
+    await shot('13b-branches');
+    await page.fill('#brQ', 'كتاب لا يوجد ابدا');
+    await page.waitForSelector('#brBody >> text=لا شيء في الفروع الأخرى');
+    ok(true, 'وما لا يوجد: «لا شيء في الفروع الأخرى»');
+    await page.click('#nav .nav-item[data-k="pos"]');
+    await page.waitForSelector('#scan');
+    await page.fill('#scan', 'في مصراته وحدها');
+    await page.waitForSelector('#posBranch .branch-hint');
+    const posHint = await text('#posBranch');
+    ok(posHint.indexOf('في الفروع الأخرى') >= 0 && posHint.indexOf('مكتبة مصراتة') >= 0 && posHint.indexOf('(5 · 15.00)') >= 0,
+      'نقطة البيع: غير موجود هنا ← «في الفروع الأخرى» بالكمية والسعر', posHint);
+    await shot('13c-pos-branch-hint');
+    await page.fill('#scan', 'نفد في مصراتة');
+    await page.waitForSelector('#posResults >> text=لا يوجد صنف بهذا الاسم');
+    await E.sleep(600);
+    ok((await text('#posBranch')) === '', 'وما نفد هناك أيضاً لا يُقترح', await text('#posBranch'));
+    await page.fill('#scan', '');
+    await page.click('#nav .nav-item[data-k="items"]');
+    await page.fill('#itQ', 'كتاب في مصراتة وحدها');
+    await page.waitForSelector('#itBranch .branch-hint');
+    ok(true, 'صفحة الكتب: نفس التلميح حين لا يوجد هنا');
+    await page.fill('#itQ', '');
+
     console.log('\n== ابدأ من جديد بلا بيانات التجربة ==');
     await page.click('#nav .nav-item[data-k="settings"]');
     await page.waitForSelector('#view >> text=ابدأ من جديد بلا بيانات التجربة');
@@ -281,6 +364,10 @@ function ok(cond, name, detail) {
     ok(dailyItems === 0, 'ونسخة اليوم صارت للقاعدة الجديدة الفارغة', dailyItems);
     let r = await E.call(port, '/api/v2/login', { login: 'salem', password: '4321' });
     ok(r.body && r.body.ok === false, 'وموظفو التجربة ذهبوا معها', r.body);
+    const st = await page.evaluate(() => V4.call('sync.now'));
+    ok(st.linked === true && st.role === 'main' && !st.error && st.lastOk, 'والربط باقٍ: يرفع القاعدة الجديدة بلا خطأ', st);
+    const snaps = cloud.log.filter(l => /^POST \/v2\/snap /.test(l)).length;
+    ok(snaps >= 2, 'بنسخة كاملة جديدة للأجهزة الثانية', snaps);
 
     console.log('\n== إعادة تشغيل المحرك ==');
     E.stopEngine(eng);
@@ -291,7 +378,7 @@ function ok(cond, name, detail) {
     await page.waitForSelector('body.v4:not(.out) #nav .nav-item', { timeout: 20000 });
     ok(await text('#brandName') === 'مكتبة التجربة', 'بعد إعادة التشغيل: «/» تفتح 4.0 مباشرة');
     r = await E.call(port, '/api/v2/demo.reset', {}, {});
-    ok(r.status === 403, 'مسح التجربة بلا جلسة: 403', r.status);
+    ok(r.status === 401, 'مسح التجربة بلا جلسة: 401 (ادخل من جديد)', r.status);
     const tok = (await E.call(port, '/api/v2/login', { login: 'admin', password: '' })).body.data.token;
     r = await E.call(port, '/api/v2/demo.reset', {}, { 'X-Session': tok });
     ok(r.body && r.body.ok === false && /ليست نسخة تجربة/.test(r.body.error), 'وقاعدة حقيقية لا تُمسح أبداً', r.body);
@@ -320,7 +407,7 @@ function ok(cond, name, detail) {
       }
       throw new Error('لم يبدأ: ' + name);
     };
-    const engT = E.startEngine(inst.tripoli, home), engM = E.startEngine(inst.misrata, home);
+    let engT = E.startEngine(inst.tripoli, home), engM = E.startEngine(inst.misrata, home);
     try {
       const pT = await portOf('Qirtasiya-Tripoli'), pM = await portOf('Qirtasiya');
       const iT = (await E.call(pT, '/api/info')).body, iM = (await E.call(pM, '/api/info')).body;
@@ -333,6 +420,48 @@ function ok(cond, name, detail) {
       ok(await pm.$('#modalHost .overlay >> text=4.0') === null && await pm.$('#modalHost .overlay >> text=ابدأ من جديد') !== null,
         'مصراتة على جهاز جديد: شاشة الترحيب كما كانت، بلا خيار 4.0');
       await pm.close();
+
+      console.log('\n== مصراتة 3.x ببياناتها ← «انقل للنظام الجديد 4.0» (من الإعدادات) ==');
+      E.stopEngine(engM);
+      await E.sleep(500);
+      const store = {
+        meta: { setupDone: true, shopName: 'مكتبة النور', currency: 'د.ل', libraries: ['A'], shelves: 4, uiSize: 'lg', theme: 'green' },
+        branch: { id: 'misrata', name: 'مكتبة النور', city: 'مصراتة', no: 1 },
+        books: [{ id: 'b1', code: 'K0001', title: 'كتاب الرياضيات للنقل', lib: 'A', shelf: '1', barcode: '111', cost: 10, price: 15, priceW: 13, qty: 20, min: 3 }],
+        stationery: [{ id: 's1', code: 'Q0001', name: 'قلم جاف', cat: 'أقلام', unit: 'قطعة', barcode: '222', cost: 0.5, price: 1, qty: 100, min: 10 }],
+        customers: [{ id: 'c1', name: 'محمد علي', phone: '091', balance: 0 }],
+        invoices: [], payments: [], counters: { invoice: 0, book: 1, stat: 1 }
+      };
+      fs.writeFileSync(path.join(iM.dataDir, 'store.json'), JSON.stringify(store));
+      fs.unlinkSync(path.join(iM.dataDir, 'port.txt'));
+      engM = E.startEngine(inst.misrata, home);
+      const pM2 = await portOf('Qirtasiya');
+      const pg3 = await ctx.newPage();
+      const err3 = [];
+      pg3.on('pageerror', e => err3.push(e.message));
+      await pg3.goto('http://127.0.0.1:' + pM2 + '/');
+      await pg3.waitForFunction(() => window.App && App.S && App.S.meta && App.S.meta.setupDone, null, { timeout: 20000 });
+      await pg3.evaluate(() => { location.hash = '#/settings'; });
+      await pg3.waitForSelector('#view button:has-text("انقل للنظام الجديد 4.0")', { timeout: 10000 });
+      ok(await pg3.$('#view button:has-text("اربطه جهازاً ثانياً")') !== null, 'إعدادات 3.x: «النظام الجديد 4.0» بزرّي النقل والربط جهازاً ثانياً');
+      await pg3.click('#view button:has-text("انقل للنظام الجديد 4.0")');
+      await pg3.waitForSelector(top + ' >> text=انقل الآن');
+      await pg3.click(top + ' >> text=انقل الآن');
+      await pg3.waitForSelector(top + ' >> text=انتقلت البيانات، وكلها مطابقة', { timeout: 30000 });
+      ok(true, 'النقل من الزر: «انتقلت البيانات، وكلها مطابقة»');
+      await pg3.screenshot({ path: path.join(shots, '15-move-report.png') });
+      await pg3.click(top + ' >> text=افتح النظام الجديد');
+      await pg3.waitForSelector('body.v4:not(.out) #nav .nav-item', { timeout: 20000 });
+      ok(await pg3.$eval('#brandName', e => e.textContent) === 'مكتبة النور' && /مصراتة/.test(await pg3.$eval('#branchTag', e => e.textContent)),
+        'ويفتح 4.0 باسم المحل وفرع مصراتة');
+      await pg3.evaluate(() => { location.hash = '#/items'; });
+      await pg3.fill('#itQ', 'كتاب الرياضيات للنقل');
+      await pg3.waitForSelector('#itBody >> text=كتاب الرياضيات للنقل');
+      ok((await pg3.$eval('#itBody', e => e.textContent)).indexOf('15.00') >= 0, 'وكتب الملف القديم فيه بأسعارها');
+      ok(fs.existsSync(path.join(iM.dataDir, 'store.json')) && fs.existsSync(path.join(iM.dataDir, 'qirtasiya.db')),
+        'والملف القديم باقٍ كما هو بجانب القاعدة الجديدة');
+      ok(err3.length === 0, 'بلا أخطاء JavaScript في 3.x ولا 4.0', err3);
+      await pg3.close();
     } finally { E.stopEngine(engT); E.stopEngine(engM); }
   } catch (e) {
     if (lastPage) await lastPage.screenshot({ path: path.join(shots, 'zz-stopped.png') }).catch(() => { });
@@ -341,6 +470,7 @@ function ok(cond, name, detail) {
   } finally {
     await browser.close().catch(() => { });
     E.stopEngine(eng);
+    if (cloud) await cloud.close();
   }
 
   console.log('\n' + '='.repeat(50));

@@ -310,6 +310,8 @@ namespace Qirtasiya.Engine
                     "LEFT JOIN users u ON u.id = o.user_id WHERE o.id < ? ORDER BY o.id DESC LIMIT ?",
                     new string[] { "id", "at", "user", "kind", "detail", "refType", "refId", "before", "after" }, before, Limit(c, 100));
             });
+
+            RegisterSync();
         }
 
         /* سطر بلا سعر: سعر الصنف الحالي (الجملة في بيع الجملة إن كان له سعر جملة) */

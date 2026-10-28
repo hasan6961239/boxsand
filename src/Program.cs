@@ -309,6 +309,8 @@ namespace Qirtasiya
                 MakeDailyBackup(false);
                 PruneBackups(30);
 
+                /* قبل الخادم: أول طلب «sync.status» يجد عميل المزامنة جاهزاً */
+                StartSync();
                 Port = StartServer();
                 Log("النواة تعمل على المنفذ " + Port.ToString(CultureInfo.InvariantCulture));
                 File.WriteAllText(PortFile, Port.ToString(CultureInfo.InvariantCulture), new UTF8Encoding(false));
@@ -360,9 +362,7 @@ namespace Qirtasiya
                     " (نسخة قبلها: " + r.BackupFile + ")" : "") + (r.ReadOnly ? "، للقراءة فقط: " + r.ReadOnlyReason : "") +
                     (r.SearchBuilt >= 0 ? "، فهرس البحث بُني لـ " + r.SearchBuilt + " صنف (" + r.SearchMs + " ms)" : "") +
                     (r.SearchFixed > 0 ? "، فهرس البحث: صُلح " + r.SearchFixed + " صنف" : ""));
-                Db = d;
-                V2 = new Api(d, null);
-                WarmSearch(d);
+                UseDb(d);
             }
             catch (Exception ex)
             {
@@ -371,11 +371,28 @@ namespace Qirtasiya
             }
         }
 
+        /* القاعدة التي يعمل عليها البرنامج من الآن: المحرك، والبحث، والمزامنة تستيقظ مع كل أمر ينتظر */
+        static void UseDb(ShopDb d)
+        {
+            UseDb(d, null);
+        }
+
+        static void UseDb(ShopDb d, Api keepSessions)
+        {
+            Db = d;
+            Api a = new Api(d, null);
+            a.AdoptSessions(keepSessions);
+            a.Queued = delegate { WakeSync(false); };
+            V2 = a;
+            WarmSearch(d);
+        }
+
         /* نقل store.json إلى القاعدة الجديدة، مرة واحدة. قبله نسخة من
            store.json، وبعده نسخة كاملة من القاعدة (نقطة البداية، قرار 0017).
            إن فشل لا يبقى ملف قاعدة نصف جاهز. */
         static string ImportStore()
         {
+            lock (SyncLock)
             lock (DbLock)
             {
                 if (Db != null || File.Exists(DbFile)) throw new Exception("البيانات منقولة للقاعدة الجديدة من قبل.");
@@ -398,9 +415,7 @@ namespace Qirtasiya
                     d.BackupTo(after);
                     Log("نُقلت البيانات للقاعدة الجديدة في " + rep.Ms + " ms" + (rep.AllOk ? "، مطابقة" : "، غير مطابقة") +
                         "، تنبيهات: " + rep.Warnings.Count + "، النسخة: " + after);
-                    Db = d;
-                    V2 = new Api(d, null);
-                    WarmSearch(d);
+                    UseDb(d);
                     return Json.Write(rep.ToJson());
                 }
                 catch
@@ -435,6 +450,7 @@ namespace Qirtasiya
            وبيانات التجربة إن طُلبت. إن فشل لا يبقى ملف قاعدة نصف جاهز. */
         static string CreateDb(string body)
         {
+            lock (SyncLock)
             lock (DbLock)
             {
                 if (Db != null || File.Exists(DbFile)) throw new Exception("القاعدة الجديدة موجودة من قبل.");
@@ -464,9 +480,7 @@ namespace Qirtasiya
                     d.SetSetting("branch", Json.Write(branch), 1);
                     int items = demo ? d.SeedDemo(1) : 0;
                     Log("قاعدة 4.0 جديدة: " + shop + (demo ? "، ببيانات تجربة (" + items + " صنف)" : ""));
-                    Db = d;
-                    V2 = new Api(d, null);
-                    WarmSearch(d);
+                    UseDb(d);
                     /* أول نسخة يومية الآن، لا عند الإغلاق. وبعد مسح التجربة تحلّ محل نسخة اليوم */
                     ThreadPool.QueueUserWorkItem(delegate { DailyDbBackup(true); });
                     Dictionary<string, object> r = new Dictionary<string, object>();
@@ -492,13 +506,23 @@ namespace Qirtasiya
            علامة التجربة لا تُمسح من هنا أبداً. */
         static string ResetDemo()
         {
+            lock (SyncLock)
             lock (DbLock)
             {
                 ShopDb d = Db;
                 if (d == null) throw new Exception("لا توجد قاعدة.");
+                if (d.Replica) throw new Exception("هذا جهاز ثانٍ: بيانات التجربة تُمسح من جهاز المحل.");
                 if (d.GetSetting("demo") != "true") throw new Exception("هذه ليست نسخة تجربة: بياناتها حقيقية ولا تُمسح.");
                 Dictionary<string, object> meta = (Json.Parse(d.GetSetting("meta") ?? "{}") as Dictionary<string, object>) ?? new Dictionary<string, object>();
                 Dictionary<string, object> branch = (Json.Parse(d.GetSetting("branch") ?? "{}") as Dictionary<string, object>) ?? new Dictionary<string, object>();
+                /* جهاز محل مربوط يبقى مربوطاً: يرفع القاعدة الجديدة بسلسلة جديدة، والأجهزة الثانية تلحقها */
+                Dictionary<string, string> link = null;
+                if (d.Local("sync.role") == "main" && !string.IsNullOrEmpty(d.Local("sync.url")))
+                {
+                    link = new Dictionary<string, string>();
+                    foreach (string k in new string[] { "sync.role", "sync.url", "sync.key", "sync.branch", "sync.device", "sync.name", "sync.machine", "sync.cmd_after" })
+                        link[k] = d.Local(k);
+                }
                 string keep = Path.Combine(BackupDir, "qirtasiya-demo-" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".db");
                 lock (DbBackupLock)
                 {
@@ -515,7 +539,8 @@ namespace Qirtasiya
                 req["city"] = Json.Str(branch, "city");
                 req["branchId"] = Json.Str(branch, "id");
                 req["branchNo"] = Json.Long(branch, "no", 2);
-                try { return CreateDb(Json.Write(req)); }
+                string made;
+                try { made = CreateDb(Json.Write(req)); }
                 catch
                 {
                     /* القاعدة الجديدة لم تُنشأ: نسخة التجربة ترجع كما كانت */
@@ -523,7 +548,281 @@ namespace Qirtasiya
                     catch (Exception ex) { Log("تعذّر إرجاع نسخة التجربة: " + ex.Message); }
                     throw;
                 }
+                ShopDb nd = Db;
+                if (link != null && nd != null)
+                {
+                    nd.SetLocals(link);
+                    Sync.ClearState();
+                    Log("الربط: يبقى بعد مسح التجربة، وتُرفع القاعدة الجديدة");
+                    WakeSync(true);
+                }
+                return made;
             }
+        }
+
+        /* ============================================================
+           المزامنة (قرار 0023)
+           ------------------------------------------------------------
+           دورة كل دقيقة على خيط خاص (SyncClient)، وفوراً حين ينتظر أمر على
+           جهاز ثانٍ أو يضغط البائع «حدّث الآن». تبديل القاعدة (الانضمام كجهاز
+           ثانٍ، مسح التجربة، النقل) يأخذ قفل المزامنة أولاً ثم قفل القاعدة،
+           فلا تُستبدل القاعدة في وسط دورة.
+           ============================================================ */
+        static readonly object SyncLock = new object();
+        static SyncClient Sync;
+        static readonly AutoResetEvent SyncWake = new AutoResetEvent(false);
+        static volatile bool SyncForce;
+        static long SyncTicks;
+        static readonly object SyncTickGate = new object();
+        /* للاختبار: دورة أقصر من دقيقة */
+        static readonly int SyncEveryMs = EnvInt("QIRTASIYA_SYNC_MS", 60000);
+
+        static int EnvInt(string name, int def)
+        {
+            int v;
+            return int.TryParse(Environment.GetEnvironmentVariable(name) ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out v) && v > 0 ? v : def;
+        }
+
+        static void StartSync()
+        {
+            Sync = new SyncClient(delegate { return Db; }, delegate { return V2; },
+                delegate (string url, string key) { return (ICloud)new HttpCloud(url, key); }, Log, MachineFingerprint(), Path.GetTempPath());
+            Thread t = new Thread(SyncLoop);
+            t.IsBackground = true;
+            t.Name = "sync";
+            t.Start();
+        }
+
+        static void WakeSync(bool force)
+        {
+            if (force) SyncForce = true;
+            SyncWake.Set();
+        }
+
+        static void SyncLoop()
+        {
+            SyncWake.WaitOne(Math.Min(SyncEveryMs, 3000));   // البرنامج يفتح أولاً
+            while (true)
+            {
+                bool force = SyncForce;
+                SyncForce = false;
+                try
+                {
+                    lock (SyncLock)
+                    {
+                        Sync.Tick(force);
+                        if (Sync.NeedRejoin) Rejoin();
+                    }
+                }
+                catch (Exception ex) { Log("المزامنة: " + ex.Message); }
+                lock (SyncTickGate) { SyncTicks++; Monitor.PulseAll(SyncTickGate); }
+                SyncWake.WaitOne(SyncEveryMs);
+            }
+        }
+
+        /* دورة كاملة الآن وانتظار انتهائها (زر «حدّث الآن»، والاختبار) */
+        static void SyncNowAndWait(int timeoutMs)
+        {
+            long t0;
+            lock (SyncTickGate) t0 = SyncTicks;
+            WakeSync(true);
+            DateTime end = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            lock (SyncTickGate)
+            {
+                while (!(SyncTicks > t0 && !SyncForce))
+                {
+                    int left = (int)(end - DateTime.UtcNow).TotalMilliseconds;
+                    if (left <= 0) break;
+                    Monitor.Wait(SyncTickGate, left);
+                }
+            }
+        }
+
+        static readonly System.Text.RegularExpressions.Regex BranchRe = new System.Text.RegularExpressions.Regex("^[a-z0-9._-]{1,40}$");
+
+        static void CheckLink(string url, string key)
+        {
+            if (!(url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)))
+                throw new SyncException("url", "اكتب عنوان خادم الربط كاملاً، مثل https://maktaba-sync.اسمك.workers.dev");
+            if (key.Length == 0) throw new SyncException("key", "اكتب كلمة سر الربط.");
+        }
+
+        /* «هذا جهاز المحل»: يسجّله الخادم جهازَ المحل للفرع، والدورة القادمة ترفع نسخته الكاملة */
+        static void SetupMain(string url, string key, string name, bool force)
+        {
+            lock (SyncLock)
+            {
+                ShopDb d = Db;
+                if (d == null) throw new SyncException("no-db", "انقل بيانات هذا الجهاز للنظام الجديد أولاً، أو أنشئ فرعاً جديداً.");
+                if (d.Replica) throw new SyncException("second", "هذا جهاز ثانٍ لفرعه: جهاز المحل واحد.");
+                if (d.ReadOnly) throw new SyncException("ro", "القاعدة للقراءة فقط: " + d.Report.ReadOnlyReason);
+                CheckLink(url, key);
+                if (SyncClient.DemoBlocked(d, url)) throw new SyncException("demo", SyncClient.DemoRefused);
+                Dictionary<string, object> br = Json.Parse(d.GetSetting("branch") ?? "{}") as Dictionary<string, object>;
+                string branch = (br == null ? "" : Json.Str(br, "id")).Trim().ToLowerInvariant();
+                if (!BranchRe.IsMatch(branch)) throw new SyncException("branch", "رمز الفرع في الإعدادات غير صالح للربط: «" + branch + "».");
+                string fp = MachineFingerprint();
+                string device = d.Local("sync.machine") == fp && !string.IsNullOrEmpty(d.Local("sync.device")) ? d.Local("sync.device") : SyncClient.NewToken();
+                Dictionary<string, string> q = new Dictionary<string, string>();
+                q["branch"] = branch; q["device"] = device; q["role"] = "main"; q["name"] = name;
+                if (force) q["force"] = "1";
+                CloudReply r = new HttpCloud(url, key).Call("GET", "v2/hello", q, null);
+                Dictionary<string, object> j = r.Json;
+                string code = j == null ? "" : Json.Str(j, "code");
+                if (r.Status == 401) throw new SyncException("key", "كلمة سر الربط غير صحيحة.");
+                if (r.Status == 409 && code == "main-taken")
+                {
+                    Dictionary<string, object> m = Json.Obj(j, "main");
+                    throw new SyncException("main-taken", "جهاز آخر مسجّل جهازَ المحل لهذا الفرع: «" + (m == null ? "" : Json.Str(m, "name")) +
+                        "». إن كان هذا الجهاز بديله فوافق على أن يأخذ مكانه.");
+                }
+                if (r.Status != 200 || j == null)
+                    throw new SyncException(code, j != null && Json.Str(j, "error").Length > 0 ? Json.Str(j, "error") : "الخادم رد بالرمز " + r.Status);
+                Dictionary<string, string> st = new Dictionary<string, string>();
+                st["sync.role"] = "main"; st["sync.url"] = url; st["sync.key"] = key; st["sync.branch"] = branch;
+                st["sync.device"] = device; st["sync.name"] = name; st["sync.machine"] = fp;
+                /* سلسلة جديدة: الدورة القادمة ترفع نسخة كاملة، والأجهزة الثانية تبدأ منها */
+                st["sync.chain"] = null; st["sync.pushed"] = null; st["sync.snap_at"] = null; st["sync.cat_hash"] = null;
+                if (d.Local("sync.url") != url) st["sync.cmd_after"] = null;
+                d.SetLocals(st);
+                Sync.ClearState();
+                Log("الربط: هذا جهاز المحل لفرع " + branch + " على " + url);
+            }
+            WakeSync(true);
+        }
+
+        static bool HasShopData(ShopDb d)
+        {
+            return d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT (SELECT COUNT(*) FROM items) + (SELECT COUNT(*) FROM invoices)", 0); }) > 0;
+        }
+
+        /* «جهاز ثانٍ لفرع مربوط»: قاعدة هذا الجهاز تُستبدل بنسخة جهاز المحل (والقديمة
+           تبقى في backups). replace: صاحب الجهاز وافق على استبدال بيانات فيه */
+        static void JoinAsSecond(string url, string key, string branch, string name, bool replace)
+        {
+            JoinAsSecond(url, key, branch, name, replace, false);
+        }
+
+        /* rejoin: الفرع نفسه من جهاز المحل نفسه، فجلسات الموظفين تبقى */
+        static void JoinAsSecond(string url, string key, string branch, string name, bool replace, bool rejoin)
+        {
+            lock (SyncLock)
+            lock (DbLock)
+            {
+                CheckLink(url, key);
+                branch = (branch ?? "").Trim().ToLowerInvariant();
+                if (!BranchRe.IsMatch(branch)) throw new SyncException("branch", "اكتب رمز الفرع كما في جهاز المحل (مثل misrata أو tripoli).");
+                ShopDb cur = Db;
+                Api oldApi = rejoin ? V2 : null;
+                if (!replace)
+                {
+                    if (cur != null && cur.Replica && cur.OutboxUnsent().Count > 0)
+                        throw new SyncException("unsent", "على هذا الجهاز " + cur.OutboxUnsent().Count + " عملية لم تصل جهاز المحل بعد: تضيع إن استُبدلت قاعدته.");
+                    if (cur != null && !cur.Replica && HasShopData(cur))
+                        throw new SyncException("has-data", "على هذا الجهاز كتب أو فواتير: تُستبدل كلها بنسخة جهاز المحل (وتبقى نسختها في مجلد backups).");
+                    if (cur == null && StoreHasData())
+                        throw new SyncException("has-data", "على هذا الجهاز بيانات النظام الحالي: تُستبدل بنسخة جهاز المحل (والملف القديم يبقى كما هو).");
+                }
+                string device = SyncClient.NewToken();
+                string tmp = DbFile + ".join.tmp";
+                if (File.Exists(tmp)) File.Delete(tmp);
+                string chain;
+                long seq;
+                try { seq = SyncClient.FetchSnapshot(new HttpCloud(url, key), branch, device, name, tmp, out chain); }
+                catch
+                {
+                    try { if (File.Exists(tmp)) File.Delete(tmp); }
+                    catch { }
+                    throw;
+                }
+                if (cur != null)
+                {
+                    lock (DbBackupLock)
+                    {
+                        string keep = Path.Combine(BackupDir, "qirtasiya-before-join-" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".db");
+                        try { cur.SnapshotTo(keep); Log("الانضمام: نسخة القاعدة السابقة " + keep); }
+                        catch (Exception ex) { Log("الانضمام: تعذّرت نسخة القاعدة السابقة: " + ex.Message); }
+                        V2 = null;
+                        Db = null;
+                        cur.Dispose();
+                    }
+                }
+                foreach (string f in new string[] { DbFile, DbFile + "-wal", DbFile + "-shm" })
+                    if (File.Exists(f)) File.Delete(f);
+                File.Move(tmp, DbFile);
+                OpenOptions o = new OpenOptions();
+                o.BackupDir = BackupDir;
+                ShopDb d = ShopDb.Open(DbFile, o);
+                d.ClearSync();
+                Dictionary<string, string> st = new Dictionary<string, string>();
+                st["sync.role"] = "second"; st["sync.url"] = url; st["sync.key"] = key; st["sync.branch"] = branch;
+                st["sync.device"] = device; st["sync.name"] = name; st["sync.machine"] = MachineFingerprint();
+                st["sync.chain"] = chain; st["sync.applied"] = seq.ToString(CultureInfo.InvariantCulture);
+                d.SetLocals(st);
+                DbError = "";
+                UseDb(d, oldApi);
+                Sync.ClearState();
+                Log("الربط: هذا جهاز ثانٍ لفرع " + branch + " (نسخة جهاز المحل حتى " + seq + ")");
+            }
+            WakeSync(true);
+        }
+
+        /* سلسلة جهاز المحل تغيّرت: نسخته الجديدة، بعد إرسال ما ينتظر هنا */
+        static void Rejoin()
+        {
+            ShopDb d = Db;
+            if (d == null || !d.Replica || d.OutboxUnsent().Count > 0) return;
+            Log("المزامنة: إعادة تحميل نسخة جهاز المحل");
+            JoinAsSecond(d.Local("sync.url") ?? "", d.Local("sync.key") ?? "", d.Local("sync.branch") ?? "", d.Local("sync.name") ?? "", true, true);
+        }
+
+        /* إيقاف الربط. جهاز المحل يرجع مستقلاً. الجهاز الثاني يبقى نسخة للعرض: لا
+           يصير محلاً ثانياً ببيانات الأول من غير قصد */
+        static void StopSync()
+        {
+            lock (SyncLock)
+            {
+                ShopDb d = Db;
+                if (d == null) return;
+                if (d.Replica)
+                {
+                    Dictionary<string, string> st = new Dictionary<string, string>();
+                    st["sync.url"] = null; st["sync.key"] = null;
+                    d.SetLocals(st);
+                }
+                else d.ClearSync();
+                Sync.ClearState();
+                Log("الربط: أُوقف على هذا الجهاز");
+            }
+        }
+
+        static string SyncCommand(string name, string body)
+        {
+            Dictionary<string, object> req = (Json.Parse(string.IsNullOrEmpty(body) ? "{}" : body) as Dictionary<string, object>) ?? new Dictionary<string, object>();
+            if (name == "sync.now") SyncNowAndWait(EnvInt("QIRTASIYA_SYNC_WAIT_MS", 120000));
+            else if (name == "sync.setup")
+            {
+                string url = Json.Str(req, "url").Trim(), key = Json.Str(req, "key").Trim();
+                string dname = Json.Str(req, "name").Trim();
+                if (dname.Length == 0) dname = Environment.MachineName;
+                if (Json.Str(req, "role") == "second") JoinAsSecond(url, key, Json.Str(req, "branch"), dname, Json.Bool(req, "replace"));
+                else SetupMain(url, key, dname, Json.Bool(req, "force"));
+            }
+            else if (name == "sync.stop") StopSync();
+            else if (name == "sync.worker")
+            {
+                byte[] w = GetEmbedded("worker.js");
+                Dictionary<string, object> o = new Dictionary<string, object>();
+                o["code"] = w == null ? "" : Encoding.UTF8.GetString(w);
+                return Json.Write(o);
+            }
+            else if (name != "sync.status") throw new SyncException("", "أمر غير معروف: " + name);
+            Dictionary<string, object> s = Sync.Status();
+            ShopDb d = Db;
+            Dictionary<string, object> br = d == null ? null : Json.Parse(d.GetSetting("branch") ?? "{}") as Dictionary<string, object>;
+            s["shopBranch"] = br == null ? "" : Json.Str(br, "id");
+            s["device"] = Environment.MachineName;
+            return Json.Write(s);
         }
 
         /* المجلد الإضافي للنسخ من واجهة 4.0 (في 3.x من نافذتها المالكة).
@@ -1214,12 +1513,60 @@ namespace Qirtasiya
                     catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
                     return;
                 }
+                /* جهاز بلا قاعدة 4.0 (النظام الحالي، أو جديد) ينضم جهازاً ثانياً من نافذته المالكة */
+                if (name == "join")
+                {
+                    if (!IsOwner(lines))
+                    {
+                        Send(s, 409, "Conflict", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"notOwner\":true}"));
+                        return;
+                    }
+                    try
+                    {
+                        Dictionary<string, object> jr = (Json.Parse(Encoding.UTF8.GetString(body)) as Dictionary<string, object>) ?? new Dictionary<string, object>();
+                        string dname = Json.Str(jr, "name").Trim();
+                        JoinAsSecond(Json.Str(jr, "url").Trim(), Json.Str(jr, "key").Trim(), Json.Str(jr, "branch"),
+                            dname.Length > 0 ? dname : Environment.MachineName, Json.Bool(jr, "replace"));
+                        SendJson(s, "{\"ok\":true}");
+                    }
+                    catch (SyncException ex) { SendJson(s, "{\"ok\":false,\"code\":" + JsonStr(ex.Code) + ",\"error\":" + JsonStr(ex.Message) + "}"); }
+                    catch (WebException ex) { SendJson(s, "{\"ok\":false,\"code\":\"net\",\"error\":" + JsonStr(SyncClient.NetError(ex)) + "}"); }
+                    catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                    return;
+                }
                 Api api = V2;
+                /* المزامنة (قرار 0023): الحالة و«حدّث الآن» لكل موظف، والإعداد للمدير */
+                if (name.StartsWith("sync.", StringComparison.Ordinal) && api != null)
+                {
+                    string perm = name == "sync.status" || name == "sync.now" ? Api.AnyUser : "settings";
+                    int allowed = api.Check(GetHeader(lines, "X-Session"), perm);
+                    if (allowed == 401)
+                    {
+                        Send(s, 401, "Unauthorized", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"code\":\"session\",\"error\":\"انتهت الجلسة. ادخل من جديد.\"}"));
+                        return;
+                    }
+                    if (allowed == 403)
+                    {
+                        Send(s, 403, "Forbidden", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"لا تملك صلاحية الإعدادات.\"}"));
+                        return;
+                    }
+                    try { SendJson(s, "{\"ok\":true,\"data\":" + SyncCommand(name, Encoding.UTF8.GetString(body)) + "}"); }
+                    catch (SyncException ex) { SendJson(s, "{\"ok\":false,\"code\":" + JsonStr(ex.Code) + ",\"error\":" + JsonStr(ex.Message) + "}"); }
+                    catch (WebException ex) { SendJson(s, "{\"ok\":false,\"code\":\"net\",\"error\":" + JsonStr(SyncClient.NetError(ex)) + "}"); }
+                    catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                    return;
+                }
                 /* أوامر البرنامج لا المحرك: مسح بيانات التجربة يغلق القاعدة نفسها،
                    والمجلد الإضافي للنسخ إعداد للبرنامج لا للقاعدة */
                 if ((name == "demo.reset" || name == "backup.dir") && api != null)
                 {
-                    if (!api.Allowed(GetHeader(lines, "X-Session"), "settings"))
+                    int allowed = api.Check(GetHeader(lines, "X-Session"), "settings");
+                    if (allowed == 401)
+                    {
+                        Send(s, 401, "Unauthorized", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"code\":\"session\",\"error\":\"انتهت الجلسة. ادخل من جديد.\"}"));
+                        return;
+                    }
+                    if (allowed == 403)
                     {
                         Send(s, 403, "Forbidden", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"لا تملك صلاحية الإعدادات.\"}"));
                         return;

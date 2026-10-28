@@ -403,6 +403,8 @@ namespace Qirtasiya.Data
            الحساب دقائق. الرسالة لا تقول أيّهما خطأ: الاسم أم كلمة السر. */
         public LoginResult Login(string login, string password)
         {
+            /* الجهاز الثاني لا يكتب (قرار 0023): الدخول يُفحص بلا عدّاد محاولات ولا سطر في السجل */
+            if (replica) return LoginNoWrite(login, password);
             return Run<LoginResult>("login", 0, delegate (Cmd c)
             {
                 LoginResult res = new LoginResult();
@@ -438,6 +440,30 @@ namespace Qirtasiya.Data
                 c.Detail += " — ناجح";
                 return res;
             });
+        }
+
+        LoginResult LoginNoWrite(string login, string password)
+        {
+            lock (gate)
+            {
+                LoginResult res = new LoginResult();
+                List<object[]> rs = db.Rows("SELECT id, name, role, pass_hash, locked_until, active FROM users WHERE login = ? COLLATE NOCASE", (login ?? "").Trim());
+                if (rs.Count == 0 || (long)rs[0][5] == 0) { res.Message = "اسم الدخول أو كلمة السر غير صحيحة."; return res; }
+                object[] u = rs[0];
+                string until = (string)u[4];
+                if (until.Length > 0 && string.CompareOrdinal(until, Stamp(Now)) > 0)
+                {
+                    res.Message = "الحساب مقفل بعد محاولات خاطئة. حاول بعد " + until.Substring(11, 5) + ".";
+                    return res;
+                }
+                string hash = (string)u[3];
+                bool ok = hash.Length == 0 ? string.IsNullOrEmpty(password) : VerifyPassword(password ?? "", hash);
+                if (!ok) { res.Message = "اسم الدخول أو كلمة السر غير صحيحة."; return res; }
+                long id = (long)u[0];
+                res.Ok = true; res.UserId = id; res.Name = (string)u[1]; res.Role = (string)u[2];
+                res.Perms = Perms0(id);
+                return res;
+            }
         }
 
         /* PBKDF2-HMAC-SHA256 مكتوب هنا: Rfc2898DeriveBytes بـ SHA256 غير مضمون

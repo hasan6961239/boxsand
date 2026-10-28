@@ -36,8 +36,9 @@ namespace Qirtasiya.Data
         /* "QRTS": يميّز ملف قاعدتنا عن أي ملف SQLite آخر */
         public const int AppId = 0x51525453;
 
-        /* جداول لا تُسجَّل تغييراتها */
-        public static readonly string[] Unlogged = { "change_log", "cur_op", "local_state" };
+        /* جداول لا تُسجَّل تغييراتها: حالة هذا الجهاز وحده. ما ينتظر الإرسال لجهاز
+           المحل، وقوائم كتب الفروع الأخرى، يجلبها كل جهاز لنفسه (قرار 0023) */
+        public static readonly string[] Unlogged = { "change_log", "cur_op", "local_state", "sync_outbox", "remote_branches", "remote_items" };
 
         /* فهرس البحث (search_*) يُبنى من الأصناف على كل جهاز: لا يُسجَّل ولا يُربط */
         public const string SearchPrefix = "search_";
@@ -54,6 +55,7 @@ namespace Qirtasiya.Data
             m.Add(new Migration(2, "تاريخ طباعة اللاصقة (من 3.x)",
                 "ALTER TABLE items ADD COLUMN label_printed TEXT NOT NULL DEFAULT '';", null));
             m.Add(new Migration(3, "فهرس البحث (FTS5 trigram)", V3Search, null));
+            m.Add(new Migration(4, "المزامنة بين الأجهزة والفروع (قرار 0023)", V4Sync, null));
             return m;
         }
 
@@ -470,6 +472,63 @@ CREATE TABLE local_state(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 ) STRICT;
+";
+
+        /* المزامنة (قرار 0023) */
+        const string V4Sync = @"
+-- أوامر الأجهزة الثانية كما نفّذها جهاز المحل، في معاملة الأمر نفسه: لا يُنفَّذ أمر
+-- مرتين، والنتيجة ترجع للجهاز الثاني مع السجل. id = رقم الأمر على الخادم.
+CREATE TABLE remote_cmds(
+  id INTEGER PRIMARY KEY,
+  device TEXT NOT NULL,
+  n INTEGER NOT NULL,
+  user_id INTEGER,
+  cmd TEXT NOT NULL,
+  at TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  error TEXT NOT NULL DEFAULT '',
+  op_id INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX remote_cmds_device ON remote_cmds(device, n);
+
+-- ما فعله هذا الجهاز الثاني وينتظر جهاز المحل (لا يُسجَّل: لهذا الجهاز وحده)
+CREATE TABLE sync_outbox(
+  n INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  cmd TEXT NOT NULL,
+  body TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  sent_id INTEGER NOT NULL DEFAULT 0
+) STRICT;
+
+-- قوائم كتب الفروع الأخرى كما نشرتها (لا تُسجَّل: كل جهاز يجلبها لنفسه)
+CREATE TABLE remote_branches(
+  branch TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  n INTEGER NOT NULL DEFAULT 0,
+  ver TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL DEFAULT 0,
+  snap_at TEXT NOT NULL DEFAULT '',
+  fetched TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE TABLE remote_items(
+  id INTEGER PRIMARY KEY,
+  branch TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  code TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT '',
+  barcode TEXT NOT NULL DEFAULT '',
+  cat TEXT NOT NULL DEFAULT '',
+  qty INTEGER NOT NULL DEFAULT 0,
+  store INTEGER NOT NULL DEFAULT 0,
+  price INTEGER NOT NULL DEFAULT 0,
+  place TEXT NOT NULL DEFAULT '',
+  norm TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE INDEX remote_items_branch ON remote_items(branch);
 ";
 
         /* فهرس البحث (المرحلة 3، قرار 0009). نصوص موحَّدة بـ Search.Norm يكتبها

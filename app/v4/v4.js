@@ -17,13 +17,19 @@ var V4 = (function () {
   /* ---------- الأوامر ---------- */
 
   function call(cmd, body) {
+    var used = token;
     return fetch("/api/v2/" + cmd, {
       method: "POST",
-      headers: { "X-Qirtasiya": "1", "Content-Type": "application/json", "X-Session": token },
+      headers: { "X-Qirtasiya": "1", "Content-Type": "application/json", "X-Session": used },
       body: JSON.stringify(body || {})
     }).then(function (r) {
       return r.json().catch(function () { return null; }).then(function (d) {
-        if (r.status === 401) { signedOut(); throw new Error((d && d.error) || "انتهت الجلسة. ادخل من جديد."); }
+        /* 401 لجلسة انتهت فعلاً. ردّ متأخر لجلسة قديمة (طلب أُرسل قبل الخروج) لا يعيد
+           رسم شاشة الدخول فوق ما يُكتب فيها */
+        if (r.status === 401) {
+          if (used === token) signedOut();
+          throw new Error((d && d.error) || "انتهت الجلسة. ادخل من جديد.");
+        }
         if (!d) throw new Error("رد غير مفهوم من البرنامج (" + r.status + ").");
         if (d.ok === false) {
           var e = new Error(d.error || "تعذّرت العملية.");
@@ -58,6 +64,14 @@ var V4 = (function () {
     };
     m = App.form(opts);
     return m;
+  }
+
+  /* جهاز ثانٍ (قرار 0023): الأمر لم يُنفَّذ هنا، أُرسل لجهاز المحل وينفَّذ هناك */
+  function queued(r, what) {
+    if (!r || r.queued !== true) return false;
+    App.toast((what ? what + " — " : "") + "أُرسل لجهاز المحل، ويظهر هنا بعد أن ينفّذه (خلال دقيقة إن كان يعمل).", "ok");
+    if (window.V4Sync) V4Sync.poll();
+    return true;
   }
 
   /* ---------- المال ---------- */
@@ -219,9 +233,11 @@ var V4 = (function () {
         '<option value="yes">ببيانات تجربة (تُمسح بزر من الإعدادات حين تجهز)</option>' +
         '<option value="no">فارغ، للعمل الحقيقي مباشرة</option></select></div>' +
         '<button class="btn primary lg" id="suGo">ابدأ</button>' +
+        '<p class="center small" style="margin:16px 0 0"><a href="#" id="suJoin">أو: اربطه جهازاً ثانياً لفرع مربوط</a></p>' +
         "</div></div></div>";
       var go = view.querySelector("#suGo");
       view.querySelector("#suShop").focus();
+      view.querySelector("#suJoin").onclick = function (e) { e.preventDefault(); joinForm(info); };
       go.onclick = function () {
         var shop = view.querySelector("#suShop").value.trim();
         if (!shop) { App.toast("اكتب اسم المحل.", "warn"); view.querySelector("#suShop").focus(); return; }
@@ -242,8 +258,47 @@ var V4 = (function () {
     });
   }
 
+  /* جهاز ثانٍ لفرع مربوط (قرار 0023): قاعدته تصير نسخة من جهاز المحل */
+  function joinForm(info) {
+    form({
+      title: "اربطه جهازاً ثانياً لفرع",
+      values: { branch: info && info.edition === "tripoli" ? "tripoli" : "misrata" },
+      topHtml: '<p class="muted small" style="line-height:1.8;margin:0 0 12px">جهاز المحل يكون مربوطاً قبله (الإعدادات ← الربط ← «هذا جهاز المحل»). ' +
+        "هذا الجهاز يصير نسخة منه يتزامن معه كل دقيقة، وما تضيفه هنا يصل المحل.</p>",
+      fields: [
+        { k: "url", label: "عنوان خادم الربط", required: true, full: true, placeholder: "https://maktaba-sync.اسمك.workers.dev" },
+        { k: "key", label: "كلمة سر الربط", required: true },
+        { k: "branch", label: "رمز الفرع", required: true, hint: "كما في جهاز المحل: misrata أو tripoli" },
+        { k: "name", label: "اسم هذا الجهاز", placeholder: "مثلاً: لابتوب حسن" }
+      ],
+      saveLabel: "اربط",
+      onSave: function (v) { return join(v, false); }
+    });
+  }
+
+  function join(v, replace) {
+    App.toast("يحمّل نسخة جهاز المحل…");
+    return App.apiJson("/api/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) }).then(function (c) {
+      if (!c || !c.ok) throw new Error("تعذّر تجهيز البرنامج للكتابة.");
+      return fetch("/api/v2/join", {
+        method: "POST",
+        headers: { "X-Qirtasiya": "1", "X-Owner": c.token, "Content-Type": "application/json" },
+        body: JSON.stringify({ url: v.url, key: v.key, branch: v.branch, name: v.name, replace: replace })
+      }).then(function (r) { return r.json(); });
+    }).then(function (d) {
+      if (d && d.ok) { location.reload(); return; }
+      if (d && d.code === "has-data") {
+        App.confirm(d.error + " متأكد؟", function () { join(v, true); }, { yes: "استبدل واربط", danger: true });
+        return false;
+      }
+      App.toast((d && d.error) || "تعذّر الربط.", "bad");
+      return false;
+    }, function (e) { App.toast(e.message, "bad"); return false; });
+  }
+
   function logout() {
-    call("logout").catch(function () { }).then(signedOut);
+    /* ردّ 401 لطلب آخر قد أخرجه قبل هذا: لا تُرسم شاشة الدخول مرتين */
+    call("logout").catch(function () { }).then(function () { if (token) signedOut(); });
   }
 
   function start() {
@@ -265,6 +320,7 @@ var V4 = (function () {
       }).catch(function () { });
       buildNav();
       route();
+      if (window.V4Sync) V4Sync.start();
     });
   }
 
@@ -279,6 +335,11 @@ var V4 = (function () {
     window.addEventListener("hashchange", route);
     document.addEventListener("keydown", function (e) {
       if (e.key === "F2") { e.preventDefault(); location.hash = "#/pos"; }
+      /* Esc يغلق النافذة العليا كما في 3.x */
+      if (e.key === "Escape") {
+        var x = document.querySelector("#modalHost .overlay:last-child [data-x]");
+        if (x) { e.preventDefault(); x.click(); }
+      }
     });
     tick(); setInterval(tick, 20000);
     if (token) call("me").then(function (m) { me = m; return start(); }).catch(function () { });
@@ -286,7 +347,7 @@ var V4 = (function () {
   }
 
   return {
-    boot: boot, call: call, run: run, form: form, page: page, refresh: refresh, restart: restart, logout: logout,
+    boot: boot, call: call, run: run, form: form, queued: queued, page: page, refresh: refresh, restart: restart, logout: logout,
     money: money, dirhams: dirhams, currency: currency, can: can, today: today,
     me: function () { return me; }, shop: function () { return shop; }, current: function () { return current; }
   };

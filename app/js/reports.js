@@ -771,6 +771,20 @@ var Rep = (function () {
       '</div><div id="bkList"></div></div></div>' +
       archivePage();
 
+    /* النظام الجديد 4.0 (قرارا 0019 و0023): النقل لجهاز المحل، والانضمام جهازاً ثانياً */
+    h += '<div class="card" style="grid-column:1/-1;border-inline-start:3px solid var(--accent)">' +
+      '<div class="card-head"><h3>النظام الجديد 4.0</h3></div><div class="card-body">' +
+      '<div class="grid g2">' +
+      '<div><h4 style="margin:0 0 6px">انقل بيانات هذا الجهاز للنظام الجديد</h4>' +
+      '<p class="muted small" style="line-height:1.7;margin:0 0 10px">لجهاز المحل: كل الكتب والفواتير والزبائن تنتقل، ' +
+      "ويطلع تقرير مطابقة. ملفك القديم يبقى كما هو.</p>" +
+      '<button class="btn primary" onclick="Rep.moveTo4()">انقل للنظام الجديد 4.0</button></div>' +
+      '<div><h4 style="margin:0 0 6px">اربطه جهازاً ثانياً لفرع</h4>' +
+      '<p class="muted small" style="line-height:1.7;margin:0 0 10px">لجهازك أنت: يصير نسخة من جهاز المحل، يتزامن معه كل دقيقة، ' +
+      "وما تضيفه هنا يصل المحل.</p>" +
+      '<button class="btn" onclick="Rep.joinAs2()">اربطه جهازاً ثانياً</button></div>' +
+      "</div></div></div>";
+
     h += '<div class="card" style="grid-column:1/-1;border-inline-start:3px solid var(--stamp)">' +
       '<div class="card-head"><h3 style="color:var(--stamp)">منطقة الخطر</h3><div class="spacer"></div>' +
       '<span class="muted small">لا رجعة بعد التنفيذ</span></div><div class="card-body">' +
@@ -1296,6 +1310,101 @@ var Rep = (function () {
     });
   }
 
+  /* ---------- النظام الجديد 4.0 ---------- */
+
+  function moveTo4() {
+    App.modal({
+      title: "انقل بيانات هذا الجهاز للنظام الجديد 4.0",
+      size: "wide",
+      body: '<ul style="line-height:2;margin:0;padding-inline-start:20px">' +
+        "<li>كل الكتب والقرطاسية والفواتير والزبائن والديون والموردين تنتقل، ويطلع تقرير مطابقة بالأرقام.</li>" +
+        "<li>قبل النقل تُؤخذ نسخة من ملفك، والملف القديم يبقى كما هو ولا يُمسح.</li>" +
+        "<li>بعده يفتح البرنامج على 4.0: البيع والكتب ولوحة اليوم والفواتير والإعدادات والربط بين الأجهزة والفروع.</li>" +
+        "<li>شاشات الزبائن والديون والإرجاع وإدخال البضاعة واللاصقات والتقارير جاية، وبياناتها منقولة ومحفوظة.</li>" +
+        "<li><b>البيع من التلفون يتوقف</b> على هذا الجهاز: ما ينتظر الآن يُستلم أولاً.</li>" +
+        "<li>ما تبيعه في الجديد لا يرجع للملف القديم: انقل جهاز المحل وحده، والأجهزة الأخرى تُربط به.</li>" +
+        "</ul>",
+      actions: [{ label: "انقل الآن", kind: "primary", click: function (close) { close(); doMove(); } }],
+      cancelLabel: "لاحقاً"
+    });
+  }
+
+  /* ما باعه التلفون ولم يُستلم بعد يُستلم أولاً: بعد النقل لا يُستلم هنا */
+  function doMove(skipPhone) {
+    App.toast("يجهّز النقل…");
+    var linked = !skipPhone && typeof Stock !== "undefined" && Stock.configured();
+    var phone = linked ? Stock.sync(false) : Promise.resolve();
+    phone.then(function () {
+      if (linked && S().sync.lastOk === false) {
+        App.confirm("تعذّر الاتصال بخادم الربط الآن، فما باعه التلفون ولم يصل بعد لا ينتقل مع البيانات. " +
+          "الأفضل أن تنقل حين يعود الإنترنت. تنقل الآن على أي حال؟",
+          function () { doMove(true); }, { yes: "انقل على أي حال", danger: true });
+        return;
+      }
+      return move();
+    }).catch(function (e) { App.toast("تعذّر النقل: " + e.message, "bad"); });
+  }
+
+  function move() {
+    return App.ensureWriteToken().then(function () { return App.flushSave(); }).then(function () {
+      return App.apiWrite("/api/v2/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    }).then(function (res) {
+      var rep = res.data || {};
+      var rows = (rep.rows || []).map(function (r) {
+        return "<tr><td>" + App.esc(r.name) + '</td><td class="num">' + App.esc(String(r.source)) + '</td><td class="num">' +
+          App.esc(String(r.db)) + "</td><td>" + (r.ok ? '<span class="badge ok">مطابق</span>' : '<span class="badge bad">غير مطابق</span>') + "</td></tr>";
+      }).join("");
+      App.modal({
+        title: rep.ok ? "انتقلت البيانات، وكلها مطابقة" : "انتقلت البيانات — راجع ما لم يطابق",
+        size: "wide",
+        body: '<div class="table-wrap"><table class="tbl"><thead><tr><th>البند</th><th>في الملف القديم</th><th>في النظام الجديد</th><th></th></tr></thead><tbody>' +
+          rows + "</tbody></table></div>" +
+          ((rep.warnings || []).length ? '<p class="muted small" style="margin-top:12px">' + rep.warnings.length + " تنبيه (باركود مكرر وما شابه) في سجل البرنامج.</p>" : ""),
+        actions: [{ label: "افتح النظام الجديد", kind: "primary", click: function () { location.href = "/"; } }],
+        cancelLabel: "افتحه لاحقاً",
+        onClose: function () { location.href = "/"; }
+      });
+    });
+  }
+
+  function joinAs2() {
+    var link = S().sync || {};
+    App.form({
+      title: "اربط هذا الجهاز جهازاً ثانياً لفرع",
+      values: { url: link.url || "", key: link.key || "", branch: (S().branch && S().branch.id) || "misrata", name: "" },
+      topHtml: '<p class="muted small" style="line-height:1.8;margin:0 0 12px">جهاز المحل يكون مربوطاً قبله (من إعدادات 4.0 فيه: «هذا جهاز المحل»). ' +
+        "قاعدة هذا الجهاز تصير نسخة منه، وما عليه الآن يبقى في مجلد backups.</p>",
+      fields: [
+        { k: "url", label: "عنوان خادم الربط", required: true, full: true, placeholder: "https://maktaba-sync.اسمك.workers.dev" },
+        { k: "key", label: "كلمة سر الربط", required: true },
+        { k: "branch", label: "رمز الفرع", required: true, hint: "كما في جهاز المحل: misrata أو tripoli" },
+        { k: "name", label: "اسم هذا الجهاز", placeholder: "مثلاً: لابتوب حسن" }
+      ],
+      saveLabel: "اربط",
+      onSave: function (v) {
+        doJoin(v, false);
+        return false;
+      }
+    });
+  }
+
+  function doJoin(v, replace) {
+    App.toast("يحمّل نسخة جهاز المحل…");
+    App.ensureWriteToken().then(function () {
+      return App.api("/api/v2/join", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: v.url, key: v.key, branch: v.branch, name: v.name, replace: replace })
+      });
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok) {
+        App.toast("رُبط. يفتح النظام الجديد…", "ok");
+        setTimeout(function () { location.href = "/"; }, 600);
+      } else if (d && d.code === "has-data") {
+        App.confirm(d.error + " متأكد؟", function () { doJoin(v, true); }, { yes: "استبدل واربط", danger: true });
+      } else App.toast((d && d.error) || "تعذّر الربط.", "bad");
+    }).catch(function (e) { App.toast(e.message, "bad"); });
+  }
+
   function copyDir() {
     var e = document.getElementById("fpDir");
     if (!e) return;
@@ -1330,7 +1439,7 @@ var Rep = (function () {
   }
 
   return {
-    copyDir: copyDir,
+    copyDir: copyDir, moveTo4: moveTo4, joinAs2: joinAs2,
     dashboard: dashboard, reports: reports, settings: settings, firstRun: firstRun,
     setRange: setRange, quick: quick, printReport: printReport,
     setMeta: setMeta, setList: setList, letters: letters, allLetters: allLetters,
