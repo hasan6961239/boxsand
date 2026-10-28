@@ -325,14 +325,17 @@ static class SearchTests
         db.Dispose();
         db = ShopDb.Open(path, null);
         int cancelled = 0, newerOk = 0, otherOk = 0;
-        for (int round = 0; round < 6 && cancelled == 0; round++)
+        /* الحرف الجديد يصل والبحث القديم يعمل: انتظار بدقة جزء من الميلي ثانية، لا Thread.Sleep
+           (على ويندوز Sleep(3) ينام 15 ms تقريباً، فينتهي البحث القديم قبل أن يبدأ الجديد) */
+        for (int round = 0; round < 60 && cancelled == 0; round++)
         {
             SearchResult old = null;
             SearchOptions a = new SearchOptions();
             a.Channel = "pos";
             Thread t = new Thread(delegate () { old = db.SearchItems("ا", a); });
             t.Start();
-            Thread.Sleep(3 + round * 2);
+            System.Diagnostics.Stopwatch wait = System.Diagnostics.Stopwatch.StartNew();
+            while (wait.Elapsed.TotalMilliseconds < round * 0.5) Thread.SpinWait(20);
             SearchOptions b = new SearchOptions();
             b.Channel = "pos"; b.Limit = 8;
             SearchResult newer = db.SearchItems("الكتاب رقم 7", b);
