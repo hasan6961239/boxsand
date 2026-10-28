@@ -15,7 +15,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build
-mcs -nologo -langversion:5 -optimize+ -out:build/DbTests.exe -r:System.dll -r:System.Core.dll \
+# على مكتبات .NET Framework 4.8 نفسها كالبرنامج (tools/build-linux.sh)
+mcs -nologo -sdk:4.8-api -langversion:5 -optimize+ -out:build/DbTests.exe -r:System.dll -r:System.Core.dll \
   src/Data/*.cs src/Engine/*.cs tests/db/*.cs
 # mono يبحث عن libsqlite3.so، وهي موجودة فقط مع حزمة التطوير
 cat > build/DbTests.exe.config <<'XML'

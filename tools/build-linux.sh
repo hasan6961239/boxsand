@@ -37,7 +37,10 @@ for f in jsbarcode core inventory branches notify consign count sales people sta
 done
 for f in app/v4/*; do RES+=("-resource:$f,v4/$(basename "$f")"); done
 
-mcs -nologo -target:winexe -optimize+ -out:build/Qirtasiya-$NUMBER.exe -win32icon:$ICO \
+# -sdk:4.8-api: الترجمة على مكتبات .NET Framework 4.8 نفسها التي في ويندوز، لا على مكتبات
+# mono الأوسع. بدونها s.Split(' ') صار يُربط بـ Split(char, StringSplitOptions) الموجود في mono
+# وحده، فتوقّف النقل لـ 4.0 على ويندوز («لم يتم العثور على الأسلوب»)
+mcs -nologo -sdk:4.8-api -target:winexe -optimize+ -out:build/Qirtasiya-$NUMBER.exe -win32icon:$ICO \
   -r:System.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll -r:System.Core.dll \
   -r:vendor/webview2/Microsoft.Web.WebView2.Core.dll -r:vendor/webview2/Microsoft.Web.WebView2.WinForms.dll \
   "${RES[@]}" src/Program.cs src/AppWindow.cs build/BuildInfo.cs src/Data/*.cs src/Engine/*.cs

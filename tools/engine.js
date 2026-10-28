@@ -33,7 +33,8 @@ function buildEngine(dir, edition) {
   }
   const cs = d => fs.readdirSync(path.join(ROOT, 'src', d)).filter(f => f.endsWith('.cs')).map(f => path.join(ROOT, 'src', d, f));
   const wv = f => path.join(ROOT, 'vendor', 'webview2', f);
-  execFileSync('mcs', ['-nologo', '-target:winexe', '-optimize+', '-out:' + path.join(dir, 'Qirtasiya.exe'),
+  /* على مكتبات .NET Framework 4.8 نفسها كملف التثبيت (tools/build-linux.sh) */
+  execFileSync('mcs', ['-nologo', '-sdk:4.8-api', '-target:winexe', '-optimize+', '-out:' + path.join(dir, 'Qirtasiya.exe'),
     '-r:System.dll', '-r:System.Drawing.dll', '-r:System.Windows.Forms.dll', '-r:System.Core.dll',
     '-r:' + wv('Microsoft.Web.WebView2.Core.dll'), '-r:' + wv('Microsoft.Web.WebView2.WinForms.dll'),
     ...res, path.join(dir, 'Program.cs'), path.join(ROOT, 'src', 'AppWindow.cs'), path.join(dir, 'BuildInfo.cs'),
