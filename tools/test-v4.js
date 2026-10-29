@@ -914,7 +914,7 @@ function ok(cond, name, detail) {
         'مصراتة على جهاز جديد: شاشة الترحيب كما كانت، بلا خيار 4.0');
       await pm.close();
 
-      console.log('\n== مصراتة 3.x ببياناتها ← «انقل للنظام الجديد 4.0» (من الإعدادات) ==');
+      console.log('\n== مصراتة 3.x ببياناتها: «ربط الأجهزة» في الإعدادات (قرار 0025)، والنقل لـ 4.0 من المحرك ==');
       E.stopEngine(engM);
       await E.sleep(500);
       const store = {
@@ -935,15 +935,16 @@ function ok(cond, name, detail) {
       await pg3.goto('http://127.0.0.1:' + pM2 + '/');
       await pg3.waitForFunction(() => window.App && App.S && App.S.meta && App.S.meta.setupDone, null, { timeout: 20000 });
       await pg3.evaluate(() => { location.hash = '#/settings'; });
-      await pg3.waitForSelector('#view button:has-text("انقل للنظام الجديد 4.0")', { timeout: 10000 });
-      ok(await pg3.$('#view button:has-text("اربطه جهازاً ثانياً")') !== null, 'إعدادات 3.x: «النظام الجديد 4.0» بزرّي النقل والربط جهازاً ثانياً');
-      await pg3.click('#view button:has-text("انقل للنظام الجديد 4.0")');
-      await pg3.waitForSelector(top + ' >> text=انقل الآن');
-      await pg3.click(top + ' >> text=انقل الآن');
-      await pg3.waitForSelector(top + ' >> text=انتقلت البيانات، وكلها مطابقة', { timeout: 30000 });
-      ok(true, 'النقل من الزر: «انتقلت البيانات، وكلها مطابقة»');
-      await pg3.screenshot({ path: path.join(shots, '15-move-report.png') });
-      await pg3.click(top + ' >> text=افتح النظام الجديد');
+      /* قرار 0025: شاشات 3.x تبقى، فلا زر نقل لـ 4.0 في إعداداتها بل «ربط الأجهزة» */
+      await pg3.waitForSelector('#lnkBody button:has-text("هذا جهاز المحل")', { timeout: 10000 });
+      ok(await pg3.$('#view button:has-text("انقل للنظام الجديد 4.0")') === null && await pg3.$('#lnkBody button:has-text("اربطه جهازاً ثانياً")') !== null,
+        'إعدادات 3.x: «ربط الأجهزة» (جهاز المحل وجهاز ثانٍ)، بلا زر النقل لـ 4.0');
+      await pg3.screenshot({ path: path.join(shots, '15-x3-link-card.png') });
+      /* النقل نفسه (قرار 0019) باقٍ في المحرك، تطلبه النافذة المالكة */
+      const mv = await pg3.evaluate(() => App.ensureWriteToken().then(() => App.flushSave()).then(() =>
+        App.apiWrite('/api/v2/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })));
+      ok(mv && mv.ok && mv.data && mv.data.ok, 'النقل من المحرك: «انتقلت البيانات، وكلها مطابقة»', mv);
+      await pg3.goto('http://127.0.0.1:' + pM2 + '/');
       await pg3.waitForSelector('body.v4:not(.out) #nav .nav-item', { timeout: 20000 });
       ok(await pg3.$eval('#brandName', e => e.textContent) === 'مكتبة النور' && /مصراتة/.test(await pg3.$eval('#branchTag', e => e.textContent)),
         'ويفتح 4.0 باسم المحل وفرع مصراتة');

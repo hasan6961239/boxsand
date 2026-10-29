@@ -87,8 +87,11 @@ function kv() {
 
 async function loadWorker() {
   const src = fs.readFileSync(path.join(ROOT, 'cloud', 'worker.js'), 'utf8');
-  /* worker.js وحدة ES (export default). من نص الملف نفسه، بلا نسخة */
-  const mod = await import('data:text/javascript,' + encodeURIComponent(src));
+  /* worker.js وحدة ES (export default). من نص الملف نفسه، بلا نسخة.
+     كل خادم بنسخة وحدة خاصة به (كـisolate جديد): العنوان نفسه يعيد الوحدة
+     المحفوظة، فيبقى v2Ready صحيحاً من الخادم الأول وقاعدة الثاني بلا جداول */
+  loadWorker.n = (loadWorker.n || 0) + 1;
+  const mod = await import('data:text/javascript,' + encodeURIComponent(src + '\n// ' + loadWorker.n));
   return mod.default;
 }
 

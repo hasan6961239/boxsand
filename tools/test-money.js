@@ -6,7 +6,7 @@ const { chromium } = require('playwright-core');
 const fs = require('fs'), path = require('path');
 const URL = 'http://127.0.0.1:17845/';
 const EXE = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const DATA = path.join(__dirname, '..', '.devdata');
+const DATA = process.env.QI_DATA || path.join(__dirname, '..', '.devdata');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const seed = () => ({

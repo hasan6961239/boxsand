@@ -211,6 +211,15 @@ namespace Qirtasiya.Data
             List<string> nOrder = new List<string>();
             foreach (object o in nl) nOrder.Add(X3Id((Dictionary<string, object>)o));
             HashSet<string> nSet = new HashSet<string>(nOrder, StringComparer.Ordinal);
+            /* التالي لكل سجل جديد: أقرب سجل موجود من قبل بعده. الجديد الذي بعده مباشرة لم
+               يُضف بعد حين يُطبَّق هذا، فكان سجلان جديدان أولاً يذهبان لآخر القائمة */
+            string[] nextOld = new string[nOrder.Count];
+            string after = null;
+            for (int i = nOrder.Count - 1; i >= 0; i--)
+            {
+                nextOld[i] = after;
+                if (bm.ContainsKey(nOrder[i])) after = nOrder[i];
+            }
 
             for (int i = 0; i < nl.Count; i++)
             {
@@ -224,7 +233,7 @@ namespace Qirtasiya.Data
                 }
                 X3Op op = Rec(coll, null, d);
                 op.Prev = i > 0 ? nOrder[i - 1] : null;
-                op.Next = i + 1 < nOrder.Count ? nOrder[i + 1] : null;
+                op.Next = nextOld[i];
                 if (coll == "invoices") op.RefId = ReturnRefId(d, nl);
                 ops.Add(op);
             }
@@ -575,7 +584,8 @@ namespace Qirtasiya.Data
                     if (cv != null && Json.Long(cv, "invoice", 0) < nextNo) { cv = new Dictionary<string, object>(cv); cv["invoice"] = nextNo; val = cv; }
                     countersBumped = false;
                 }
-                if ((o.Coll == "books" || o.Coll == "stationery") && !o.HasBase && cur == null) val = FreshCode(st, o.Coll, (Dictionary<string, object>)val, o.Key, ref counters, res);
+                /* صنف جديد فقط: المصفوفة الفارغة (لا كتب أو لا قرطاسية) قسم واحد بلا معرّف */
+                if ((o.Coll == "books" || o.Coll == "stationery") && o.Key.Length > 0 && !o.HasBase && cur == null) val = FreshCode(st, o.Coll, (Dictionary<string, object>)val, o.Key, ref counters, res);
                 double ord = cur != null ? cur.Ord : o.Key.Length == 0 ? 0 : NewOrd(st, o.Coll, o.Prev, o.Next);
                 st.Put(o.Coll, o.Key, ord, Json.Write(val));
             }

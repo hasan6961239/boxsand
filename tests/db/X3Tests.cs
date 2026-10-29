@@ -170,7 +170,50 @@ static class X3Tests
 
         db.Dispose();
         Second(dir);
+        Empty(dir);
         try { Directory.Delete(dir, true); } catch { }
+    }
+
+    /* محل بلا قرطاسية (أو بلا كتب): المصفوفة الفارغة قسم واحد لا صنف جديد */
+    static void Empty(string dir)
+    {
+        ShopDb db = ShopDb.Open(Path.Combine(dir, "x3-empty.db"), null);
+        Dictionary<string, object> s = P(Store);
+        s["stationery"] = new List<object>();
+        string st = Json.Write(s);
+        string err = "";
+        try { db.X3Adopt(st, 1); } catch (Exception ex) { err = ex.Message; }
+        ok(err == "" && db.X3Export() == st, "ملف بلا قرطاسية يدخل القاعدة ويخرج كما هو", err);
+
+        s = P(db.X3Export());
+        string b0 = Json.Write(s);
+        s["books"] = new List<object>();
+        string now = Json.Write(s);
+        err = "";
+        try { db.X3Save(b0, now, 1); } catch (Exception ex) { err = ex.Message; }
+        ok(err == "" && db.X3Export() == now, "حذف آخر كتاب يُحفظ", err);
+
+        s = P(now);
+        A(s["stationery"]).Add(P("{\"id\":\"s9\",\"code\":\"Q0009\",\"name\":\"ممحاة\",\"qty\":3}"));
+        A(s["books"]).Add(P("{\"id\":\"b9\",\"code\":\"K0009\",\"title\":\"أول كتاب من جديد\",\"qty\":1}"));
+        string now2 = Json.Write(s);
+        err = "";
+        try { db.X3Save(now, now2, 1); } catch (Exception ex) { err = ex.Message; }
+        ok(err == "" && db.X3Export() == now2, "وأول صنف بعد الفراغ يرجع سجلاً", err);
+
+        /* سجلان جديدان أولاً في حفظ واحد (عمليتان في السجل قبل الحفظ)، وثلاثة متتالية في الوسط */
+        s = P(now2);
+        A(s["customers"]).Insert(0, P("{\"id\":\"n2\",\"name\":\"ثاني جديد\"}"));
+        A(s["customers"]).Insert(0, P("{\"id\":\"n1\",\"name\":\"أول جديد\"}"));
+        string now3 = Json.Write(s);
+        db.X3Save(now2, now3, 1);
+        ok(db.X3Export() == now3, "سجلان جديدان أولاً في حفظ واحد يبقيان أولاً بترتيبهما", db.X3Export().Length);
+        s = P(now3);
+        for (int i = 3; i >= 1; i--) A(s["customers"]).Insert(2, P("{\"id\":\"m" + i + "\",\"name\":\"في الوسط " + i + "\"}"));
+        string now4 = Json.Write(s);
+        db.X3Save(now3, now4, 1);
+        ok(db.X3Export() == now4, "وثلاثة جديدة متتالية في الوسط بترتيبها");
+        db.Dispose();
     }
 
     /* قطع السجل كلها من جهاز المحل للجهاز الثاني، كما تفعل حلقة المزامنة */

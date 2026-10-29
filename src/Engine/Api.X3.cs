@@ -37,7 +37,7 @@ namespace Qirtasiya.Engine
                 Dictionary<string, object> d = o as Dictionary<string, object>;
                 if (d == null) continue;
                 string c = Json.Str(d, "c");
-                bool isNew = !d.ContainsKey("b") && d.ContainsKey("n");
+                bool isNew = !d.ContainsKey("b") && d.ContainsKey("n") && Json.Str(d, "k").Length > 0;
                 if (c == "invoices" && isNew) sales++;
                 else if ((c == "books" || c == "stationery") && isNew)
                 {

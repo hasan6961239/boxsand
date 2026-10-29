@@ -4,7 +4,7 @@ const { chromium } = require('playwright-core');
 const fs = require('fs'), path = require('path');
 const URL = 'http://127.0.0.1:17845/';
 const EXE = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const DATA = path.join(__dirname, '..', '.devdata');
+const DATA = process.env.QI_DATA || path.join(__dirname, '..', '.devdata');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 let pass = 0, fail = 0;
@@ -12,6 +12,10 @@ function check(name, ok, detail) {
   (ok ? pass++ : fail++);
   console.log((ok ? '  PASS  ' : '  FAIL  ') + name + (detail ? '\n          ' + detail : ''));
 }
+/* QI_X3: البرنامج الحقيقي بشاشات 3.x فوق القاعدة (tools/test-x3.js suites، قرار 0025).
+   ما يقلّده dev-server وحده (بصمة ثابتة، ختم بناء، التلفون من remote.json) لا يُعدّ */
+const X3 = !!process.env.QI_X3;
+function skip(name, why) { console.log('  SKIP  ' + name + ' — ' + why); }
 
 const seed = () => ({
   meta: { setupDone: true, shopName: 'مكتبة النور', currency: 'د.ل', libraries: ['A','B','C'], shelves: 6, uiSize: 'lg', theme: 'green' },
@@ -140,11 +144,23 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   fs.writeFileSync(path.join(DATA, 'store.json'), good.slice(0, Math.floor(good.length / 2)));
   pg = await open();
   const corrupt = await pg.evaluate(() => ({ ro: App.isReadOnly(), why: App.readOnlyReason(), wizard: !!document.querySelector('#modalHost .modal') }));
+  const disk7 = () => { try { return JSON.parse(fs.readFileSync(path.join(DATA, 'store.json'), 'utf8')); } catch (e) { return null; } };
+  if (X3) {
+    /* على القاعدة store.json مرآة لها: التالف يُكتب من جديد منها، والبيانات كما هي */
+    const fixed = disk7();
+    check('القاعدة هي الأصل: الملف التالف يُكتب من جديد منها', !corrupt.ro && fixed &&
+      JSON.stringify(fixed.books) === JSON.stringify(JSON.parse(good).books) && fixed.invoices.length === JSON.parse(good).invoices.length, corrupt.why);
+    check('لا تعرض معالج "أهلاً بك" كأنها جديدة', corrupt.wizard === false);
+    /* حفظ مؤكَّد (ينتظر حفظ الإقلاع): ملف بسنة فواتير يأخذ وقتاً أطول من 1.2 ثانية */
+    await pg.evaluate(() => { App.S.books.push({ id: 'zz', title: 'محاولة كتابة' }); return App.flushSave(); });
+    check('والحفظ بعده يعمل', (disk7() || { books: [] }).books.some(b => b.id === 'zz'));
+  } else {
   check('المنظومة تعلن أن الملف تالف', corrupt.ro === true && corrupt.why.indexOf('تالف') >= 0, corrupt.why);
   check('لا تعرض معالج "أهلاً بك" كأنها جديدة', corrupt.wizard === false);
   await pg.evaluate(() => { App.S.books.push({ id: 'zz', title: 'محاولة كتابة' }); App.saveNow(); }); await sleep(1200);
   const sizeAfter = fs.statSync(path.join(DATA, 'store.json')).size;
   check('لم يُكتب فوق الملف التالف', sizeAfter === Math.floor(good.length / 2), 'size=' + sizeAfter);
+  }
 
   console.log('\n== 8. حارس الـAPI (CSRF) ==');
   const evil = require('http').createServer((q, s) => {
@@ -766,7 +782,8 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       return { txt: (e.textContent || '').trim(), title: e.title || '' };
     });
     check('الشريط يعرض رقم الإصدار', /^v\d+\.\d+/.test(ver.txt), JSON.stringify(ver));
-    check('ومعه تاريخ البناء', /\d{4}-\d{2}-\d{2}/.test(ver.txt), ver.txt);
+    if (X3) skip('ومعه تاريخ البناء', 'نسخة الاختبار مختومة «test»؛ ملف التثبيت يُختم بالتاريخ');
+    else check('ومعه تاريخ البناء', /\d{4}-\d{2}-\d{2}/.test(ver.txt), ver.txt);
     check('وليس «v2.0» الثابت القديم', ver.txt !== 'v2.0', ver.txt);
     check('والتلميح يذكر مجلد البيانات', /مجلد البيانات/.test(ver.title), ver.title);
 
@@ -888,7 +905,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     }));
     check('لا شاشة تفعيل، والقائمة كاملة من أول فتح', !st.lic && st.nav > 5, JSON.stringify(st));
     check('ولا يسأل النواة عن ترخيص', asked.length === 0, asked.join('، '));
-    check('وبصمة الجهاز تصل (لمعرفة جهاز المحل)', st.fp === 'ABCD-EFGH-JKLM', st.fp);
+    check('وبصمة الجهاز تصل (لمعرفة جهاز المحل)', X3 ? /^[A-Z0-9]{4}(-[A-Z0-9]{4}){2}$/.test(st.fp) : st.fp === 'ABCD-EFGH-JKLM', st.fp);
     await up.close();
   }
 
@@ -1569,7 +1586,8 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   }
 
   console.log('\n== 17. البيع من التلفون ==');
-  {
+  if (X3) skip('البيع والتعديل من التلفون (17 و18)', 'dev-server يقلّد خادم الربط بملف remote.json؛ البيع بالتلفون مؤجل');
+  else {
     const st = seed();
     st.sync = { url: 'https://sync.example', key: 'k', auto: false, everyMin: 10 };
     st.customers[0].balance = 5;
@@ -1618,7 +1636,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   }
 
   console.log('\n== 18. التعديل من التلفون ==');
-  {
+  if (!X3) {
     const st = seed();
     st.sync = { url: 'https://sync.example', key: 'k', auto: false, everyMin: 10 };
     writeStore(st);

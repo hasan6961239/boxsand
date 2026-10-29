@@ -147,6 +147,12 @@ http.createServer((req, res) => {
       try { branches = JSON.parse(fs.readFileSync(path.join(DATA, 'remote.json'), 'utf8')); } catch (e) { }
       return json(res, { ok: true, branches });
     }
+    /* «ربط الأجهزة» (قرار 0025) كما ترد النواة قبل الربط. الربط نفسه على البرنامج الحقيقي
+       (tools/test-x3.js) */
+    if (p === '/api/link') {
+      if (req.method === 'POST') return json(res, { ok: false, error: 'الربط على البرنامج الحقيقي، لا في dev-server.' });
+      return json(res, { ok: true, data: { role: '', linked: false, db: false, x3: false, device: 'dev-server' } });
+    }
     if (p === '/api/open-folder' || p === '/api/quit' || p === '/api/uninstall') return json(res, { ok: true });
 
     /* تقليد /api/info في النواة: الإصدار وختم البناء */

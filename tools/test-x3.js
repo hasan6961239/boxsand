@@ -278,6 +278,7 @@ function device(tmp, name) {
     await cloud.close();
   }
 
+  await power();
   if (process.argv[2] === 'suites') await suites();
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));
   if (failures.length) console.log(failures.map(f => '  - ' + f).join('\n'));
@@ -298,7 +299,8 @@ async function suites() {
       await D.start();
       if (D.port !== 17845) throw new Error('المنفذ 17845 مشغول');
       const ow = (await D.raw('/api/claim', { force: true })).body.token;
-      const r = await D.raw('/api/link', { action: 'main', url: cloud.url, key: KEY, name: 'محل' }, { 'X-Owner': ow });
+      /* كل مجموعة بقاعدة جديدة على الخادم نفسه: جهاز محل بديل (force) */
+      const r = await D.raw('/api/link', { action: 'main', url: cloud.url, key: KEY, name: 'محل', force: true }, { 'X-Owner': ow });
       ok(r.body && r.body.ok && r.body.data.x3, t + ': الربط', r.body);
       await D.raw('/api/release?t=' + ow, {});
       const run = spawnSync('node', [path.join(__dirname, t)], {
@@ -307,16 +309,166 @@ async function suites() {
       const out = (run.stdout || '') + (run.stderr || '');
       const fails = out.split('\n').filter(l => /^\s*FAIL\s/.test(l));
       const passes = out.split('\n').filter(l => /^\s*PASS\s/.test(l)).length;
-      console.log(fails.join('\n'));
-      ok(fails.length === 0 && passes > 0, t + ': ' + passes + ' نجح، ' + fails.length + ' فشل', fails.slice(0, 8).join(' | '));
+      console.log(fails.concat(out.split('\n').filter(l => /^\s*SKIP\s/.test(l))).join('\n'));
+      if (!/نجح: \d+/.test(out)) console.log(out.split('\n').slice(-12).join('\n'));
+      /* توقّف في الوسط (استثناء) ليس نجاحاً ولو بلا FAIL: السطر الأخير وكود الخروج */
+      ok(fails.length === 0 && passes > 0 && run.status === 0 && /نجح: \d+ +فشل: 0/.test(out),
+        t + ': ' + passes + ' نجح، ' + fails.length + ' فشل', fails.slice(0, 8).join(' | ') || 'خرج بالرمز ' + run.status);
+      const log = fs.readFileSync(D.data('log.txt'), 'utf8');
       fs.writeFileSync(path.join(tmp, t + '.out'), out);
-      ok(!/X3CHECK/.test(fs.readFileSync(D.data('log.txt'), 'utf8')), t + ': كل حفظ طابق ما أرسلته الشاشة');
+      fs.writeFileSync(path.join(tmp, t + '.log'), log);
+      ok(!/X3CHECK/.test(log), t + ': كل حفظ طابق ما أرسلته الشاشة');
       D.stop(); await sleep(800);
     }
   } catch (e) {
     ok(false, 'خطأ غير متوقع في الاختبارات الكاملة', e.stack);
   } finally {
     D.stop();
+    await cloud.close();
+  }
+}
+
+/* انقطاع الكهرباء وسط حفظ الشاشة ثم التشغيل من جديد: على جهاز المحل، وعلى
+   الجهاز الثاني، وعلى تطبيق طرابلس (قرار 0022) بالطريقة نفسها */
+async function power() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qx3k-'));
+  const cloud = await C.start({ secret: KEY });
+  const K = device(tmp, 'K'), L = device(tmp, 'L'), T = device(tmp, 'T');
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const claim = async d => (await d.raw('/api/claim', { force: true })).body.token;
+  const link = (d, ow, body) => d.raw('/api/link', body, { 'X-Owner': ow });
+  /* /api/load كما تطلبه الشاشة، ومعه رقم ما رأته (X-X3-Rev) */
+  const load = async d => {
+    const r = await fetch(d.url() + 'api/load', { headers: { 'X-Qirtasiya': '1', Origin: 'http://127.0.0.1:' + d.port } });
+    return { s: JSON.parse(await r.text()), rev: r.headers.get('X-X3-Rev') || '' };
+  };
+  /* بيعة كما تحفظها شاشة البيع (فاتورة، الكمية تنقص، العدّاد يزيد)، ومعها كتاب جديد */
+  const sale = (s, tag) => {
+    const n = JSON.parse(JSON.stringify(s));
+    const b = n.books.find(x => x.id === 'b1');
+    n.counters.invoice++;
+    n.invoices.unshift({ id: 'inv-' + tag, no: n.counters.invoice, kind: 'sale', date: '2026-10-29', at: '2026-10-29 10:00:00',
+      items: [{ type: 'book', id: 'b1', name: b.title, qty: 1, price: b.price, cost: b.cost }],
+      subtotal: b.price, discount: 0, total: b.price, profit: b.price - b.cost, method: 'cash', mode: 'retail', customerId: '', paid: b.price, due: 0 });
+    b.qty -= 1;
+    n.counters.book++;
+    n.books.push({ id: 'nb-' + tag, code: 'K' + String(n.counters.book).padStart(4, '0'), title: 'كتاب ' + tag, price: 7, qty: 1 });
+    return n;
+  };
+  /* حفظ من الشاشة، والكهرباء تنقطع بعد ms (قتل فوري للبرنامج)، ثم يُفتح من جديد */
+  const cut = async (d, ow, tag, ms) => {
+    const a = await load(d);
+    const next = sale(a.s, tag);
+    const p = d.raw('/api/save', next, { 'X-Owner': ow, 'X-X3-Rev': a.rev }).catch(() => null);
+    await sleep(ms);
+    d.stop();
+    const res = await p;
+    await sleep(300);
+    await d.start();
+    const nOw = await claim(d);
+    const b = await load(d);
+    return { ow: nOw, before: a.s, next, after: b.s, said: !!(res && res.body && res.body.ok), mirror: same(d.store(), b.s) };
+  };
+  /* جهاز محل: كل انقطاع يترك ما قبل الحفظ كله أو ما بعده كله، وما قيل عنه «محفوظ» يبقى */
+  const cuts = async (d, ow, name, list) => {
+    const st = { before: 0, after: 0, half: [], lost: [], mirror: [] };
+    for (const ms of list) {
+      const r = await cut(d, ow, name + ms, ms);
+      ow = r.ow;
+      if (same(r.after, r.next)) st.after++;
+      else if (same(r.after, r.before)) { st.before++; if (r.said) st.lost.push(ms); }
+      else st.half.push(ms);
+      if (!r.mirror) st.mirror.push(ms);
+    }
+    ok(st.half.length === 0, name + ': كل انقطاع يترك البيانات قبل الحفظ كلها أو بعده كلها (' + st.before + ' قبل، ' + st.after + ' بعد)', st);
+    ok(st.lost.length === 0 && st.after > 0, name + ': ما قيل عنه «محفوظ» قبل الانقطاع باقٍ بعده', st);
+    ok(st.mirror.length === 0, name + ': وstore.json بعد كل تشغيل = ما في القاعدة', st.mirror);
+    const log = fs.readFileSync(d.data('log.txt'), 'utf8');
+    ok(!/تغيّر من خارج البرنامج/.test(log), name + ': وملف البرنامج نفسه لا يُظن «تعديلاً من خارج» فيرجع لنسخة قديمة');
+    ok(d.q('PRAGMA integrity_check')[0].integrity_check === 'ok', name + ': والقاعدة سليمة');
+    return ow;
+  };
+  const delays = [0, 5, 15, 40, 100, 250, 2000];
+
+  try {
+    E.buildEngine(K.dir, 'misrata');
+    for (const f of ['Qirtasiya.exe', 'Qirtasiya.exe.config']) fs.copyFileSync(path.join(K.dir, f), path.join(L.dir, f));
+
+    console.log('\n== انقطاع الكهرباء وسط الحفظ: جهاز المحل ==');
+    K.write(shopStore(cloud.url));
+    await K.start();
+    let owK = await claim(K);
+    let r = await link(K, owK, { action: 'main', url: cloud.url, key: KEY, name: 'محل' });
+    ok(r.body && r.body.ok && r.body.data.x3, 'جهاز المحل على القاعدة بشاشات 3.x', r.body);
+    owK = await cuts(K, owK, 'المحل', delays);
+    const sK = (await load(K)).s;
+    const nos = sK.invoices.map(v => v.no);
+    ok(new Set(nos).size === nos.length && sK.counters.invoice === Math.max(...nos), 'وأرقام الفواتير بلا تكرار والعدّاد عند آخرها', nos);
+    r = await link(K, owK, { action: 'now' });
+    ok(r.body && r.body.ok && r.body.data.lastOk && !r.body.data.error, 'والمزامنة بعدها بلا خطأ', r.body && r.body.data);
+
+    console.log('\n== استعادة نسخة كتبها البرنامج نفسه ==');
+    /* كانت بصمات آخر 4 ملفات كتبها البرنامج تُعدّ «منه»: نسخة أقدم أُعيدت كانت تُتجاهل */
+    const s1 = (await load(K)).s;
+    const copy1 = fs.readFileSync(K.data('store.json'));
+    let a = await load(K);
+    await K.raw('/api/save', sale(a.s, 'r1'), { 'X-Owner': owK, 'X-X3-Rev': a.rev });
+    r = await K.raw('/api/restore', { name: 'store.previous.json' }, { 'X-Owner': owK });
+    ok(r.body && r.body.ok && same((await load(K)).s, s1), '«استعادة» store.previous.json (ما قبل آخر حفظ) ترجع البيانات إليه فعلاً', r.body);
+    a = await load(K);
+    await K.raw('/api/save', sale(a.s, 'r2'), { 'X-Owner': owK, 'X-X3-Rev': a.rev });
+    K.stop(); await sleep(300);
+    fs.writeFileSync(K.data('store.json'), copy1);
+    await K.start();
+    owK = await claim(K);
+    ok(same((await load(K)).s, s1), 'ونسخة قديمة وُضعت مكان store.json والبرنامج مغلق تُؤخذ عند فتحه');
+    ok(fs.readdirSync(K.data('backups')).filter(f => /^qirtasiya-before-outside-/.test(f)).length >= 2, 'وقبل كل واحدة نسخة من القاعدة');
+
+    console.log('\n== انقطاع الكهرباء وسط الحفظ: الجهاز الثاني ==');
+    L.write(laptopStore(cloud.url));
+    await L.start();
+    let owL = await claim(L);
+    r = await link(L, owL, { action: 'second', url: cloud.url, key: KEY, branch: 'misrata', name: 'لابتوب', replace: true });
+    ok(r.body && r.body.ok && r.body.data.role === 'second', 'اللابتوب جهاز ثانٍ', r.body);
+    const saidL = [], halfL = [];
+    for (const ms of [0, 10, 40, 150, 2000]) {
+      const c = await cut(L, owL, 'l' + ms, ms);
+      owL = c.ow;
+      if (c.said && !same(c.after, c.next)) saidL.push(ms);
+      if (!same(c.after, c.next) && !same(c.after, c.before)) halfL.push(ms);
+    }
+    ok(halfL.length === 0, 'كل انقطاع يترك ما في اللابتوب قبل الحفظ كله أو بعده كله', halfL);
+    ok(saidL.length === 0, 'وما قيل عنه «محفوظ» باقٍ ينتظر جهاز المحل', saidL);
+    for (let i = 0; i < 3; i++) { await link(L, owL, { action: 'now' }); await link(K, owK, { action: 'now' }); }
+    await link(L, owL, { action: 'now' });
+    const k2 = (await load(K)).s, l2 = (await load(L)).s;
+    const twice = ['l0', 'l10', 'l40', 'l150', 'l2000'].filter(t => k2.invoices.filter(v => v.id === 'inv-' + t).length > 1);
+    ok(twice.length === 0 && k2.invoices.some(v => v.id === 'inv-l2000'), 'عند المحل: كل بيعة من اللابتوب مرة واحدة لا مرتين', twice);
+    ok(same(k2, l2), 'والجهازان بعدها متطابقان حرفياً');
+    ok(L.q('PRAGMA integrity_check')[0].integrity_check === 'ok', 'وقاعدة اللابتوب سليمة');
+
+    console.log('\n== طرابلس: التطبيق الثاني بالطريقة نفسها ==');
+    E.buildEngine(T.dir, 'tripoli');
+    const ts = shopStore(cloud.url);
+    ts.meta.shopName = 'مكتبة طرابلس';
+    ts.branch = { id: 'tripoli', name: 'مكتبة طرابلس', city: 'طرابلس', no: 2 };
+    T.write(ts);
+    await T.start();
+    let owT = await claim(T);
+    r = await link(T, owT, { action: 'main', url: cloud.url, key: KEY, name: 'محل طرابلس' });
+    ok(r.body && r.body.ok && r.body.data.x3 && r.body.data.branch === 'tripoli', 'طرابلس على القاعدة بشاشات 3.x، فرعها tripoli', r.body);
+    owT = await cuts(T, owT, 'طرابلس', [0, 15, 100, 2000]);
+    r = await link(T, owT, { action: 'now' });
+    ok(r.body && r.body.ok && r.body.data.lastOk && !r.body.data.error, 'والمزامنة بلا خطأ', r.body && r.body.data);
+    const brs = cloud.env.DB.raw.prepare('SELECT branch, chain FROM v2_branch ORDER BY branch').all();
+    ok(brs.length === 2 && brs.every(b => b.chain), 'على الخادم فرعان منفصلان: مصراتة وطرابلس', brs);
+    const sT = (await load(T)).s;
+    ok(!sT.books.some(b => /^nb-(المحل|l)/.test(b.id)) && !(await load(K)).s.books.some(b => /^nb-طرابلس/.test(b.id)),
+      'وبيانات كل فرع لا تختلط بالآخر');
+  } catch (e) {
+    ok(false, 'خطأ غير متوقع في اختبار الانقطاع', e.stack);
+  } finally {
+    K.stop(); L.stop(); T.stop();
     await cloud.close();
   }
 }
