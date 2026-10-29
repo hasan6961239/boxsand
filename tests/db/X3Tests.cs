@@ -27,7 +27,7 @@ static class X3Tests
         "\"sync\":{\"url\":\"\",\"key\":\"\",\"auto\":true,\"everyMin\":10}," +
         "\"notify\":{\"enabled\":false,\"kinds\":{\"low\":true,\"sale\":false},\"bigAmount\":100,\"log\":[]}," +
         "\"consignors\":[],\"consignments\":[],\"consPayments\":[],\"closings\":[],\"publishers\":[],\"counts\":[],\"countSession\":null," +
-        "\"remotes\":[],\"warehouses\":[{\"id\":\"w1\",\"name\":\"المخزن\",\"stock\":[{\"type\":\"book\",\"id\":\"b1\",\"qty\":3}]}],\"outbox\":[]," +
+        "\"remotes\":[],\"warehouses\":[{\"id\":\"w1\",\"name\":\"المخزن\",\"stock\":[{\"type\":\"book\",\"itemId\":\"b1\",\"qty\":3}]}],\"outbox\":[]," +
         "\"books\":[{\"id\":\"b2\",\"code\":\"K0002\",\"title\":\"الكيمياء\",\"qty\":5,\"price\":12.5,\"cost\":8,\"lib\":\"A\",\"shelf\":\"1\"}," +
         "{\"id\":\"b1\",\"code\":\"K0001\",\"title\":\"الفيزياء \\\"الأساسية\\\"\",\"qty\":10,\"store\":2,\"price\":30,\"cost\":20,\"lib\":\"B\",\"shelf\":\"3\"}]," +
         "\"stationery\":[{\"id\":\"s1\",\"code\":\"Q0001\",\"name\":\"قلم\",\"qty\":100,\"price\":0.75}]," +
@@ -56,6 +56,16 @@ static class X3Tests
             "وكل سجل في سجل التغييرات (يصل الجهاز الثاني)");
         long gen0 = db.X3Gen;
         ok(db.X3Adopt(Store, 1).Changes == 0 && db.X3Gen == gen0, "تبنّي الملف نفسه مرة ثانية لا يغيّر شيئاً");
+
+        /* قائمة الكتب للفروع الأخرى من بيانات 3.x نفسها */
+        int cn;
+        Dictionary<string, object> cat = P(db.CatalogJson(out cn));
+        List<object> b1 = null;
+        foreach (object o in A(cat["items"])) if ((string)A(o)[1] == "K0001") b1 = A(o);
+        ok(cn == 3 && Json.Str(D(cat["branch"]), "id") == "misrata" && Json.Str(D(cat["branch"]), "name") == "دار الحكمة",
+            "قائمة الفرع: كتابان وقلم، باسم الفرع", cn);
+        ok(b1 != null && (string)b1[0] == "book" && (long)b1[6] == 10 && (long)b1[7] == 3 && (long)b1[8] == 30000 && (string)b1[9] == "خزانة B · رف 3",
+            "الكتاب: ما في المحل، وما في المخزن، والسعر بالدرهم، ومكانه", b1 == null ? "" : Json.Write(b1));
 
         /* ---------- حفظ من الواجهة ---------- */
         Dictionary<string, object> s = P(out1);

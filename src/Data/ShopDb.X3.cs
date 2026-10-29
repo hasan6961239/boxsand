@@ -764,6 +764,93 @@ namespace Qirtasiya.Data
             return ops;
         }
 
+        /* قائمة كتب الفرع للفروع الأخرى (CatalogJson) من بيانات 3.x نفسها:
+           qty ما في المحل (الرفوف وغرفة الخزين)، store ما في المخازن، والسعر بالدرهم */
+        string X3CatalogJson(out int count)
+        {
+            Dictionary<string, object> s = Json.Parse(X3ExportCore(db)) as Dictionary<string, object> ?? new Dictionary<string, object>();
+            Dictionary<string, object> branch = Json.Obj(s, "branch") ?? new Dictionary<string, object>();
+            Dictionary<string, object> meta = Json.Obj(s, "meta") ?? new Dictionary<string, object>();
+            Dictionary<string, double> wh = new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (object w in Json.Arr(s, "warehouses"))
+            {
+                Dictionary<string, object> wd = w as Dictionary<string, object>;
+                if (wd == null) continue;
+                foreach (object o in Json.Arr(wd, "stock"))
+                {
+                    Dictionary<string, object> st = o as Dictionary<string, object>;
+                    if (st == null) continue;
+                    string k = Json.Str(st, "type") + ":" + X3Str(st, "itemId");
+                    double q;
+                    wh.TryGetValue(k, out q);
+                    wh[k] = q + X3Num(st, "qty");
+                }
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.Append("{\"v\":1,\"branch\":{\"id\":");
+            Json.Quote(sb, Json.Str(branch, "id"));
+            sb.Append(",\"name\":");
+            Json.Quote(sb, Json.Str(branch, "name").Length > 0 ? Json.Str(branch, "name") : Json.Str(meta, "shopName"));
+            sb.Append(",\"city\":");
+            Json.Quote(sb, Json.Str(branch, "city"));
+            sb.Append(",\"phone\":");
+            Json.Quote(sb, Json.Str(branch, "phone"));
+            sb.Append("},\"at\":");
+            Json.Quote(sb, Stamp(clock()));
+            sb.Append(",\"items\":[");
+            count = 0;
+            foreach (string coll in new string[] { "books", "stationery" })
+            {
+                string type = coll == "books" ? "book" : "stat";
+                foreach (object o in Json.Arr(s, coll))
+                {
+                    Dictionary<string, object> it = o as Dictionary<string, object>;
+                    if (it == null) continue;
+                    double inWh;
+                    wh.TryGetValue(type + ":" + X3Str(it, "id"), out inWh);
+                    string lib = X3Str(it, "lib"), shelf = X3Str(it, "shelf"), loc = X3Str(it, "loc");
+                    string place = loc.Length > 0 ? loc : lib.Length > 0 || shelf.Length > 0 ?
+                        (lib.Length > 0 ? "خزانة " + lib : "") + (lib.Length > 0 && shelf.Length > 0 ? " · " : "") + (shelf.Length > 0 ? "رف " + shelf : "") : "";
+                    if (count++ > 0) sb.Append(',');
+                    sb.Append('[');
+                    Json.Quote(sb, type); sb.Append(',');
+                    Json.Quote(sb, X3Str(it, "code")); sb.Append(',');
+                    Json.Quote(sb, X3Str(it, "title").Length > 0 ? X3Str(it, "title") : X3Str(it, "name")); sb.Append(',');
+                    Json.Quote(sb, X3Str(it, "author")); sb.Append(',');
+                    Json.Quote(sb, X3Str(it, "barcode")); sb.Append(',');
+                    Json.Quote(sb, X3Str(it, "cat")); sb.Append(',');
+                    sb.Append(((long)Math.Round(X3Num(it, "qty"))).ToString(CultureInfo.InvariantCulture)).Append(',');
+                    sb.Append(((long)Math.Round(inWh)).ToString(CultureInfo.InvariantCulture)).Append(',');
+                    sb.Append(((long)Math.Round(X3Num(it, "price") * 1000)).ToString(CultureInfo.InvariantCulture)).Append(',');
+                    Json.Quote(sb, place);
+                    sb.Append(']');
+                }
+            }
+            sb.Append("]}");
+            return sb.ToString();
+        }
+
+        /* حقول 3.x كما كتبتها الواجهة: النص قد يكون رقماً، والرقم قد يكون نصاً */
+        static string X3Str(Dictionary<string, object> d, string k)
+        {
+            object v;
+            if (!d.TryGetValue(k, out v) || v == null) return "";
+            if (v is string) return (string)v;
+            if (v is long || v is double) return Json.Write(v);
+            return "";
+        }
+
+        static double X3Num(Dictionary<string, object> d, string k)
+        {
+            object v;
+            if (!d.TryGetValue(k, out v) || v == null) return 0;
+            if (v is long) return (long)v;
+            if (v is double) return (double)v;
+            double x;
+            string t = v as string;
+            return t != null && double.TryParse(t.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out x) ? x : 0;
+        }
+
         /* الجهاز الثاني: الملف كما في نسخة جهاز المحل، وفوقه ما أُرسل ولم يرجع بعد */
         public string X3ExportWithPending()
         {

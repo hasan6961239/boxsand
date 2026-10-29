@@ -362,6 +362,8 @@ namespace Qirtasiya.Data
         {
             lock (gate)
             {
+                /* بواجهة 3.x البيانات في x3_docs، لا في الجداول (قرار 0025) */
+                if (db.Text("SELECT value FROM settings WHERE key = 'ui'") == "\"3x\"") return X3CatalogJson(out count);
                 Dictionary<long, string> paths = PlacePaths();
                 Dictionary<string, object> branch = Json.Parse(db.Text("SELECT value FROM settings WHERE key = 'branch'") ?? "{}") as Dictionary<string, object>
                     ?? new Dictionary<string, object>();

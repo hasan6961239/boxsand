@@ -140,7 +140,7 @@ var App = (function () {
   /* الملف التالف لا يُبتلع بصمت: نتوقف ونعرض شاشة استرجاع.
      البدء بحالة فارغة ثم الحفظ فوقها كان يمحو ما تبقّى من البيانات. */
   function load() {
-    return api("/api/load").then(function (r) { return r.text(); })
+    return api("/api/load").then(function (r) { x3Seen(r); return r.text(); })
       .then(function (txt) {
         var t = String(txt == null ? "" : txt).trim();
         if (t === "" || t === "null") { S = heal(null); return S; }   // أول تشغيل
@@ -159,6 +159,55 @@ var App = (function () {
         block("تعذّر الاتصال بمحرك البرنامج.");
         return S;
       });
+  }
+
+  /* ---------- على الأساس الجديد (قرار 0025) ----------
+     بعد ربط الأجهزة البيانات في قاعدة البرنامج، وقد يغيّرها الجهاز الآخر. النواة
+     تعطي مع كل تحميل وحفظ رقم ما رأته هذه النافذة (rev) فتحفظ ما غيّرته هي وحده،
+     وتعلن في النبض أن شيئاً تغيّر (gen). نعيد التحميل والنافذة ساكنة: لا حفظ
+     معلّق، ولا نافذة حوار مفتوحة، ولا كتابة في خانة. قبل الربط لا يصل شيء من هذا. */
+  var x3 = { rev: "", gen: -1, stale: false, edits: 0, busy: false };
+
+  function x3Seen(r) {
+    var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
+    if (rev) x3.rev = rev;
+    if (gen !== null && gen !== "") x3.gen = +gen;
+  }
+
+  function x3Saved(res) {
+    if (!res) return;
+    if (res.rev) x3.rev = res.rev;
+    if (typeof res.gen === "number") x3.gen = res.gen;
+    if (res.reload) { x3.stale = true; setTimeout(x3Idle, 50); }
+  }
+
+  function saveHeaders() {
+    var h = { "Content-Type": "application/json" };
+    if (x3.rev) h["X-X3-Rev"] = x3.rev;
+    return h;
+  }
+
+  function x3Idle() {
+    if (!x3.stale || x3.busy || readOnly || saving || dirty || modalStack.length) return;
+    var a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && String(a.value || "").length) return;
+    x3.busy = true;
+    var edits = x3.edits;
+    api("/api/load").then(function (r) {
+      var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
+      return r.text().then(function (t) {
+        x3.busy = false;
+        if (edits !== x3.edits || saving || dirty) return;      // عُدّل شيء أثناء التحميل: المرة القادمة
+        var parsed = null;
+        try { parsed = JSON.parse(t); } catch (e) { }
+        if (!parsed || typeof parsed !== "object") return;
+        S = heal(parsed);
+        if (rev) x3.rev = rev;
+        if (gen !== null && gen !== "") x3.gen = +gen;
+        x3.stale = false;
+        rerender();
+      });
+    }).catch(function () { x3.busy = false; });
   }
 
   function block(reason) {
@@ -184,6 +233,7 @@ var App = (function () {
     if (readOnly) return;
     fixStores();
     dirty = true;
+    x3.edits++;
     if (!firstDirtyAt) firstDirtyAt = Date.now();
     if (saveTimer) clearTimeout(saveTimer);
     // لا يتأخر الحفظ أكثر من ثانيتين مهما تتابعت التعديلات
@@ -201,6 +251,7 @@ var App = (function () {
        false: إن فشل الحفظ (المحرك متوقف) ظنّ «أعد المحاولة» أن لا شيء
        معلّقاً وأعاد التحميل فضاعت الفاتورة. أي طلب حفظ = تغيير لم يُكتب بعد. */
     dirty = true;
+    x3.edits++;
     if (saving) {
       dirty = true;
       if (saveTimer) clearTimeout(saveTimer);
@@ -211,12 +262,19 @@ var App = (function () {
     setState("saving");
     return api("/api/save", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: saveHeaders(),
       body: JSON.stringify(S)
     }).then(function (r) { return r.json(); })
       .then(function (res) {
         saving = false;
-        if (res && res.ok) { dirty = false; firstDirtyAt = 0; setState("ok"); return; }
+        if (res && res.ok) { dirty = false; firstDirtyAt = 0; setState("ok"); x3Saved(res); return; }
+        /* الجهاز الثاني رفض حفظاً (مسح البيانات كلها مثلاً): ما في الشاشة يرجع لما في القاعدة */
+        if (res && res.reload) {
+          dirty = false; firstDirtyAt = 0; setState("ok");
+          toast(res.error || "تعذّر الحفظ.", "bad");
+          x3.stale = true; x3Idle();
+          return;
+        }
         /* المحرك أُعيد تشغيله فلا مالك له (free): هذه النافذة هي الوحيدة —
            نأخذ الملكية ونعيد الحفظ بدل التحوّل إلى «للعرض فقط» وضياع ما بيع. */
         if (res && res.notOwner && res.free) { dirty = true; reclaimAndSave(); return; }
@@ -244,8 +302,8 @@ var App = (function () {
       fixStores();
       saving = true;
       setState("saving");
-      return apiWrite("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(S) })
-        .then(function () { saving = false; dirty = false; firstDirtyAt = 0; setState("ok"); },
+      return apiWrite("/api/save", { method: "POST", headers: saveHeaders(), body: JSON.stringify(S) })
+        .then(function (res) { saving = false; dirty = false; firstDirtyAt = 0; setState("ok"); x3Saved(res); },
           function (e) { saving = false; setState("error"); throw e; });
     });
   }
@@ -313,7 +371,7 @@ var App = (function () {
       try {
         api("/api/save", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: saveHeaders(),
           body: JSON.stringify(S),
           keepalive: true
         });
@@ -390,6 +448,8 @@ var App = (function () {
       .then(function (res) {
         if (res && res.notOwner && res.free) reclaimAndSave();      // المحرك أُعيد تشغيله
         else if (res && res.notOwner) lostOwnership();
+        else if (res && typeof res.gen === "number" && !saving && res.gen !== x3.gen) x3.stale = true;
+        x3Idle();
       })
       .catch(function () { });
   }
@@ -2072,7 +2132,7 @@ var App = (function () {
   function deviceInfo() {
     return api("/api/device")
       .then(function (r) { return r.json(); })
-      .then(function (d) { if (d && d.fp) dev.fp = d.fp; })
+      .then(function (d) { if (d && d.fp) dev.fp = d.fp; if (d && d.second) dev.second = true; })
       .catch(function () { });
   }
 
@@ -2090,7 +2150,7 @@ var App = (function () {
     }).catch(function () { });
   }
 
-  var dev = { fp: "" };
+  var dev = { fp: "", second: false };
 
   /* ---------- جهاز المحل ----------
      ملف النسخة يحمل إعدادات الإشعارات والربط. استعادته على جهاز آخر (تجربة،
@@ -2104,6 +2164,8 @@ var App = (function () {
     return !!((S.sync && S.sync.url) || (S.notify && S.notify.enabled && S.notify.topic));
   }
   function homeCheck() {
+    /* جهاز ثانٍ مربوط بجهاز المحل (قرار 0025): الربط والإشعارات من جهاز المحل وحده */
+    if (dev.second) { outHold = true; return; }
     var fp = dev.fp || "", m = S.meta;
     if (!fp) return;
     if (!m.homeFp && !m.cloneCheck) {          // أول تشغيل بهذه النسخة على جهاز المحل
@@ -2128,6 +2190,7 @@ var App = (function () {
     });
   }
   function claimHome() {
+    if (dev.second) { toast("هذا جهاز ثانٍ: جهاز المحل هو الذي يعمل منه الربط والإشعارات.", "warn"); return; }
     S.meta.homeFp = dev.fp; delete S.meta.cloneCheck; delete S.meta.notHome;
     outHold = false;
     save();
@@ -2138,6 +2201,11 @@ var App = (function () {
   function outboundHeld() { return outHold; }
   function holdBanner() {
     if (!outHold) return "";
+    if (dev.second) {
+      return '<div class="row" style="gap:10px;margin-bottom:14px;padding:10px 12px;background:var(--amber-wash);border-radius:var(--r);flex-wrap:wrap">' +
+        "<b>هذا جهاز ثانٍ</b>" +
+        '<span class="muted small">الربط مع التلفون والإشعارات تعمل من جهاز المحل، وما تبيعه هنا يصله.</span></div>';
+    }
     return '<div class="row" style="gap:10px;margin-bottom:14px;padding:10px 12px;background:var(--amber-wash);border-radius:var(--r);flex-wrap:wrap">' +
       "<b>الربط والإشعارات موقوفة على هذا الجهاز</b>" +
       '<span class="muted small">البيانات آتية من جهاز المحل — حتى لا تصل إشعارات أو مخزون من جهاز ثانٍ.</span>' +
@@ -2228,6 +2296,7 @@ var App = (function () {
     money: money, money0: money0, norm: norm, match: match, rank: rank, nearLabel: nearLabel, fold: fold, exactCount: exactCount, sugHead: sugHead,
     api: api, apiJson: apiJson, apiWrite: apiWrite, ensureWriteToken: ensureWriteToken,
     outboundHeld: outboundHeld, claimHome: claimHome, holdBanner: holdBanner, deviceFp: function () { return dev.fp; },
+    isSecond: function () { return !!dev.second; },
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
     retryConnect: retryConnect,
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,

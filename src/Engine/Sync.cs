@@ -507,7 +507,8 @@ namespace Qirtasiya.Engine
             if (!db.Replica)
             {
                 PublishCatalog(db, cloud);
-                PublishOld(db, cloud, force);
+                /* بواجهة 3.x شاشاتها ترفع لقطة التلفون بنفسها كما كانت (وتأخذ طلباته) */
+                if (!db.X3Mode) PublishOld(db, cloud, force);
             }
             FetchCatalogs(db, cloud);
             lastCatalog = db.Now;

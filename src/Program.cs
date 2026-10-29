@@ -395,6 +395,14 @@ namespace Qirtasiya
             a.NotifyTest = SendNote;
             a.NotifyLog = NoteLogList;
             V2 = a;
+            /* واجهة 3.x فوق الأساس الجديد (قرار 0025) */
+            X3On = d.X3Mode;
+            d.X3Changed = X3MirrorSoon;
+            if (X3On)
+            {
+                try { X3Startup(d); }
+                catch (Exception ex) { Log("واجهة 3.x: " + ex.Message); }
+            }
             WarmSearch(d);
         }
 
@@ -959,6 +967,358 @@ namespace Qirtasiya
             return Json.Write(r);
         }
 
+        /* ============================================================
+           واجهة 3.x فوق الأساس الجديد (قرار 0025)
+           ------------------------------------------------------------
+           شاشات 3.x نفسها، وبياناتها في القاعدة (x3_docs) بدل store.json:
+           - قبل ربط الأجهزة لا قاعدة: البرنامج على store.json كما كان تماماً.
+           - «هذا جهاز المحل» يأخذ store.json كله للقاعدة. من بعدها كل حفظ من
+             الشاشة فرقٌ عما حمّلته (rev) يُطبَّق فوق ما في القاعدة، والجهاز الثاني
+             يرسل الفرق لجهاز المحل (x3.apply) ويراه في شاشته حتى يُنفَّذ هناك.
+           - store.json يبقى مرآة للقاعدة بعد كل تغيير: النسخ الاحتياطية والاستعادة
+             وكل ما يقرأ الملف يعمل كما كان. بصمة كل مرآة تُكتب قبلها في
+             store.json.x3، فملف عدّله غير البرنامج (نسخة قديمة منه، أو نسخ يدوي)
+             يُعرف ويُؤخذ للقاعدة على جهاز المحل.
+           - الشاشة تعيد التحميل وهي ساكنة حين يتغيّر شيء من غيرها (gen في النبض).
+           ============================================================ */
+        static volatile bool X3On;
+        static readonly object X3Gate = new object();
+        [ThreadStatic] static bool X3InSave;
+        static int X3MirrorQueued;
+        static string X3LastMirror = "";
+        /* للاختبار: بعد كل حفظ يُقارن ما في القاعدة بما أرسلته الشاشة */
+        static readonly bool X3Check = Environment.GetEnvironmentVariable("QIRTASIYA_X3_CHECK") == "1";
+
+        sealed class X3Seen { public string Rev = "", Json = ""; public long Gen; }
+        static readonly List<X3Seen> X3Revs = new List<X3Seen>();
+
+        /* ما رأته الشاشة (آخر أربع نسخ تحميلاً وحفظاً). gen = ‎-1: تعيد التحميل */
+        static string X3Remember(string json, long gen)
+        {
+            X3Seen x = new X3Seen();
+            x.Rev = NewToken().Substring(0, 12);
+            x.Json = json;
+            x.Gen = gen;
+            X3Revs.Add(x);
+            while (X3Revs.Count > 4) X3Revs.RemoveAt(0);
+            return x.Rev;
+        }
+
+        static X3Seen X3Find(string rev)
+        {
+            if (string.IsNullOrEmpty(rev)) return null;
+            foreach (X3Seen x in X3Revs) if (x.Rev == rev) return x;
+            return null;
+        }
+
+        static string Md5Hex(byte[] b)
+        {
+            using (MD5 md5 = MD5.Create())
+            {
+                StringBuilder sb = new StringBuilder();
+                foreach (byte x in md5.ComputeHash(b)) sb.Append(x.ToString("x2", CultureInfo.InvariantCulture));
+                return sb.ToString();
+            }
+        }
+
+        static string X3MarkFile { get { return StoreFile + ".x3"; } }
+
+        static List<string> X3Marks()
+        {
+            List<string> l = new List<string>();
+            try
+            {
+                if (File.Exists(X3MarkFile))
+                    foreach (string line in File.ReadAllLines(X3MarkFile))
+                        if (line.Trim().Length > 0) l.Add(line.Trim());
+            }
+            catch { }
+            return l;
+        }
+
+        /* بصمة ملف يكتبه البرنامج نفسه، قبل كتابته: انقطاع في الوسط لا يجعله «من خارج» */
+        static void X3Mark(string hash)
+        {
+            List<string> l = X3Marks();
+            l.Remove(hash);
+            l.Insert(0, hash);
+            if (l.Count > 4) l.RemoveRange(4, l.Count - 4);
+            File.WriteAllLines(X3MarkFile, l.ToArray());
+        }
+
+        /* store.json من القاعدة الآن. التصدير داخل القفل: الأحدث يُكتب آخراً */
+        static void X3MirrorNow()
+        {
+            lock (IoLock)
+            {
+                ShopDb d = Db;
+                if (d == null || !X3On) return;
+                string json = d.Replica ? d.X3ExportWithPending() : d.X3Export();
+                if (json == "null") return;
+                byte[] b = Encoding.UTF8.GetBytes(json);
+                string h = Md5Hex(b);
+                if (h == X3LastMirror && File.Exists(StoreFile)) return;
+                X3Mark(h);
+                WriteStoreFile(b);
+                X3LastMirror = h;
+            }
+        }
+
+        /* تغيّرت بيانات 3.x من غير الشاشة (جهاز ثانٍ، السجل): المرآة في الخلفية */
+        static void X3MirrorSoon()
+        {
+            if (X3InSave) return;      // حفظ الشاشة يكتب مرآته بنفسه قبل أن يرد
+            if (Interlocked.Exchange(ref X3MirrorQueued, 1) == 1) return;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Interlocked.Exchange(ref X3MirrorQueued, 0);
+                try { X3MirrorNow(); }
+                catch (Exception ex) { Log("مرآة store.json: " + ex.Message); }
+            });
+        }
+
+        /* store.json عدّله غير البرنامج: على جهاز المحل يُؤخذ للقاعدة فرقاً، وقبله نسخة منها */
+        static void X3TakeOutside(ShopDb d)
+        {
+            lock (IoLock)
+            {
+                if (d.Replica || !File.Exists(StoreFile)) return;
+                byte[] b = File.ReadAllBytes(StoreFile);
+                string h = Md5Hex(b);
+                if (h == X3LastMirror || X3Marks().Contains(h)) return;
+                if (!LooksLikeJsonObject(b))
+                {
+                    Log("store.json تالف أو فارغ: يُكتب من جديد من القاعدة");
+                    X3LastMirror = "";
+                    X3MirrorNow();
+                    return;
+                }
+                string keep = Path.Combine(BackupDir, "qirtasiya-before-outside-" +
+                    DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".db");
+                d.SnapshotTo(keep);
+                string txt = Encoding.UTF8.GetString(b);
+                if (txt.Length > 0 && txt[0] == '﻿') txt = txt.Substring(1);
+                ShopDb.X3Result r = d.X3Adopt(txt, 1);
+                X3Mark(h);
+                X3LastMirror = h;
+                Log("store.json تغيّر من خارج البرنامج: أُخذ للقاعدة (" + r.Changes + " تغيير)، ونسختها قبله " + keep);
+            }
+        }
+
+        /* القاعدة فُتحت بواجهة 3.x: store.json من خارج البرنامج يُؤخذ (جهاز المحل) أو
+           يُحفظ جانباً (الجهاز الثاني: ملفه قبل الانضمام)، ثم المرآة من القاعدة */
+        static void X3Startup(ShopDb d)
+        {
+            lock (IoLock)
+            {
+                X3LastMirror = "";
+                if (File.Exists(StoreFile))
+                {
+                    string h = Md5Hex(File.ReadAllBytes(StoreFile));
+                    if (X3Marks().Contains(h)) X3LastMirror = h;
+                    else if (!d.Replica) X3TakeOutside(d);
+                    else
+                    {
+                        string kept = MakeManualBackup();
+                        Log("جهاز ثانٍ: store.json السابق على هذا الجهاز حُفظ في " + kept);
+                    }
+                }
+                X3MirrorNow();
+            }
+        }
+
+        /* /api/load: ما في القاعدة، ورقم ما رأته الشاشة */
+        static string X3Load(out string rev, out long gen)
+        {
+            ShopDb d = Db;
+            try { X3TakeOutside(d); }
+            catch (Exception ex) { Log("store.json من خارج البرنامج: " + ex.Message); }
+            lock (X3Gate)
+            {
+                gen = d.X3Gen;
+                string json = d.Replica ? d.X3ExportWithPending() : d.X3Export();
+                rev = X3Remember(json, gen);
+                return json;
+            }
+        }
+
+        /* /api/save: ما غيّرته الشاشة منذ ما رأته (rev) فوق ما في القاعدة. reload: تغيّر
+           ما لم ترسله (جهاز ثانٍ، رقم فاتورة أُخذ) فتعيد التحميل */
+        static string X3SaveUi(byte[] body, string rev)
+        {
+            ShopDb d = Db;
+            string now = Encoding.UTF8.GetString(body);
+            lock (X3Gate)
+            {
+                X3Seen seen = X3Find(rev);
+                long gen0 = d.X3Gen;
+                bool reload = seen == null || seen.Gen != gen0;
+                string baseJson = seen != null ? seen.Json : (d.Replica ? d.X3ExportWithPending() : d.X3Export());
+                if (d.Replica)
+                {
+                    /* الجهاز الثاني لا يستبدل بيانات المحل كلها، ولا يمسحها */
+                    if (seen == null)
+                        return "{\"ok\":false,\"reload\":true,\"error\":" + JsonStr("هذا جهاز ثانٍ: استبدال البيانات كلها يكون من جهاز المحل.") + "}";
+                    List<X3Op> ops = ShopDb.X3Diff(baseJson, now);
+                    int dels = 0;
+                    foreach (X3Op o in ops) if (o.Key.Length > 0 && o.HasBase && !o.HasNow) dels++;
+                    if (dels > 50)
+                        return "{\"ok\":false,\"reload\":true,\"error\":" + JsonStr("هذا جهاز ثانٍ: حذف " + dels + " سجلاً مرة واحدة يكون من جهاز المحل.") + "}";
+                    if (ops.Count > 0)
+                    {
+                        Dictionary<string, object> j = Json.Parse(V2.RunInternal("x3.apply", "{\"ops\":" + ShopDb.X3OpsJson(ops) + "}").Json) as Dictionary<string, object>;
+                        if (j == null || !Json.Bool(j, "ok"))
+                            return "{\"ok\":false,\"error\":" + JsonStr(j == null ? "تعذّر الحفظ." : Json.Str(j, "error")) + "}";
+                    }
+                }
+                else
+                {
+                    if (seen == null && !string.IsNullOrEmpty(rev)) Log("حفظ من 3.x بنسخة لم تعد معروفة: يُقارن بما في القاعدة");
+                    ShopDb.X3Result r;
+                    X3InSave = true;
+                    try { r = d.X3Save(baseJson, now, 1); }
+                    finally { X3InSave = false; }
+                    if (r.Merged || d.X3Gen != gen0 + (r.Changes > 0 ? 1 : 0)) reload = true;
+                    if (X3Check && !reload && !ShopDb.JsonEqual(Json.Parse(d.X3Export()), Json.Parse(now)))
+                        Log("X3CHECK: ما في القاعدة بعد الحفظ لا يطابق ما أرسلته الشاشة");
+                }
+                X3MirrorNow();
+                long gen = d.X3Gen;
+                string nrev = X3Remember(now, reload ? -1 : gen);
+                return "{\"ok\":true,\"rev\":" + JsonStr(nrev) + ",\"gen\":" + gen.ToString(CultureInfo.InvariantCulture) + (reload ? ",\"reload\":true" : "") + "}";
+            }
+        }
+
+        /* «هذا جهاز المحل» من شاشة 3.x: store.json كله لقاعدة جديدة بواجهة 3.x. قبله نسخة
+           من الملف، وبعده نسخة كاملة من القاعدة. إن فشل لا يبقى ملف قاعدة */
+        static void AdoptStore()
+        {
+            if (File.Exists(DbFile)) throw new Exception("على هذا الجهاز ملف قاعدة لم يُفتح" + (DbError.Length > 0 ? ": " + DbError : "."));
+            if (!FileLooksValid(StoreFile)) throw new Exception("لا يوجد ملف بيانات سليم على هذا الجهاز.");
+            byte[] raw;
+            lock (IoLock)
+            {
+                MakeManualBackup();
+                raw = File.ReadAllBytes(StoreFile);
+            }
+            string json = Encoding.UTF8.GetString(raw);
+            if (json.Length > 0 && json[0] == '﻿') json = json.Substring(1);
+            ShopDb d = null;
+            try
+            {
+                OpenOptions o = new OpenOptions();
+                o.BackupDir = BackupDir;
+                d = ShopDb.Open(DbFile, o);
+                Stopwatch sw = Stopwatch.StartNew();
+                d.X3Adopt(json, 1);
+                /* الفرع واسم المحل للربط والنسخة الكاملة (القاعدة تعرف فرعها) */
+                Dictionary<string, object> st = (Json.Parse(json) as Dictionary<string, object>) ?? new Dictionary<string, object>();
+                Dictionary<string, object> br = Json.Obj(st, "branch") ?? new Dictionary<string, object>();
+                Dictionary<string, object> meta = Json.Obj(st, "meta") ?? new Dictionary<string, object>();
+                Dictionary<string, object> b = new Dictionary<string, object>();
+                b["id"] = Json.Str(br, "id").Trim().Length > 0 ? Json.Str(br, "id").Trim().ToLowerInvariant() : (Tripoli ? "tripoli" : "misrata");
+                b["name"] = Json.Str(br, "name").Length > 0 ? Json.Str(br, "name") : Json.Str(meta, "shopName");
+                b["city"] = Json.Str(br, "city");
+                b["no"] = Json.Long(br, "no", Tripoli ? 2 : 1);
+                d.SetSetting("branch", Json.Write(b), 1);
+                Dictionary<string, object> m = new Dictionary<string, object>();
+                m["shopName"] = Json.Str(meta, "shopName");
+                m["currency"] = Json.Str(meta, "currency").Length > 0 ? Json.Str(meta, "currency") : "د.ل";
+                m["setupDone"] = true;
+                d.SetSetting("meta", Json.Write(m), 1);
+                string after = Path.Combine(BackupDir, "qirtasiya-after-adopt-" +
+                    DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".db");
+                d.BackupTo(after);
+                lock (IoLock) X3Mark(Md5Hex(raw));
+                Log("واجهة 3.x على الأساس الجديد: أُخذ store.json للقاعدة في " + sw.ElapsedMilliseconds + " ms، والنسخة: " + after);
+                UseDb(d);
+            }
+            catch
+            {
+                if (d != null) d.Dispose();
+                foreach (string f in new string[] { DbFile, DbFile + "-wal", DbFile + "-shm" })
+                {
+                    try { if (File.Exists(f)) File.Delete(f); }
+                    catch { }
+                }
+                throw;
+            }
+        }
+
+        /* قاعدة أُنشئت للربط ولم يكتمل: البرنامج يرجع على store.json (المرآة نفسها) */
+        static void DropNewDb(string why)
+        {
+            lock (SyncLock)
+            lock (DbLock)
+            {
+                ShopDb d = Db;
+                if (d == null) return;
+                lock (IoLock)
+                {
+                    X3On = false;
+                    V2 = null;
+                    Db = null;
+                    d.Dispose();
+                    foreach (string f in new string[] { DbFile, DbFile + "-wal", DbFile + "-shm" })
+                    {
+                        try { if (File.Exists(f)) File.Delete(f); }
+                        catch { }
+                    }
+                }
+                Sync.ClearState();
+                Log("أُزيلت القاعدة الجديدة (" + why + "): البرنامج على store.json كما كان");
+            }
+        }
+
+        /* ربط الأجهزة من شاشة 3.x */
+        static void X3LinkMain(string url, string key, string name, bool force)
+        {
+            bool made = false;
+            lock (SyncLock)
+            lock (DbLock)
+            {
+                CheckLink(url, key);
+                if (Db == null) { AdoptStore(); made = true; }
+                else if (!X3On) throw new SyncException("v4", "هذا الجهاز على واجهة 4.0: يُربط من إعداداتها.");
+            }
+            try { SetupMain(url, key, name, force); }
+            catch
+            {
+                if (made) DropNewDb("لم يكتمل الربط");
+                throw;
+            }
+        }
+
+        static string LinkStatus()
+        {
+            Dictionary<string, object> s = Sync.Status();
+            ShopDb d = Db;
+            s["db"] = d != null;
+            s["x3"] = X3On;
+            s["device"] = Environment.MachineName;
+            return Json.Write(s);
+        }
+
+        static string LinkCommand(string body)
+        {
+            Dictionary<string, object> req = (Json.Parse(string.IsNullOrEmpty(body) ? "{}" : body) as Dictionary<string, object>) ?? new Dictionary<string, object>();
+            string act = Json.Str(req, "action");
+            string url = Json.Str(req, "url").Trim(), key = Json.Str(req, "key").Trim();
+            string name = Json.Str(req, "name").Trim();
+            if (name.Length == 0) name = Environment.MachineName;
+            if (act == "main") X3LinkMain(url, key, name, Json.Bool(req, "force"));
+            else if (act == "second")
+            {
+                /* ملف هذا الجهاز يبقى في backups قبل أن تحلّ نسخة المحل محله */
+                if (Db == null && File.Exists(StoreFile)) MakeManualBackup();
+                JoinAsSecond(url, key, Json.Str(req, "branch"), name, Json.Bool(req, "replace"));
+            }
+            else if (act == "now") SyncNowAndWait(EnvInt("QIRTASIYA_SYNC_WAIT_MS", 120000));
+            else if (act == "stop") StopSync();
+            else if (act != "status") throw new Exception("أمر غير معروف: " + act);
+            return LinkStatus();
+        }
+
         static string StatusText(int code)
         {
             switch (code)
@@ -1126,7 +1486,8 @@ namespace Qirtasiya
             {
                 if (closing) DailyDbBackup(true);
                 else ThreadPool.QueueUserWorkItem(delegate { DailyDbBackup(false); });
-                return;
+                /* بواجهة 3.x store.json مرآة القاعدة: نسخته اليومية كما كانت أيضاً */
+                if (!X3On) return;
             }
             try
             {
@@ -1205,6 +1566,28 @@ namespace Qirtasiya
                 }
             }
             catch { }
+        }
+
+        static void WriteStoreFile(byte[] body)
+        {
+            lock (IoLock)
+            {
+                // ثلاثة أجيال بدل واحد: جيل واحد لا يكفي إن تكرر حفظ فاسد
+                string prev2 = StoreFile + ".prev2";
+                try { if (File.Exists(PrevFile)) File.Copy(PrevFile, prev2, true); }
+                catch { }
+                string tmp = StoreFile + ".tmp";
+                /* WriteAllBytes يترك البيانات في ذاكرة ويندوز المؤقتة؛ انقطاع
+                   الكهرباء بعد الاستبدال وقبل تفريغها يترك ملفاً من الأصفار.
+                   Flush(true) يكتبها على القرص قبل أن يحلّ محل الملف القديم. */
+                using (FileStream fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    fs.Write(body, 0, body.Length);
+                    fs.Flush(true);
+                }
+                if (File.Exists(StoreFile)) File.Replace(tmp, StoreFile, PrevFile, true);
+                else File.Move(tmp, StoreFile);
+            }
         }
 
         static string MakeManualBackup()
@@ -1708,7 +2091,9 @@ namespace Qirtasiya
                     if (!string.IsNullOrEmpty(OwnerToken) && GetHeader(lines, "X-Owner") == OwnerToken)
                     {
                         OwnerSeen = DateTime.UtcNow;
-                        SendJson(s, "{\"ok\":true}");
+                        ShopDb hd = Db;
+                        /* بواجهة 3.x: رقم آخر تغيير، فتعيد الشاشة التحميل إن تغيّر من غيرها */
+                        SendJson(s, X3On && hd != null ? "{\"ok\":true,\"gen\":" + hd.X3Gen.ToString(CultureInfo.InvariantCulture) + "}" : "{\"ok\":true}");
                         return;
                     }
                 }
@@ -1748,6 +2133,12 @@ namespace Qirtasiya
 
             if (path == "/api/archive" && method == "POST")
             {
+                /* الجهاز الثاني بواجهة 3.x: ملف الأرشيف يكون عند جهاز المحل، فالأرشفة منه */
+                if (X3On && Db != null && Db.Replica)
+                {
+                    SendJson(s, "{\"ok\":false,\"error\":" + JsonStr("هذا جهاز ثانٍ: الأرشفة تكون على جهاز المحل.") + "}");
+                    return;
+                }
                 try
                 {
                     string req = Encoding.UTF8.GetString(body);
@@ -1830,8 +2221,37 @@ namespace Qirtasiya
                 return;
             }
 
+            /* ربط الأجهزة من شاشة 3.x (قرار 0025): الحالة لأي نافذة، والتغيير للمالكة */
+            if (path == "/api/link")
+            {
+                if (method != "POST")
+                {
+                    SendJson(s, "{\"ok\":true,\"data\":" + LinkStatus() + "}");
+                    return;
+                }
+                if (!IsOwner(lines))
+                {
+                    Send(s, 409, "Conflict", "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":false,\"notOwner\":true}"));
+                    return;
+                }
+                try { SendJson(s, "{\"ok\":true,\"data\":" + LinkCommand(Encoding.UTF8.GetString(body)) + "}"); }
+                catch (SyncException ex) { SendJson(s, "{\"ok\":false,\"code\":" + JsonStr(ex.Code) + ",\"error\":" + JsonStr(ex.Message) + "}"); }
+                catch (WebException ex) { SendJson(s, "{\"ok\":false,\"code\":\"net\",\"error\":" + JsonStr(SyncClient.NetError(ex)) + "}"); }
+                catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                return;
+            }
+
             if (path == "/api/load")
             {
+                if (X3On)
+                {
+                    string rev;
+                    long gen;
+                    byte[] x = Encoding.UTF8.GetBytes(X3Load(out rev, out gen));
+                    Send(s, 200, "OK", "application/json; charset=utf-8", x,
+                        "X-X3-Rev: " + rev + "\r\nX-X3-Gen: " + gen.ToString(CultureInfo.InvariantCulture) + "\r\n");
+                    return;
+                }
                 byte[] data;
                 lock (IoLock)
                 {
@@ -1844,7 +2264,14 @@ namespace Qirtasiya
             }
 
             /* بعد النقل للقاعدة الجديدة لا يُكتب store.json: كتابتان في مكانين تفترقان */
-            if ((path == "/api/save" || path == "/api/restore") && method == "POST" && Db != null)
+            /* الجهاز الثاني بواجهة 3.x: الاستعادة من جهاز المحل */
+            if (path == "/api/restore" && method == "POST" && X3On && Db != null && Db.Replica)
+            {
+                SendJson(s, "{\"ok\":false,\"error\":" + JsonStr("هذا جهاز ثانٍ: الاستعادة تكون على جهاز المحل.") + "}");
+                return;
+            }
+
+            if ((path == "/api/save" || path == "/api/restore") && method == "POST" && Db != null && !X3On)
             {
                 SendJson(s, "{\"ok\":false,\"error\":" + JsonStr("البيانات انتقلت للقاعدة الجديدة، والحفظ صار من أوامرها.") + "}");
                 return;
@@ -1856,24 +2283,12 @@ namespace Qirtasiya
                 {
                     if (!LooksLikeJsonObject(body))
                         throw new Exception("محتوى غير صالح — لم يُكتب شيء");
-                    lock (IoLock)
+                    if (X3On)
                     {
-                        // ثلاثة أجيال بدل واحد: جيل واحد لا يكفي إن تكرر حفظ فاسد
-                        string prev2 = StoreFile + ".prev2";
-                        try { if (File.Exists(PrevFile)) File.Copy(PrevFile, prev2, true); }
-                        catch { }
-                        string tmp = StoreFile + ".tmp";
-                        /* WriteAllBytes يترك البيانات في ذاكرة ويندوز المؤقتة؛ انقطاع
-                           الكهرباء بعد الاستبدال وقبل تفريغها يترك ملفاً من الأصفار.
-                           Flush(true) يكتبها على القرص قبل أن يحلّ محل الملف القديم. */
-                        using (FileStream fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-                        {
-                            fs.Write(body, 0, body.Length);
-                            fs.Flush(true);
-                        }
-                        if (File.Exists(StoreFile)) File.Replace(tmp, StoreFile, PrevFile, true);
-                        else File.Move(tmp, StoreFile);
+                        SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev")));
+                        return;
                     }
+                    WriteStoreFile(body);
                     SendJson(s, "{\"ok\":true}");
                 }
                 catch (Exception ex)
@@ -1956,6 +2371,8 @@ namespace Qirtasiya
                             catch { }
                         }
                         File.Copy(src, StoreFile, true);
+                        /* بواجهة 3.x: النسخة المستعادة تدخل القاعدة (وقبلها نسخة منها) */
+                        if (X3On && Db != null) X3TakeOutside(Db);
                     }
                     SendJson(s, "{\"ok\":true}");
                 }
@@ -2008,7 +2425,7 @@ namespace Qirtasiya
                     ",\"edition\":" + JsonStr(BuildInfo.Edition) + ",\"app\":" + JsonStr(AppTitle) +
                     ",\"build\":" + JsonStr(BuildStamp()) +
                     ",\"dataDir\":" + JsonStr(DataDir) + ",\"port\":" + Port.ToString(CultureInfo.InvariantCulture) +
-                    ",\"db\":" + (Db != null ? "true" : "false") + (DbError.Length > 0 ? ",\"dbError\":" + JsonStr(DbError) : "") + "}");
+                    ",\"db\":" + (Db != null ? "true" : "false") + (X3On ? ",\"x3\":true" : "") + (DbError.Length > 0 ? ",\"dbError\":" + JsonStr(DbError) : "") + "}");
                 return;
             }
 
@@ -2024,7 +2441,9 @@ namespace Qirtasiya
             /* بصمة هذا الجهاز: الواجهة تعرف بها جهاز المحل */
             if (path == "/api/device")
             {
-                SendJson(s, "{\"ok\":true,\"fp\":" + JsonStr(MachineFingerprint()) + "}");
+                ShopDb dd = Db;
+                SendJson(s, "{\"ok\":true,\"fp\":" + JsonStr(MachineFingerprint()) +
+                    (X3On && dd != null && dd.Replica ? ",\"second\":true" : "") + "}");
                 return;
             }
 
@@ -2098,7 +2517,7 @@ namespace Qirtasiya
             // static files
             /* القاعدة الجديدة موجودة: واجهة 4.0 (قرار 0021)، وإلا واجهة 3.x كما كانت.
                تطبيق طرابلس 4.0 من أول يوم: بلا قاعدة يفتح إعدادها في واجهة 4.0 (قرار 0022) */
-            if (path == "/") path = Db != null || Tripoli ? "/v4/index.html" : "/index.html";
+            if (path == "/") path = (Db != null || Tripoli) && !X3On ? "/v4/index.html" : "/index.html";
             if (path.Contains("..")) { Send(s, 400, "Bad Request", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("bad path")); return; }
 
             string rel = path.TrimStart(new char[] { '/' });
@@ -2209,6 +2628,11 @@ namespace Qirtasiya
 
         static void Send(Stream s, int code, string status, string contentType, byte[] body)
         {
+            Send(s, code, status, contentType, body, null);
+        }
+
+        static void Send(Stream s, int code, string status, string contentType, byte[] body, string extraHeaders)
+        {
             if (ReqLogged < 25)
             {
                 ReqLogged++;
@@ -2220,6 +2644,7 @@ namespace Qirtasiya
             head.Append("Content-Type: ").Append(contentType).Append("\r\n");
             head.Append("Content-Length: ").Append(body.Length.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
             head.Append("Cache-Control: no-store\r\n");
+            if (extraHeaders != null) head.Append(extraHeaders);
             head.Append("Connection: close\r\n\r\n");
             byte[] h = Encoding.ASCII.GetBytes(head.ToString());
             s.Write(h, 0, h.Length);
@@ -2575,6 +3000,8 @@ namespace Qirtasiya
 
         static void ExitApp()
         {
+            try { if (X3On) X3MirrorNow(); }
+            catch { }
             try { MakeDailyBackup(true); }
             catch { }
             try { if (Tray != null) { Tray.Visible = false; Tray.Dispose(); } }
