@@ -620,15 +620,20 @@ namespace Qirtasiya.Data
                     sb.Append(",\"a\":"); Json.Quote(sb, Convert.ToString(r[3], CultureInfo.InvariantCulture));
                     sb.Append(",\"b\":"); Json.Quote(sb, Convert.ToString(r[4], CultureInfo.InvariantCulture));
                     sb.Append(",\"c\":"); Json.Quote(sb, Convert.ToString(r[5], CultureInfo.InvariantCulture));
-                    sb.Append(",\"q\":").Append((Convert.ToInt64(r[6], CultureInfo.InvariantCulture) + Convert.ToInt64(r[7], CultureInfo.InvariantCulture)).ToString(CultureInfo.InvariantCulture));
+                    long inShop = Convert.ToInt64(r[6], CultureInfo.InvariantCulture), inWh = Convert.ToInt64(r[7], CultureInfo.InvariantCulture);
+                    sb.Append(",\"q\":").Append((inShop + inWh).ToString(CultureInfo.InvariantCulture));
                     sb.Append(",\"p\":").Append((Convert.ToInt64(r[8], CultureInfo.InvariantCulture) / 1000.0).ToString("0.###", CultureInfo.InvariantCulture));
-                    /* الكتاب: «خزانة A · رف 3» كما يكتبه X3CatalogJson يرجع حرفاً ورفاً، وغيره نصاً كما هو */
+                    /* الكتاب: «خزانة A · رف 3» كما يكتبه X3CatalogJson يرجع حرفاً ورفاً، وغيره نصاً كما هو.
+                       ما في مخازن الفرع يُقال: «… · و5 في المخزن»، أو «في المخزن» إن لم يبقَ في المحل شيء */
                     string place = Convert.ToString(r[9], CultureInfo.InvariantCulture) ?? "", lib = "", shelf = "";
-                    System.Text.RegularExpressions.Match m = book ? PlaceRe.Match(place) : System.Text.RegularExpressions.Match.Empty;
+                    System.Text.RegularExpressions.Match m = book && inWh == 0 ? PlaceRe.Match(place) : System.Text.RegularExpressions.Match.Empty;
                     if (m.Success) { lib = m.Groups[1].Value; shelf = m.Groups[2].Value; }
+                    string loc = m.Success ? "" : place;
+                    if (inWh > 0)
+                        loc = inShop > 0 ? (place.Length > 0 ? place + " · " : "") + "و" + inWh.ToString(CultureInfo.InvariantCulture) + " في المخزن" : "في المخزن";
                     sb.Append(",\"l\":"); Json.Quote(sb, lib);
                     sb.Append(",\"s\":"); Json.Quote(sb, shelf);
-                    sb.Append(",\"loc\":"); Json.Quote(sb, m.Success ? "" : place);
+                    sb.Append(",\"loc\":"); Json.Quote(sb, loc);
                     sb.Append('}');
                 }
                 sb.Append(']');

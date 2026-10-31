@@ -564,6 +564,8 @@ async function branches() {
       branch: { id: 'tripoli', name: 'مكتبة طرابلس', city: 'طرابلس', no: 2 },
       sync: { url, key: KEY, auto: false, everyMin: 10 },
       books, stationery: [{ id: 'ts1', code: 'Q0001', name: 'دفتر طرابلس', cat: 'دفاتر', loc: 'درج 3', price: 2, qty: 50 }],
+      /* «إضافة مخزن» في طرابلس: 3 نسخ من الكتاب الأول هناك */
+      warehouses: [{ id: 'tw1', name: 'مخزن طرابلس', place: 'طريق الشط', stock: [{ type: 'book', itemId: 't1', qty: 3 }] }],
       customers: [], invoices: [], payments: [], counters: { invoice: 0, book: BIG + 1, stat: 1 }
     };
   };
@@ -620,6 +622,8 @@ async function branches() {
     const tp = tr && tr.items.find(i => i.k === 'K09999');
     ok(tp && tp.n === 'الفيزياء الأساسية - طبعة طرابلس' && tp.q === 7 && tp.p === 33.5 && tp.a === 'عبد الله' && tp.l === 'C' && tp.s === '4' && tp.b === '1234567',
       'بالاسم والكمية والسعر والمؤلف والمكان والباركود', tp);
+    const t1 = tr && tr.items.find(i => i.k === 'K00001');
+    ok(t1 && t1.q === 5 && t1.loc === 'خزانة B · رف 2 · و3 في المخزن', 'وما في مخزن طرابلس: يُحسب، ويُقال «و3 في المخزن»', t1);
     const ts1 = tr && tr.items.find(i => i.k === 'Q0001');
     ok(ts1 && ts1.t === 'stat' && ts1.loc === 'درج 3', 'والقرطاسية بمكانها', ts1);
 
