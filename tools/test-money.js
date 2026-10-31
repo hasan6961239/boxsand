@@ -7,6 +7,8 @@ const fs = require('fs'), path = require('path');
 const URL = 'http://127.0.0.1:17845/';
 const EXE = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const DATA = process.env.QI_DATA || path.join(__dirname, '..', '.devdata');
+/* QI_X3: البرنامج الحقيقي بشاشات 3.x فوق القاعدة (tools/test-x3.js suites) */
+const X3 = !!process.env.QI_X3;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const seed = () => ({
@@ -33,6 +35,16 @@ const check = (name, ok, got) => {
     const d = seed(); if (mod) mod(d);
     fs.writeFileSync(path.join(DATA, 'store.json'), JSON.stringify(d));
     const pg = await b.newPage({ viewport: { width: 1500, height: 950 } });
+    /* على الأساس الجديد حفظ نافذة أُغلقت فجأة يُطبَّق ولو وصل بعد ملف الحالة التالية
+       (على جهاز أبطأ). بين الحالات: الحفظ يكتمل قبل الإغلاق. الإغلاق الفوري بعد البيع
+       يُختبر وحده في [ثبات] (runBeforeUnload) */
+    if (X3) {
+      const close = pg.close.bind(pg);
+      pg.close = async o => {
+        if (!o) await pg.evaluate(() => App.flushSave().catch(() => { })).catch(() => { });
+        return close(o);
+      };
+    }
     pg.on('pageerror', e => errs.push(e.message));
     pg.on('dialog', d => d.accept().catch(() => {}));
     await pg.goto(URL, { waitUntil: 'domcontentloaded' });

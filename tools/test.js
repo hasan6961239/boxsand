@@ -31,7 +31,11 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
   const b = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox'] });
   const errs = [];
   /* إغلاق كإغلاق المستخدم: يشغّل beforeunload فيحرّر قفل النافذة */
-  const closePage = async (p) => { await p.close({ runBeforeUnload: true }); await sleep(400); };
+  const closePage = async (p) => {
+    /* على الأساس الجديد: الحفظ يكتمل قبل الإغلاق، فلا يصل بعد ملف الحالة التالية */
+    if (X3) await p.evaluate(() => App.flushSave().catch(() => { })).catch(() => { });
+    await p.close({ runBeforeUnload: true }); await sleep(400);
+  };
 
   const open = async () => {
     const pg = await b.newPage({ viewport: { width: 1440, height: 900 } });
