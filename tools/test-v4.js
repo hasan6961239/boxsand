@@ -61,10 +61,13 @@ function ok(cond, name, detail) {
     const toastHas = s => page.waitForFunction(t => Array.prototype.some.call(document.querySelectorAll('#toasts .toast'),
       x => x.textContent.indexOf(t) >= 0), s, { timeout: 8000 }).then(() => true, () => false);
 
-    console.log('\n== تطبيق طرابلس على جهاز جديد: إعداد 4.0 مباشرة ==');
+    console.log('\n== تطبيق طرابلس على جهاز جديد: إعداد 4.0 (صفحته الأولى 3.x مثل مصراتة، قرار 0026) ==');
     let info = (await E.call(port, '/api/info')).body;
     ok(info.edition === 'tripoli' && info.app === 'منظومة طرابلس' && info.db === false, 'تطبيق طرابلس، بلا قاعدة بعد', info);
-    await page.goto(base + '/');
+    const front = await fetch(base + '/').then(r => r.text());
+    ok(/data-edition="tripoli"/.test(front) && !/suShop/.test(front), 'الصفحة الأولى شاشات 3.x بنسخة طرابلس');
+    /* 4.0 باقية في البرنامج على عنوانها */
+    await page.goto(base + '/v4/index.html');
     await page.waitForSelector('#suShop', { timeout: 15000 });
     ok(await page.$('#modalHost .overlay') === null, 'يفتح إعداد 4.0 مباشرة، بلا شاشة ترحيب 3.x');
     ok(await page.evaluate(() => document.body.classList.contains('th-violet') && !document.body.classList.contains('th-green')), 'بلون طرابلس البنفسجي');

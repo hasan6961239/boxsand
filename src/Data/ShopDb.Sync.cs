@@ -599,6 +599,46 @@ namespace Qirtasiya.Data
             }
         }
 
+        /* كتب فرع آخر بشكل أصناف لقطة 3.x (k t n a b c q p، والمكان l وs أو loc)، لشاشة
+           «المخزون والفروع» بواجهة 3.x (قرار 0026). مصفوفة JSON جاهزة: 20 ألف كتاب بلا
+           قاموس لكل واحد. q = ما في المحل والمخازن معاً، والسعر بالدينار */
+        public string RemoteItems3x(string branchId)
+        {
+            lock (gate)
+            {
+                StringBuilder sb = new StringBuilder(1 << 16);
+                sb.Append('[');
+                int n = 0;
+                foreach (object[] r in db.Rows("SELECT kind, code, title, author, barcode, cat, qty, store, price, place FROM remote_items " +
+                    "WHERE branch = ? ORDER BY id", branchId))
+                {
+                    bool book = Convert.ToString(r[0], CultureInfo.InvariantCulture) != "stat";
+                    if (n++ > 0) sb.Append(',');
+                    sb.Append("{\"k\":"); Json.Quote(sb, Convert.ToString(r[1], CultureInfo.InvariantCulture));
+                    sb.Append(",\"t\":"); Json.Quote(sb, book ? "book" : "stat");
+                    sb.Append(",\"n\":"); Json.Quote(sb, Convert.ToString(r[2], CultureInfo.InvariantCulture));
+                    sb.Append(",\"a\":"); Json.Quote(sb, Convert.ToString(r[3], CultureInfo.InvariantCulture));
+                    sb.Append(",\"b\":"); Json.Quote(sb, Convert.ToString(r[4], CultureInfo.InvariantCulture));
+                    sb.Append(",\"c\":"); Json.Quote(sb, Convert.ToString(r[5], CultureInfo.InvariantCulture));
+                    sb.Append(",\"q\":").Append((Convert.ToInt64(r[6], CultureInfo.InvariantCulture) + Convert.ToInt64(r[7], CultureInfo.InvariantCulture)).ToString(CultureInfo.InvariantCulture));
+                    sb.Append(",\"p\":").Append((Convert.ToInt64(r[8], CultureInfo.InvariantCulture) / 1000.0).ToString("0.###", CultureInfo.InvariantCulture));
+                    /* الكتاب: «خزانة A · رف 3» كما يكتبه X3CatalogJson يرجع حرفاً ورفاً، وغيره نصاً كما هو */
+                    string place = Convert.ToString(r[9], CultureInfo.InvariantCulture) ?? "", lib = "", shelf = "";
+                    System.Text.RegularExpressions.Match m = book ? PlaceRe.Match(place) : System.Text.RegularExpressions.Match.Empty;
+                    if (m.Success) { lib = m.Groups[1].Value; shelf = m.Groups[2].Value; }
+                    sb.Append(",\"l\":"); Json.Quote(sb, lib);
+                    sb.Append(",\"s\":"); Json.Quote(sb, shelf);
+                    sb.Append(",\"loc\":"); Json.Quote(sb, m.Success ? "" : place);
+                    sb.Append('}');
+                }
+                sb.Append(']');
+                return sb.ToString();
+            }
+        }
+
+        static readonly System.Text.RegularExpressions.Regex PlaceRe =
+            new System.Text.RegularExpressions.Regex("^(?:خزانة (.+?))?(?: · )?(?:رف (.+))?$");
+
         /* ---------- النقل: ضغط ونص ---------- */
 
         /* gzip ثم base64: ما يحفظه الخادم كما هو بلا فك (حدّ 10 ميلي ثانية) */

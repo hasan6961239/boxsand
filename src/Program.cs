@@ -989,18 +989,29 @@ namespace Qirtasiya
         /* للاختبار: بعد كل حفظ يُقارن ما في القاعدة بما أرسلته الشاشة */
         static readonly bool X3Check = Environment.GetEnvironmentVariable("QIRTASIYA_X3_CHECK") == "1";
 
-        sealed class X3Seen { public string Rev = "", Json = ""; public long Gen; }
+        sealed class X3Seen { public string Rev = "", Json = ""; public long Gen; public bool Owner; }
         static readonly List<X3Seen> X3Revs = new List<X3Seen>();
 
-        /* ما رأته الشاشة (آخر أربع نسخ تحميلاً وحفظاً). gen = ‎-1: تعيد التحميل */
-        static string X3Remember(string json, long gen)
+        /* ما رأته الشاشة (آخر 16 نسخة تحميلاً وحفظاً). gen = ‎-1: تعيد التحميل. نسخة نسيها
+           البرنامج تُحفظ كأنها الملف كله فتمسح ما تغيّر بعدها، فلا يُنسى آخر ما رأته النافذة
+           المالكة (owner) ولو حمّلت نوافذ أخرى كثيراً، والنص نفسه لا يُحفظ مرتين في الذاكرة */
+        static string X3Remember(string json, long gen, bool owner)
         {
             X3Seen x = new X3Seen();
             x.Rev = NewToken().Substring(0, 12);
+            foreach (X3Seen o in X3Revs)
+                if (o.Json.Length == json.Length && string.Equals(o.Json, json, StringComparison.Ordinal)) { json = o.Json; break; }
             x.Json = json;
             x.Gen = gen;
+            if (owner) foreach (X3Seen o in X3Revs) o.Owner = false;
+            x.Owner = owner;
             X3Revs.Add(x);
-            while (X3Revs.Count > 4) X3Revs.RemoveAt(0);
+            while (X3Revs.Count > 16)
+            {
+                int i = X3Revs.FindIndex(delegate (X3Seen o) { return !o.Owner; });
+                if (i < 0) break;
+                X3Revs.RemoveAt(i);
+            }
             return x.Rev;
         }
 
@@ -1151,7 +1162,7 @@ namespace Qirtasiya
         }
 
         /* /api/load: ما في القاعدة، ورقم ما رأته الشاشة */
-        static string X3Load(out string rev, out long gen)
+        static string X3Load(bool owner, out string rev, out long gen)
         {
             ShopDb d = Db;
             try { X3TakeOutside(d); }
@@ -1160,7 +1171,7 @@ namespace Qirtasiya
             {
                 gen = d.X3Gen;
                 string json = d.Replica ? d.X3ExportWithPending() : d.X3Export();
-                rev = X3Remember(json, gen);
+                rev = X3Remember(json, gen, owner);
                 return json;
             }
         }
@@ -1230,7 +1241,7 @@ namespace Qirtasiya
                 X3MirrorNow();
                 long gen = d.X3Gen;
                 if (gen != gen1) reload = true;     // أُخذ ملف من خارج أثناء الحفظ
-                string nrev = X3Remember(now, reload ? -1 : gen);
+                string nrev = X3Remember(now, reload ? -1 : gen, true);
                 return "{\"ok\":true,\"rev\":" + JsonStr(nrev) + ",\"gen\":" + gen.ToString(CultureInfo.InvariantCulture) + (reload ? ",\"reload\":true" : "") + "}";
             }
         }
@@ -1363,6 +1374,95 @@ namespace Qirtasiya
             else if (act == "stop") StopSync();
             else if (act != "status") throw new Exception("أمر غير معروف: " + act);
             return LinkStatus();
+        }
+
+        /* ---------- الفروع الأخرى بشاشات 3.x (قرار 0026) ----------
+           كتب الفروع المربوطة من قوائم المحرك (remote_items: مضغوطة، تُجلب حين تتغيّر،
+           خارج store.json وخارج سجل المزامنة)، فلا تثقل ملف المحل ولا الجهاز الثاني.
+           من لقطات KV يبقى الباقي كما كان: رسائل طلبات التحويل، وطلبات التلفون، وكتب
+           فرع ما زال على 3.x بلا ربط. فرع كبير (فوق SyncClient.OldMaxItems) يرفع لقطته
+           بلا أصناف، فلا ينزّل كل فرع 5 ميغا كل 10 دقائق */
+        static string X3Kv = "[]";
+
+        static string BranchIdOf(Dictionary<string, object> snap)
+        {
+            return Json.Str(Json.Obj(snap, "branch") ?? new Dictionary<string, object>(), "id").Trim().ToLowerInvariant();
+        }
+
+        static string X3RemotesJson()
+        {
+            ShopDb d = Db;
+            string mine = (d.Local("sync.branch") ?? "").ToLowerInvariant();
+            Dictionary<string, Dictionary<string, object>> v2 = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+            foreach (Dictionary<string, object> b in d.RemoteBranches()) v2[Convert.ToString(b["id"], CultureInfo.InvariantCulture)] = b;
+            List<object> kv = (Json.Parse(X3Kv) as List<object>) ?? new List<object>();
+            StringBuilder sb = new StringBuilder(1 << 16);
+            sb.Append("{\"ok\":true,\"branches\":[");
+            int n = 0;
+            HashSet<string> done = new HashSet<string>(StringComparer.Ordinal);
+            foreach (object o in kv)
+            {
+                Dictionary<string, object> snap = o as Dictionary<string, object>;
+                if (snap == null) continue;
+                string id = BranchIdOf(snap);
+                if (id.Length == 0 || id == mine) continue;
+                if (n++ > 0) sb.Append(',');
+                Dictionary<string, object> b;
+                if (Json.Str(snap, "kind") != "phone" && v2.TryGetValue(id, out b))
+                {
+                    done.Add(id);
+                    snap.Remove("items");
+                    snap["at"] = b["at"];
+                    string js = Json.Write(snap);
+                    sb.Append(js, 0, js.Length - 1).Append(js.Length > 2 ? "," : "").Append("\"items\":").Append(d.RemoteItems3x(id)).Append('}');
+                }
+                else sb.Append(Json.Write(snap));
+            }
+            foreach (KeyValuePair<string, Dictionary<string, object>> e in v2)
+            {
+                if (done.Contains(e.Key) || e.Key == mine) continue;
+                if (n++ > 0) sb.Append(',');
+                Dictionary<string, object> br = new Dictionary<string, object>();
+                br["id"] = e.Key; br["name"] = e.Value["name"]; br["city"] = e.Value["city"];
+                sb.Append("{\"branch\":").Append(Json.Write(br)).Append(",\"at\":").Append(Json.Write(e.Value["at"]))
+                    .Append(",\"items\":").Append(d.RemoteItems3x(e.Key)).Append('}');
+            }
+            sb.Append("]}");
+            return sb.ToString();
+        }
+
+        /* «تحديث» شاشة المخزون: لقطة هذا الفرع لـKV (بلا أصناف إن كان كبيراً)، والباقي من KV،
+           وكتب الفروع المربوطة من قوائمها. now: زر «تحديث الآن» يوقظ المزامنة لتجلب الأحدث */
+        static string X3Sync(string url, string skey, string upload, bool now)
+        {
+            if (!string.IsNullOrEmpty(upload) && upload != "null")
+            {
+                Dictionary<string, object> snap = Json.Parse(upload) as Dictionary<string, object>;
+                if (snap != null && Json.Arr(snap, "items").Count > SyncClient.OldMaxItems)
+                {
+                    snap["items"] = new List<object>();
+                    upload = Json.Write(snap);
+                }
+                HttpSend(url + "/put", "POST", skey, upload);
+            }
+            string all = HttpSend(url + "/all", "GET", skey, null);
+            Dictionary<string, object> res = Json.Parse(all) as Dictionary<string, object>;
+            if (res == null || !Json.Bool(res, "ok")) return all;
+            ShopDb d = Db;
+            string mine = (d.Local("sync.branch") ?? "").ToLowerInvariant();
+            List<object> keep = new List<object>();
+            foreach (object o in Json.Arr(res, "branches"))
+            {
+                Dictionary<string, object> snap = o as Dictionary<string, object>;
+                if (snap == null) continue;
+                string id = BranchIdOf(snap);
+                if (id.Length == 0 || id == mine) continue;
+                if (Json.Str(snap, "kind") != "phone" && d.RemoteCatalogVer(id) != null) snap.Remove("items");
+                keep.Add(snap);
+            }
+            X3Kv = Json.Write(keep);
+            if (now) WakeSync(true);
+            return X3RemotesJson();
         }
 
         static string StatusText(int code)
@@ -2292,13 +2392,24 @@ namespace Qirtasiya
                 return;
             }
 
+            if (path == "/api/x3/remotes")
+            {
+                if (!X3On || Db == null) SendJson(s, "{\"ok\":false,\"error\":\"x3\"}");
+                else
+                {
+                    try { SendJson(s, X3RemotesJson()); }
+                    catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                }
+                return;
+            }
+
             if (path == "/api/load")
             {
                 if (X3On)
                 {
                     string rev;
                     long gen;
-                    byte[] x = Encoding.UTF8.GetBytes(X3Load(out rev, out gen));
+                    byte[] x = Encoding.UTF8.GetBytes(X3Load(IsOwner(lines), out rev, out gen));
                     Send(s, 200, "OK", "application/json; charset=utf-8", x,
                         "X-X3-Rev: " + rev + "\r\nX-X3-Gen: " + gen.ToString(CultureInfo.InvariantCulture) + "\r\n");
                     return;
@@ -2511,7 +2622,8 @@ namespace Qirtasiya
                     }
                 }
                 catch { }
-                SendJson(s, "{\"ok\":false}");
+                if (Tripoli) SendJson(s, "{\"ok\":true,\"branchId\":\"tripoli\",\"city\":\"طرابلس\",\"no\":2}");
+                else SendJson(s, "{\"ok\":false}");
                 return;
             }
 
@@ -2552,6 +2664,12 @@ namespace Qirtasiya
                     if (string.IsNullOrEmpty(url)) throw new Exception("لم يُضبط عنوان الربط");
                     url = url.TrimEnd(new char[] { '/' });
 
+                    if (X3On && Db != null)
+                    {
+                        SendJson(s, X3Sync(url, skey, upload, ExtractJsonRaw(req, "now") == "true"));
+                        return;
+                    }
+
                     if (!string.IsNullOrEmpty(upload) && upload != "null")
                         HttpSend(url + "/put", "POST", skey, upload);
 
@@ -2566,9 +2684,9 @@ namespace Qirtasiya
             }
 
             // static files
-            /* القاعدة الجديدة موجودة: واجهة 4.0 (قرار 0021)، وإلا واجهة 3.x كما كانت.
-               تطبيق طرابلس 4.0 من أول يوم: بلا قاعدة يفتح إعدادها في واجهة 4.0 (قرار 0022) */
-            if (path == "/") path = (Db != null || Tripoli) && !X3On ? "/v4/index.html" : "/index.html";
+            /* قاعدة 4.0 (قرار 0021): واجهة 4.0، وإلا واجهة 3.x كما كانت. طرابلس مثل مصراتة:
+               جهاز جديد يفتح 3.x (قرار 0026)، و4.0 تبقى على /v4/index.html */
+            if (path == "/") path = Db != null && !X3On ? "/v4/index.html" : "/index.html";
             if (path.Contains("..")) { Send(s, 400, "Bad Request", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("bad path")); return; }
 
             string rel = path.TrimStart(new char[] { '/' });
@@ -2610,11 +2728,17 @@ namespace Qirtasiya
             Send(s, 404, "Not Found", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("not found"));
         }
 
-        /* واجهة 4.0 بلون طرابلس البنفسجي من أول رسم، لا خضراء ثم تتغير */
+        /* طرابلس بلونها البنفسجي من أول رسم، لا خضراء ثم تتغير. 3.x: body يحمل النسخة،
+           ومنه لون المحل الجديد واسم الصفحة (core.js) */
         static byte[] EditionPage(string rel, byte[] data)
         {
-            if (!Tripoli || rel != "v4/index.html") return data;
-            return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(data).Replace("th-green", "th-violet"));
+            if (!Tripoli) return data;
+            if (rel == "v4/index.html") return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(data).Replace("th-green", "th-violet"));
+            if (rel == "index.html")
+                return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(data)
+                    .Replace("<body>", "<body data-edition=\"tripoli\">")
+                    .Replace("<title>منظومة المكتبة والقرطاسية</title>", "<title>" + AppTitle + "</title>"));
+            return data;
         }
 
         static byte[] GetEmbedded(string rel)

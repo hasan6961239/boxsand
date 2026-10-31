@@ -203,6 +203,36 @@ var Stock = (function () {
     return !!(S().sync.url && S().branch.id);
   }
 
+  /* على الأساس الجديد (قرار 0026): كتب الفروع المربوطة يعطيها البرنامج من قوائمها،
+     خارج ملف البيانات، فلا تثقل كتب طرابلس محل مصراتة. تُحمَّل عند الفتح وتتجدّد مع
+     كل تحديث. S().remotes يبقى لما لا يأتي منه (لقطة مستوردة يدوياً) */
+  var live = null, liveAsked = false;
+  function remotes() {
+    if (!live) return S().remotes || [];
+    var ids = {};
+    live.forEach(function (r) { ids[r.id] = 1; });
+    return live.concat((S().remotes || []).filter(function (r) { return !ids[r.id]; }));
+  }
+
+  function setLive(keep) {
+    live = keep;
+    /* ما صار يأتي من البرنامج يخرج من ملف البيانات (من جهاز المحل؛ الثاني يأخذ ملفه منه) */
+    var ids = {};
+    keep.forEach(function (r) { ids[r.id] = 1; });
+    var old = S().remotes || [];
+    var rest = old.filter(function (r) { return !ids[r.id]; });
+    if (rest.length !== old.length && !App.isSecond()) { S().remotes = rest; App.save(); }
+  }
+
+  function loadLive() {
+    if (!(App.isX3 && App.isX3())) return Promise.resolve(false);
+    return App.api("/api/x3/remotes").then(function (r) { return r.json(); }).then(function (res) {
+      if (!res || !res.ok) return false;
+      mergeRemotes(res.branches || []);
+      return true;
+    }).catch(function () { return false; });
+  }
+
   function sync(manual) {
     if (syncing) return Promise.resolve();
     if (App.outboundHeld && App.outboundHeld()) {
@@ -227,7 +257,7 @@ var Stock = (function () {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: S().sync.url, key: S().sync.key,
-        upload: skipUp ? null : snap
+        upload: skipUp ? null : snap, now: !!manual
       })
     }).then(function (r) { return r.json(); }).then(function (res) {
       syncing = false;
@@ -264,7 +294,7 @@ var Stock = (function () {
       paintSyncState();
       App.refreshBadges();
       if (manual) {
-        App.toast("حُدّث المخزون من " + S().remotes.length + " فرع.");
+        App.toast("حُدّث المخزون من " + remotes().length + " فرع.");
         App.rerender();
       }
     }).catch(function () {
@@ -289,10 +319,12 @@ var Stock = (function () {
         at: snap.at || "", items: snap.items || [], msgs: snap.msgs || []
       });
     });
+    if (App.isX3 && App.isX3()) { setLive(keep); return; }
     S().remotes = keep;
   }
 
   function startAuto() {
+    loadLive();
     if (autoTimer) clearInterval(autoTimer);
     if (!configured() || !S().sync.auto) return;
     if (App.outboundHeld && App.outboundHeld()) return;
@@ -329,7 +361,7 @@ var Stock = (function () {
 
   function allMsgs() {
     var out = S().outbox.slice();
-    S().remotes.forEach(function (r) { out = out.concat(r.msgs || []); });
+    remotes().forEach(function (r) { out = out.concat(r.msgs || []); });
     return out;
   }
 
@@ -371,7 +403,7 @@ var Stock = (function () {
   function branchName(id) {
     if (id === S().branch.id) return S().branch.name || S().branch.city || "فرعي";
     var n = id;
-    S().remotes.forEach(function (r) { if (r.id === id) n = r.name || r.city || r.id; });
+    remotes().forEach(function (r) { if (r.id === id) n = r.name || r.city || r.id; });
     return n;
   }
 
@@ -489,6 +521,11 @@ var Stock = (function () {
      ============================================================ */
 
   function page() {
+    /* أول فتح على الأساس الجديد: الفروع من البرنامج، ثم يُعاد الرسم */
+    if (live === null && !liveAsked && App.isX3 && App.isX3()) {
+      liveAsked = true;
+      loadLive().then(function (ok) { if (ok) App.rerender(); });
+    }
     if (view.where === "branch") return branchPage(view.id);
     if (view.where === "warehouse") return warehousePage(view.id);
     if (view.where === "room") return roomPage();
@@ -545,7 +582,7 @@ var Stock = (function () {
       '<span class="bc-edit">نقل بالقارئ ⇄</span></div></button>';
 
     // الفروع المرتبطة
-    S().remotes.forEach(function (r) {
+    remotes().forEach(function (r) {
       var pieces = (r.items || []).reduce(function (s, i) { return s + App.num(i.q); }, 0);
       h += '<button class="card branch-card" onclick="Stock.open(\'branch\',\'' + App.esc(r.id) + '\')">' +
         '<div class="bc-top"><span class="bc-tag link">فرع مرتبط</span>' + App.locPin() + "</div>" +
@@ -621,7 +658,7 @@ var Stock = (function () {
         loc: x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"), ri: null
       });
     });
-    S().remotes.forEach(function (r) {
+    remotes().forEach(function (r) {
       (r.items || []).forEach(function (i) {
         rows.push({
           hay: [i.n, i.b, i.k, i.a],
@@ -687,6 +724,8 @@ var Stock = (function () {
   }
 
   function locOf(i) {
+    /* قائمة فرع على 4.0: مكانه نص كامل («ط2 · قانون · C · رف 4») */
+    if (!i.l && !i.s && i.loc && live) return App.esc(i.loc);
     if (!i.l && !i.s) return '<span class="loc none"><span class="lib">?</span><span class="shelf">—</span></span>';
     return '<span class="loc"><span class="lib">' + App.esc(i.l || "?") + '</span><span class="shelf">رف ' + App.esc(i.s || "?") + "</span></span>";
   }
@@ -715,7 +754,7 @@ var Stock = (function () {
       });
     } else {
       var r = null;
-      S().remotes.forEach(function (x) { if (x.id === id) r = x; });
+      remotes().forEach(function (x) { if (x.id === id) r = x; });
       if (!r) return '<div class="empty"><h4>الفرع غير موجود</h4><button class="btn" onclick="Stock.back()">رجوع</button></div>';
       at = r.at;
       rows = (r.items || []).map(function (i) {

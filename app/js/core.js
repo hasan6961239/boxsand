@@ -9,6 +9,8 @@ var App = (function () {
   var saveTimer = null;
   var saving = false;
   var dirty = false;
+  /* تطبيق طرابلس يعلّم body (قرار 0026): محله الجديد بلونه البنفسجي */
+  var EDITION = (document.body && document.body.getAttribute("data-edition")) || "misrata";
 
   /* ---------- النموذج الافتراضي ---------- */
 
@@ -25,7 +27,7 @@ var App = (function () {
         autoPrint: true,
         uiSize: "lg",
         cardName: "البطاقة المصرفية",
-        theme: "green",
+        theme: EDITION === "tripoli" ? "violet" : "green",
         lastBook: { lib: "", shelf: "", cat: "", publisher: "", qty: 2, min: 0 },
         lastStat: { cat: "", loc: "", unit: "", qty: 2, min: 0 },
         quickPicks: [],
@@ -1944,7 +1946,7 @@ var App = (function () {
     paintBranchTag();
     try {
       var bl = branchLabel();
-      document.title = (bl ? bl + " — " : "") + "منظومة المكتبة والقرطاسية";
+      document.title = (bl ? bl + " — " : "") + (EDITION === "tripoli" ? "منظومة طرابلس" : "منظومة المكتبة والقرطاسية");
     } catch (e) { }
     var consN = (typeof Consign !== "undefined") ? Consign.activeCount() : 0;
     document.querySelectorAll("[data-conscount]").forEach(function (e) {
@@ -2297,6 +2299,8 @@ var App = (function () {
     api: api, apiJson: apiJson, apiWrite: apiWrite, ensureWriteToken: ensureWriteToken,
     outboundHeld: outboundHeld, claimHome: claimHome, holdBanner: holdBanner, deviceFp: function () { return dev.fp; },
     isSecond: function () { return !!dev.second; },
+    /* على الأساس الجديد (قرار 0025): النواة تعطي رقم ما رأته الشاشة مع كل تحميل */
+    isX3: function () { return !!x3.rev; },
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
     retryConnect: retryConnect,
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,

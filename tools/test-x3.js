@@ -82,9 +82,12 @@ function device(tmp, name) {
 }
 
 (async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qx3-'));
   process.env.QIRTASIYA_SYNC_MS = '3000';
   process.env.QIRTASIYA_X3_CHECK = '1';
+  /* X3_ONLY=branches أو suites: ذلك القسم وحده (أثناء العمل عليه) */
+  if (process.env.X3_ONLY === 'branches') { await branches(); return finish(); }
+  if (process.env.X3_ONLY === 'suites') { await suites(); return finish(); }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qx3-'));
   const cloud = await C.start({ secret: KEY });
   const A = device(tmp, 'A'), B = device(tmp, 'B');
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
@@ -279,11 +282,16 @@ function device(tmp, name) {
   }
 
   await power();
+  await branches();
   if (process.argv[2] === 'suites') await suites();
+  finish();
+})();
+
+function finish() {
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));
   if (failures.length) console.log(failures.map(f => '  - ' + f).join('\n'));
   process.exit(fail ? 1 : 0);
-})();
+}
 
 /* test.js وtest-money.js كاملين على البرنامج نفسه بعد «هذا جهاز المحل» */
 async function suites() {
@@ -308,7 +316,17 @@ async function suites() {
         env: Object.assign({}, process.env, { QI_DATA: D.data(), QI_X3: '1' }), encoding: 'utf8', timeout: 1800000
       });
       const out = (run.stdout || '') + (run.stderr || '');
-      const fails = out.split('\n').filter(l => /^\s*FAIL\s/.test(l));
+      const outLines = out.split('\n');
+      const fails = outLines.filter(l => /^\s*FAIL\s/.test(l));
+      /* فشل على جهاز آخر (ويندوز في CI): تفاصيله وما كتبه البرنامج في سجله، هنا في المخرجات */
+      if (fails.length) {
+        outLines.forEach((l, i) => { if (/^\s*FAIL\s/.test(l)) console.log('    | ' + outLines.slice(Math.max(0, i - 3), i + 4).join('\n    | ')); });
+        try {
+          const key = fs.readFileSync(D.data('log.txt'), 'utf8').split('\n')
+            .filter(l => /X3CHECK|لم تعد معروفة|من خارج|تالف|خطأ|فشل|تعذّر|ربط الأجهزة/.test(l));
+          console.log('    سجل البرنامج:\n    > ' + key.slice(-40).join('\n    > '));
+        } catch (e) { }
+      }
       const passes = out.split('\n').filter(l => /^\s*PASS\s/.test(l)).length;
       console.log(fails.concat(out.split('\n').filter(l => /^\s*SKIP\s/.test(l))).join('\n'));
       if (!/نجح: \d+/.test(out)) console.log(out.split('\n').slice(-12).join('\n'));
@@ -508,4 +526,164 @@ async function power() {
     K.stop(); L.stop(); T.stop();
     await cloud.close();
   }
+}
+
+/* الفروع (قرار 0026): طرابلس بشاشات 3.x مثل مصراتة، وكل فرع يرى كتب الآخر ويبحث فيها
+   من «المخزون والفروع»، وكتب طرابلس (آلاف) خارج ملف بيانات مصراتة ولا تُنزَّل كاملة كل مرة */
+async function branches() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qx3b-'));
+  const cloud = await C.start({ secret: KEY });
+  const K = device(tmp, 'K'), T = device(tmp, 'T'), N = device(tmp, 'N'), L = device(tmp, 'L');
+  const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+  const errs = [];
+  const open = async (d) => {
+    const pg = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    pg.on('pageerror', e => errs.push(d.name + ' PAGEERROR: ' + e.message));
+    await pg.goto(d.url(), { waitUntil: 'domcontentloaded' });
+    await pg.waitForFunction(() => window.App && App.S && App.S.books && window.Stock, null, { timeout: 30000 });
+    await sleep(900);
+    return pg;
+  };
+  const until = async (pg, fn, arg, ms) => {
+    try { await pg.waitForFunction(fn, arg, { timeout: ms || 25000, polling: 300 }); return true; }
+    catch (e) { return false; }
+  };
+  const claim = async d => (await d.raw('/api/claim', { force: true })).body.token;
+  const link = (d, ow, body) => d.raw('/api/link', body, { 'X-Owner': ow });
+  const remotes = async d => (await d.raw('/api/x3/remotes')).body;
+  const BIG = 6000;
+  const tripoliStore = url => {
+    const books = [];
+    for (let i = 1; i <= BIG; i++) {
+      books.push({ id: 't' + i, code: 'K' + String(i).padStart(5, '0'), title: 'كتاب طرابلس رقم ' + i, author: 'مؤلف ' + (i % 97),
+        lib: ['A', 'B', 'C'][i % 3], shelf: String(1 + i % 6), barcode: String(9780000000000 + i), cost: 5, price: 10 + i % 40, qty: 1 + i % 5 });
+    }
+    books.push({ id: 'tp', code: 'K09999', title: 'الفيزياء الأساسية - طبعة طرابلس', author: 'عبد الله', lib: 'C', shelf: '4', barcode: '1234567', cost: 20, price: 33.5, qty: 7 });
+    return {
+      meta: { setupDone: true, shopName: 'مكتبة طرابلس', currency: 'د.ل', libraries: ['A', 'B', 'C'], shelves: 6, theme: 'violet' },
+      branch: { id: 'tripoli', name: 'مكتبة طرابلس', city: 'طرابلس', no: 2 },
+      sync: { url, key: KEY, auto: false, everyMin: 10 },
+      books, stationery: [{ id: 'ts1', code: 'Q0001', name: 'دفتر طرابلس', cat: 'دفاتر', loc: 'درج 3', price: 2, qty: 50 }],
+      customers: [], invoices: [], payments: [], counters: { invoice: 0, book: BIG + 1, stat: 1 }
+    };
+  };
+
+  try {
+    E.buildEngine(K.dir, 'misrata');
+    E.copyEngine(K.dir, L.dir);
+    E.buildEngine(T.dir, 'tripoli');
+    E.copyEngine(T.dir, N.dir);
+
+    console.log('\n== تطبيق طرابلس على جهاز جديد: 3.x مثل مصراتة ==');
+    await N.start();
+    let pN = await open(N);
+    const first = await pN.evaluate(() => ({
+      title: document.title, violet: document.body.classList.contains('th-violet'),
+      welcome: /أهلاً بك/.test((document.querySelector('#modalHost') || {}).textContent || ''),
+      v4: !!document.querySelector('#suShop')
+    }));
+    ok(/منظومة طرابلس$/.test(first.title) && first.violet && first.welcome && !first.v4, 'يفتح ترحيب 3.x باسم «منظومة طرابلس» ولونها البنفسجي، لا إعداد 4.0', first);
+    await pN.click('#modalHost button:has-text("ابدأ من جديد")'); await sleep(500);
+    await pN.fill('#f_shopName', 'مكتبة طرابلس');
+    await pN.click('.modal button:has-text("ابدأ العمل")'); await sleep(1200);
+    const after = await pN.evaluate(() => ({ done: App.S.meta.setupDone, branch: App.S.branch.id, city: App.S.branch.city, theme: App.S.meta.theme }));
+    ok(after.done && after.branch === 'tripoli' && after.city === 'طرابلس' && after.theme === 'violet', 'وبعد «إعداد سريع»: فرع tripoli، طرابلس، بنفسجي', after);
+    ok(JSON.parse(fs.readFileSync(N.data('store.json'), 'utf8')).branch.id === 'tripoli', 'وكُتب في store.json كما في 3.x');
+    await pN.close(); N.stop();
+
+    console.log('\n== مصراتة وطرابلس مربوطتان ==');
+    K.write(shopStore(cloud.url));
+    T.write(tripoliStore(cloud.url));
+    await K.start(); await T.start();
+    let owK = await claim(K), owT = await claim(T);
+    let r = await link(K, owK, { action: 'main', url: cloud.url, key: KEY, name: 'محل مصراتة' });
+    ok(r.body && r.body.ok && r.body.data.branch === 'misrata', 'مصراتة: هذا جهاز المحل', r.body);
+    r = await link(T, owT, { action: 'main', url: cloud.url, key: KEY, name: 'محل طرابلس' });
+    ok(r.body && r.body.ok && r.body.data.branch === 'tripoli', 'طرابلس: هذا جهاز المحل', r.body);
+    await link(T, owT, { action: 'now' }); await link(K, owK, { action: 'now' }); await link(T, owT, { action: 'now' });
+    let rk = await remotes(K);
+    const tr = rk && rk.branches && rk.branches.find(b => b.branch.id === 'tripoli');
+    ok(tr && tr.items.length === BIG + 2 && tr.branch.name === 'مكتبة طرابلس', 'مصراتة عندها كتب طرابلس كلها (' + (BIG + 2) + ')', tr && tr.items.length);
+    const tp = tr && tr.items.find(i => i.k === 'K09999');
+    ok(tp && tp.n === 'الفيزياء الأساسية - طبعة طرابلس' && tp.q === 7 && tp.p === 33.5 && tp.a === 'عبد الله' && tp.l === 'C' && tp.s === '4' && tp.b === '1234567',
+      'بالاسم والكمية والسعر والمؤلف والمكان والباركود', tp);
+    const ts1 = tr && tr.items.find(i => i.k === 'Q0001');
+    ok(ts1 && ts1.t === 'stat' && ts1.loc === 'درج 3', 'والقرطاسية بمكانها', ts1);
+
+    console.log('\n== شاشة مصراتة: «المخزون والفروع» ==');
+    let pK = await open(K);
+    await pK.evaluate(() => { location.hash = '#/stock'; App.route(); });
+    ok(await until(pK, () => [...document.querySelectorAll('.branch-card')].some(c => /مكتبة طرابلس/.test(c.textContent) && /6002/.test(c.textContent))),
+      'بطاقة «مكتبة طرابلس» فرعاً مرتبطاً بعدد كتبها');
+    await pK.fill('#findAll', 'الفيزياء الاساسيه');
+    ok(await until(pK, () => /طبعة طرابلس/.test((document.getElementById('findResults') || {}).textContent || '') &&
+      /مكتبة طرابلس/.test(document.getElementById('findResults').textContent)), 'البحث في كل الفروع يجد كتاب طرابلس، ومكتوب عنده «مكتبة طرابلس»');
+    await pK.evaluate(() => { Stock.setFind(''); Stock.open('branch', 'tripoli'); }); await sleep(800);
+    await pK.evaluate(() => Stock.setQ('طبعة طرابلس')); await sleep(800);
+    const bp = await pK.evaluate(() => ({ text: document.getElementById('view').textContent, rows: document.querySelectorAll('#view table tbody tr').length }));
+    ok(/مكتبة طرابلس/.test(bp.text) && /طبعة طرابلس/.test(bp.text) && bp.rows >= 1 && bp.rows < 5, 'صفحة فرع طرابلس، والبحث داخلها', { rows: bp.rows });
+    await shotOf(pK, 'branches-misrata-sees-tripoli');
+
+    console.log('\n== ملف مصراتة لا يثقل بكتب طرابلس ==');
+    const sk = fs.readFileSync(K.data('store.json'), 'utf8');
+    ok(!/طبعة طرابلس|كتاب طرابلس رقم/.test(sk) && (JSON.parse(sk).remotes || []).length === 0 && sk.length < 20000,
+      'store.json مصراتة بلا كتب طرابلس (' + sk.length + ' بايت)', sk.length);
+    ok(K.q("SELECT COUNT(*) AS n FROM x3_docs WHERE body LIKE '%طبعة طرابلس%'")[0].n === 0, 'ولا في بيانات 3.x داخل القاعدة');
+    ok(K.q("SELECT COUNT(*) AS n FROM change_log WHERE tbl = 'remote_items'")[0].n === 0, 'ولا في سجل المزامنة (لا تذهب للجهاز الثاني)');
+
+    console.log('\n== شاشة طرابلس ترى مصراتة ==');
+    let pT = await open(T);
+    await pT.evaluate(() => { location.hash = '#/stock'; App.route(); });
+    ok(await until(pT, () => [...document.querySelectorAll('.branch-card')].some(c => /دار الحكمة/.test(c.textContent))), 'بطاقة «دار الحكمة» (مصراتة) في طرابلس');
+    await pT.fill('#findAll', 'الرياضيات');
+    ok(await until(pT, () => /كتاب الرياضيات/.test((document.getElementById('findResults') || {}).textContent || '') &&
+      /دار الحكمة/.test(document.getElementById('findResults').textContent)), 'والبحث يجد كتاب مصراتة');
+
+    console.log('\n== «تحديث الآن» في الشاشتين: لقطة KV ==');
+    await pT.evaluate(() => Stock.sync(true)); await sleep(2500);
+    await pK.evaluate(() => { Stock.setQ(''); Stock.back(); return Stock.sync(true); }); await sleep(2500);
+    const kvT = JSON.parse(cloud.env.SHOP.map.get('branch:tripoli') || 'null');
+    const kvK = JSON.parse(cloud.env.SHOP.map.get('branch:misrata') || 'null');
+    ok(kvT && kvT.branch.id === 'tripoli' && kvT.items.length === 0, 'طرابلس (فوق 5000 صنف) ترفع لقطتها بلا أصناف: لا يُنزَّل منها شيء كبير', kvT && kvT.items.length);
+    ok(kvK && kvK.items.length === 3, 'ومصراتة ترفع لقطتها كاملة كما كانت (للتلفون والموقع)', kvK && kvK.items.length);
+    ok(await until(pK, () => [...document.querySelectorAll('.branch-card')].some(c => /مكتبة طرابلس/.test(c.textContent) && /6002/.test(c.textContent))),
+      'وبعد التحديث ما زالت مصراتة ترى كتب طرابلس كلها (من قائمتها)');
+    ok((JSON.parse(fs.readFileSync(K.data('store.json'), 'utf8')).remotes || []).length === 0, 'وstore.json مصراتة ما زال بلا فروع');
+
+    console.log('\n== بيعة في طرابلس تصل شاشة مصراتة ==');
+    let a = await fetch(T.url() + 'api/load', { headers: { 'X-Qirtasiya': '1', Origin: 'http://127.0.0.1:' + T.port } });
+    const st = JSON.parse(await a.text()), rev = a.headers.get('X-X3-Rev');
+    st.books.find(b => b.id === 'tp').qty = 6;
+    r = await T.raw('/api/save', st, { 'X-Owner': owT, 'X-X3-Rev': rev });
+    ok(r.body && r.body.ok, 'طرابلس باعت نسخة', r.body);
+    await link(T, owT, { action: 'now' }); await link(K, owK, { action: 'now' });
+    rk = await remotes(K);
+    ok(rk.branches.find(b => b.branch.id === 'tripoli').items.find(i => i.k === 'K09999').q === 6, 'ومصراتة ترى الكمية 6');
+
+    console.log('\n== اللابتوب (جهاز ثانٍ لمصراتة) يرى طرابلس أيضاً ==');
+    L.write({ meta: { setupDone: true, shopName: 'لابتوب' }, branch: { id: 'misrata' }, books: [], stationery: [], customers: [], invoices: [], payments: [], counters: { invoice: 0, book: 0, stat: 0 } });
+    await L.start();
+    const owL = await claim(L);
+    r = await link(L, owL, { action: 'second', url: cloud.url, key: KEY, branch: 'misrata', name: 'لابتوب', replace: true });
+    ok(r.body && r.body.ok && r.body.data.role === 'second', 'اللابتوب جهاز ثانٍ', r.body);
+    await link(L, owL, { action: 'now' });
+    const rl = await remotes(L);
+    ok(rl.ok && rl.branches.some(b => b.branch.id === 'tripoli' && b.items.length === BIG + 2), 'واللابتوب يرى كتب طرابلس كلها');
+    const pL = await open(L);
+    await pL.evaluate(() => { location.hash = '#/stock'; App.route(); });
+    ok(await until(pL, () => [...document.querySelectorAll('.branch-card')].some(c => /مكتبة طرابلس/.test(c.textContent))), 'وفي شاشته «المخزون والفروع»');
+    ok(!/كتاب طرابلس رقم/.test(fs.readFileSync(L.data('store.json'), 'utf8')), 'وstore.json اللابتوب بلا كتب طرابلس');
+    ok(errs.length === 0, 'بلا أخطاء في الصفحات', errs.slice(0, 5));
+  } catch (e) {
+    ok(false, 'خطأ غير متوقع في اختبار الفروع', e.stack);
+  } finally {
+    K.stop(); T.stop(); N.stop(); L.stop();
+    await browser.close();
+    await cloud.close();
+  }
+}
+
+async function shotOf(pg, name) {
+  if (!SHOTS) return;
+  await pg.screenshot({ path: path.join(SHOTS, name + '.png') });
 }
