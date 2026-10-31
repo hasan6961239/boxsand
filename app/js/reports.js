@@ -1380,7 +1380,14 @@ var Rep = (function () {
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d && d.ok) {
         App.toast(role === "main" ? "رُبط: هذا جهاز المحل." : "رُبط: هذا جهاز ثانٍ. يُعاد التحميل…", "ok");
-        setTimeout(function () { location.reload(); }, 700);
+        var reload = function () { setTimeout(function () { location.reload(); }, 700); };
+        /* «إعداد الربط» (لقطة التلفون، وطلبات التحويل بين الفروع) بالعنوان وكلمة السر اللذين
+           قبلهما الخادم الآن. محل جديد (طرابلس) كانا فارغين فيه، فبقي «الربط غير مفعّل» */
+        var sy = S().sync;
+        if (role === "main" && (sy.url !== v.url || sy.key !== v.key)) {
+          sy.url = v.url; sy.key = v.key;
+          App.flushSave().then(reload, reload);
+        } else reload();
       } else if (d && d.code === "main-taken" && role === "main") {
         App.confirm(d.error, function () { doLink(role, v, true); }, { yes: "نعم، هذا جهاز المحل" });
       } else if (d && d.code === "has-data" && role === "second") {

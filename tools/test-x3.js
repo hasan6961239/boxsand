@@ -589,7 +589,20 @@ async function branches() {
     const after = await pN.evaluate(() => ({ done: App.S.meta.setupDone, branch: App.S.branch.id, city: App.S.branch.city, theme: App.S.meta.theme }));
     ok(after.done && after.branch === 'tripoli' && after.city === 'طرابلس' && after.theme === 'violet', 'وبعد «إعداد سريع»: فرع tripoli، طرابلس، بنفسجي', after);
     ok(JSON.parse(fs.readFileSync(N.data('store.json'), 'utf8')).branch.id === 'tripoli', 'وكُتب في store.json كما في 3.x');
-    await pN.close(); N.stop();
+    /* «هذا جهاز المحل» من الشاشة (على خادم آخر: tripoli لـ T هنا تحت): «إعداد الربط» في 3.x
+       يأخذ العنوان وكلمة السر نفسيهما، فلا تبقى «الربط غير مفعّل» ولا تقف طلبات التحويل */
+    const cloudN = await C.start({ secret: KEY });
+    await pN.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(1200);
+    await pN.click('#lnkBody button:has-text("هذا جهاز المحل")'); await sleep(600);
+    await pN.fill('#f_url', cloudN.url); await pN.fill('#f_key', KEY); await pN.fill('#f_name', 'كمبيوتر طرابلس');
+    await Promise.all([pN.waitForNavigation({ timeout: 30000 }).catch(() => null), pN.click('.modal button:text-is("اربط")')]);
+    await pN.waitForFunction(() => window.App && App.S && App.S.books, null, { timeout: 30000 }); await sleep(1200);
+    await pN.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(1200);
+    const linked = await pN.evaluate(() => ({ url: App.S.sync.url, key: App.S.sync.key, x3: App.isX3(),
+      nag: /اربط فرعك|الربط غير مفعّل/.test(document.getElementById('view').textContent) }));
+    ok(linked.x3 && linked.url === cloudN.url && linked.key === KEY && !linked.nag,
+      'ربطها من الشاشة يملأ «إعداد الربط» أيضاً: لا «الربط غير مفعّل» في المخزون والفروع', linked);
+    await pN.close(); N.stop(); await cloudN.close();
 
     console.log('\n== مصراتة وطرابلس مربوطتان ==');
     K.write(shopStore(cloud.url));
