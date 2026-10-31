@@ -99,7 +99,7 @@ if (!globalThis.caches) {
   globalThis.caches = { default: { async match() { return undefined; }, async put() { } } };
 }
 
-/* opts: { port, secret, noD1, dbFile, fail(req) → رمز حالة لإفشال طلب عمداً } */
+/* opts: { port, secret, noD1, dbFile, fail(req) → رمز حالة لإفشال طلب عمداً، أو ‎-1 لقطع الاتصال } */
 async function start(opts) {
   opts = opts || {};
   const worker = await loadWorker();
@@ -115,6 +115,8 @@ async function start(opts) {
         const url = 'http://127.0.0.1' + req.url;
         log.push(req.method + ' ' + req.url.split('?')[0] + ' ' + body.length);
         const forced = opts.fail ? opts.fail(req, body) : 0;
+        /* ‎-1: بلا إنترنت — الاتصال ينقطع بلا رد */
+        if (forced === -1) { req.socket.destroy(); return; }
         if (forced) { res.writeHead(forced, { 'Content-Type': 'text/plain' }); res.end('forced'); return; }
         const headers = {};
         for (const [k, v] of Object.entries(req.headers)) headers[k] = Array.isArray(v) ? v.join(',') : v;

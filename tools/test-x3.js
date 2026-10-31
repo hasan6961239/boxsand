@@ -123,7 +123,7 @@ function device(tmp, name) {
   try {
     console.log('يبني البرنامج...');
     E.buildEngine(A.dir, 'misrata');
-    for (const f of ['Qirtasiya.exe', 'Qirtasiya.exe.config']) fs.copyFileSync(path.join(A.dir, f), path.join(B.dir, f));
+    E.copyEngine(A.dir, B.dir);
 
     console.log('\n== كمبيوتر المحل قبل الربط: store.json كما كان ==');
     A.write(shopStore(cloud.url));
@@ -294,7 +294,8 @@ async function suites() {
     E.buildEngine(D.dir, 'misrata');
     for (const t of ['test.js', 'test-money.js']) {
       console.log('\n== ' + t + ' بشاشات 3.x فوق القاعدة ==');
-      for (const f of fs.readdirSync(D.data())) fs.rmSync(D.data(f), { recursive: true, force: true });
+      /* ويندوز يحرّر ملفات البرنامج المقتول بعد لحظة */
+      for (const f of fs.readdirSync(D.data())) fs.rmSync(D.data(f), { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
       D.write(shopStore(cloud.url));
       await D.start();
       if (D.port !== 17845) throw new Error('المنفذ 17845 مشغول');
@@ -332,7 +333,8 @@ async function suites() {
    الجهاز الثاني، وعلى تطبيق طرابلس (قرار 0022) بالطريقة نفسها */
 async function power() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qx3k-'));
-  const cloud = await C.start({ secret: KEY });
+  let offline = false;                      // بلا إنترنت: كل اتصال بالخادم ينقطع
+  const cloud = await C.start({ secret: KEY, fail: () => offline ? -1 : 0 });
   const K = device(tmp, 'K'), L = device(tmp, 'L'), T = device(tmp, 'T');
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const claim = async d => (await d.raw('/api/claim', { force: true })).body.token;
@@ -392,7 +394,7 @@ async function power() {
 
   try {
     E.buildEngine(K.dir, 'misrata');
-    for (const f of ['Qirtasiya.exe', 'Qirtasiya.exe.config']) fs.copyFileSync(path.join(K.dir, f), path.join(L.dir, f));
+    E.copyEngine(K.dir, L.dir);
 
     console.log('\n== انقطاع الكهرباء وسط الحفظ: جهاز المحل ==');
     K.write(shopStore(cloud.url));
@@ -446,6 +448,41 @@ async function power() {
     ok(twice.length === 0 && k2.invoices.some(v => v.id === 'inv-l2000'), 'عند المحل: كل بيعة من اللابتوب مرة واحدة لا مرتين', twice);
     ok(same(k2, l2), 'والجهازان بعدها متطابقان حرفياً');
     ok(L.q('PRAGMA integrity_check')[0].integrity_check === 'ok', 'وقاعدة اللابتوب سليمة');
+
+    console.log('\n== اللابتوب بلا إنترنت: يسجّل كتباً، ثم يرجع النت ==');
+    /* كما سيعمل صاحب المشروع: يسجّل الكتب على جهازه، وكمبيوتر المحل موصول دائماً */
+    offline = true;
+    const N = 25;
+    for (let i = 1; i <= N; i++) {
+      const a = await load(L);
+      const n = JSON.parse(JSON.stringify(a.s));
+      n.counters.book++;
+      n.books.unshift({ id: 'off-' + i, code: 'K' + String(n.counters.book).padStart(4, '0'), title: 'كتاب بلا نت ' + i,
+        author: 'مؤلف ' + i, barcode: '97800000' + String(i).padStart(5, '0'), cost: 5 + i, price: 10 + i, qty: i, lib: 'A', shelf: '3' });
+      r = await L.raw('/api/save', n, { 'X-Owner': owL, 'X-X3-Rev': a.rev });
+      if (!(r.body && r.body.ok)) { ok(false, 'حفظ بلا إنترنت', r.body); break; }
+    }
+    let sL = (await load(L)).s;
+    ok(sL.books.filter(b => /^off-/.test(b.id)).length === N, 'اللابتوب يرى الـ' + N + ' كتاباً فوراً وهو بلا إنترنت');
+    r = await link(L, owL, { action: 'now' });
+    ok(r.body && r.body.ok && r.body.data.waiting === N && r.body.data.error, 'وتنتظر جهاز المحل (' + N + ')، والربط يقول إن النت مقطوع', r.body && r.body.data);
+    ok(!(await load(K)).s.books.some(b => /^off-/.test(b.id)), 'والمحل لم يصله شيء بعد');
+    /* قتل اللابتوب وهو بلا نت: ما ينتظر لا يضيع */
+    L.stop(); await sleep(300); await L.start(); owL = await claim(L);
+    ok((await load(L)).s.books.filter(b => /^off-/.test(b.id)).length === N, 'وبعد إطفاء اللابتوب وتشغيله: ما زالت عنده');
+    offline = false;
+    for (let i = 0; i < 3; i++) { await link(L, owL, { action: 'now' }); await link(K, owK, { action: 'now' }); }
+    await link(L, owL, { action: 'now' });
+    const k3 = (await load(K)).s;
+    sL = (await load(L)).s;
+    const off = k3.books.filter(b => /^off-/.test(b.id));
+    const codes = k3.books.map(b => b.code).filter(Boolean);
+    ok(off.length === N && off.every(b => b.price === 10 + +b.id.slice(4) && b.qty === +b.id.slice(4)),
+      'رجع النت: الـ' + N + ' كتاباً وصلت المحل، كل واحد مرة واحدة بسعره وكميته', off.length);
+    ok(new Set(codes).size === codes.length, 'ورموز الكتب في المحل بلا تكرار', codes.length);
+    ok(same(k3, sL), 'والجهازان متطابقان حرفياً');
+    r = await link(L, owL, { action: 'status' });
+    ok(r.body && r.body.ok && r.body.data.waiting === 0 && !r.body.data.error, 'ولا شيء ينتظر على اللابتوب (يمكن إلغاء تثبيته بأمان)', r.body && r.body.data);
 
     console.log('\n== طرابلس: التطبيق الثاني بالطريقة نفسها ==');
     E.buildEngine(T.dir, 'tripoli');

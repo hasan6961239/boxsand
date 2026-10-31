@@ -195,3 +195,50 @@ jobs:
           call build.bat tripoli 2 < NUL
           if not exist build\Qirtasiya-2.exe exit /b 1
           findstr /c:"tripoli" src\BuildInfo.cs || exit /b 1
+
+  # ملف التثبيت الذي يُرسل للمحل، على ويندوز حقيقي: لا بناء هنا، بل ما بناه لينكس
+  # بالضبط (قرار 0025). التثبيت الصامت فوق بيانات 3.x، ثم التجربة كاملة على
+  # البرنامج المثبَّت نفسه: جهازان، انقطاع الكهرباء والنت، طرابلس، واختبارات الشاشات.
+  windows-install:
+    name: ويندوز — ملف التثبيت نفسه وشاشات 3.x
+    needs: linux
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Qirtasiya-Setup
+          path: setup
+
+      - name: playwright-core وChromium
+        shell: bash
+        run: |
+          npm ci
+          npx playwright-core install chromium
+          echo "CHROME=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: التثبيت كما في المحل — بيانات 3.x، الربط، الإطفاء الفجائي، التحديث، وطرابلس
+        run: node tools/test-win-install.js setup
+
+      - name: جهازان، انقطاع الكهرباء والنت، طرابلس، والاختبارات كاملة — على البرنامج المثبَّت
+        shell: bash
+        env:
+          QI_PROGRAM: C:\Program Files\Qirtasiya
+          QI_PROGRAM_TRIPOLI: C:\Program Files\Qirtasiya-Tripoli
+          QI_SHOTS: shots-x3-windows
+        run: |
+          mkdir -p shots-x3-windows
+          node tools/test-x3.js suites
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: x3-screens-windows
+          path: shots-x3-windows
+          retention-days: 14
