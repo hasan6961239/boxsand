@@ -44,6 +44,23 @@ public static class IconProbe {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
 
+  /* هدف الاختصار بواجهة ويندوز نفسها (IShellLinkW): WScript.Shell لا يقرأ اختصاراً اسمه بالعربي
+     على ويندوز لغته غير العربية (يعطي هدفاً فارغاً)، واختصاراتنا «منظومة مصراتة» و«منظومة طرابلس» */
+  [ComImport, Guid("00021401-0000-0000-C000-000000000046")] class CShellLink { }
+  [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214F9-0000-0000-C000-000000000046")]
+  interface IShellLinkW {
+    void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int cch, IntPtr findData, uint flags);
+  }
+  public static string LinkTarget(string lnk) {
+    object o = new CShellLink();
+    try {
+      ((System.Runtime.InteropServices.ComTypes.IPersistFile)o).Load(lnk, 0);
+      StringBuilder s = new StringBuilder(1024);
+      ((IShellLinkW)o).GetPath(s, s.Capacity, IntPtr.Zero, 0);
+      return s.ToString();
+    } catch (Exception) { return ""; }
+    finally { Marshal.ReleaseComObject(o); }
+  }
   public static IntPtr ShellIcon(string path, bool small) {
     SHFILEINFO i = new SHFILEINFO();
     SHGetFileInfo(path, 0, ref i, (uint)Marshal.SizeOf(i), 0x100u | (small ? 1u : 0u));
@@ -109,7 +126,6 @@ Probe 'shell-32' ([IconProbe]::ShellIcon($Exe, $false))
 Probe 'shell-16' ([IconProbe]::ShellIcon($Exe, $true))
 
 # its shortcuts
-$wsh = New-Object -ComObject WScript.Shell
 $dirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory'),
   [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('CommonPrograms'))
 $links = 0
@@ -117,7 +133,7 @@ Write-Output ('LINK ' + (@{ dirs = $dirs } | ConvertTo-Json -Compress))
 foreach ($d in $dirs) {
   if (-not $d -or -not (Test-Path $d)) { continue }
   foreach ($l in Get-ChildItem -Path $d -Filter *.lnk -Recurse -ErrorAction SilentlyContinue) {
-    $t = $wsh.CreateShortcut($l.FullName).TargetPath
+    $t = [IconProbe]::LinkTarget($l.FullName)
     Write-Output ('LINK ' + (@{ path = $l.FullName; target = $t } | ConvertTo-Json -Compress))
     if ($t -and ([IO.Path]::GetFullPath($t) -eq [IO.Path]::GetFullPath($Exe))) {
       $links++
