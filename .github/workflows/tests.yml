@@ -242,3 +242,10 @@ jobs:
           name: x3-screens-windows
           path: shots-x3-windows
           retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: icons-windows
+          path: shots-icons
+          retention-days: 14

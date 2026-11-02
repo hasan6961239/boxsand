@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -66,6 +67,50 @@ namespace Qirtasiya
         }
     }
 
+    /* أيقونة البرنامج من ملفه التنفيذي بالمقاس الذي يطلبه ويندوز: الصغيرة (16) لشريط
+       المهام والعنوان وبجانب الساعة، والكبيرة (32). ExtractAssociatedIcon يعطي 32 وحدها
+       فتُصغَّر. على لينكس (الاختبار) لا user32: الطريقة القديمة */
+    static class AppIcons
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr GetModuleHandle(string name);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr LoadImage(IntPtr hinst, IntPtr name, uint type, int cx, int cy, uint load);
+        [DllImport("user32.dll")]
+        static extern int GetSystemMetrics(int index);
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        /* مجموعة الأيقونة التي يكتبها المترجم من -win32icon */
+        const int GroupId = 32512;
+
+        public static Icon Get(bool small)
+        {
+            try
+            {
+                int size = GetSystemMetrics(small ? 49 : 11);   // SM_CXSMICON أو SM_CXICON
+                if (size <= 0) size = small ? 16 : 32;
+                IntPtr h = LoadImage(GetModuleHandle(null), (IntPtr)GroupId, 1, size, size, 0);   // IMAGE_ICON
+                if (h != IntPtr.Zero) return Icon.FromHandle(h);
+            }
+            catch (Exception) { }
+            try { return Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            catch (Exception) { return null; }
+        }
+
+        /* الأيقونتان للنافذة نفسها (WM_SETICON): شريط المهام يأخذ منها */
+        public static void Apply(Form f)
+        {
+            try
+            {
+                Icon small = Get(true), big = Get(false);
+                if (small != null) SendMessage(f.Handle, 0x80, (IntPtr)0, small.Handle);
+                if (big != null) SendMessage(f.Handle, 0x80, (IntPtr)1, big.Handle);
+            }
+            catch (Exception) { }
+        }
+    }
+
     sealed class AppWindow : Form
     {
         readonly WebView2 web;
@@ -79,8 +124,8 @@ namespace Qirtasiya
             this.devTools = devTools;
             home = new Uri(url);
             Text = title;
-            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
-            catch { }
+            Icon big = AppIcons.Get(false);
+            if (big != null) Icon = big;
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1440, 900);
             MinimumSize = new Size(900, 600);
@@ -97,6 +142,18 @@ namespace Qirtasiya
             web.CoreWebView2InitializationCompleted += Ready;
             Controls.Add(web);
             web.Source = home;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            AppIcons.Apply(this);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            AppIcons.Apply(this);
         }
 
         void Ready(object sender, CoreWebView2InitializationCompletedEventArgs e)

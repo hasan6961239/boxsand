@@ -8,6 +8,8 @@
      3) بيعة، ثم إطفاء فجائي وتشغيل: لا شيء يضيع.
      4) التثبيت مرة ثانية فوقه وهو يعمل (تحديث): البيانات والربط كما هما.
      5) ملف تثبيت طرابلس على الجهاز نفسه: مجلده وبياناته منفصلة، والاثنان يعملان معاً.
+     6) شعار كل برنامج كما يراه ويندوز: الملف، الاختصارات، النافذة، شريط المهام
+        (tools/win-icon-check.ps1؛ كان المحل يرى صفحة بيضاء مكانه).
 
      node tools/test-win-install.js <مجلد ملفات التثبيت>
    ============================================================ */
@@ -58,6 +60,22 @@ function app(short, exe) {
   };
   a.claim = async () => (await a.raw('/api/claim', { force: true })).body.token;
   return a;
+}
+
+/* شعار البرنامج كما يراه ويندوز نفسه (tools/win-icon-check.ps1). الصور في shots-icons */
+function iconCheck(a, ico) {
+  const r = spawnSync('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'win-icon-check.ps1'),
+    '-Exe', path.join(a.inst, a.exe), '-Ico', path.resolve(__dirname, '..', ico), '-ProcId', String(a.proc.pid),
+    '-Out', path.resolve('shots-icons')], { encoding: 'utf8', timeout: 300000 });
+  const lines = (r.stdout || '').split(/\r?\n/);
+  for (const l of lines) {
+    if (!l.startsWith('ICON ')) continue;
+    const j = JSON.parse(l.slice(5));
+    ok(j.ok, a.exe + ': شعار ' + j.name, j);
+  }
+  const t = lines.find(l => l.startsWith('TASKBAR '));
+  console.log('  INFO  ' + a.exe + ': ' + (t || 'لا شريط مهام'));
+  if (r.status !== 0) ok(false, a.exe + ': فحص الشعار', (r.stderr || r.error || '').toString().slice(0, 600));
 }
 
 function install(file) {
@@ -145,6 +163,14 @@ function install(file) {
     const tinfo = (await T.raw('/api/info')).body;
     ok(tinfo.edition === 'tripoli' && path.resolve(tinfo.dataDir) === path.resolve(T.data), 'طرابلس بمجلد بياناتها Qirtasiya-Tripoli', tinfo);
     ok((await M.raw('/api/info')).body.x3 === true && same(JSON.parse((await M.load()).text), s1), 'ومصراتة تعمل معها، وبياناتها لم تتغيّر');
+
+    /* آخراً: النافذة تفتح شاشة 3.x فتحفظ ما تحفظه أول مرة، وفحص البيانات انتهى قبلها */
+    console.log('\n== 6) الشعار في شريط المهام ==');
+    for (const [a, ico] of [[M, 'app/app.ico'], [T, 'app/app-tripoli.ico']]) {
+      const w = await a.raw('/api/window', {});
+      ok(w.body && w.body.shown === true, a.exe + ': نافذة البرنامج فُتحت', w.body);
+      iconCheck(a, ico);
+    }
   } catch (e) {
     ok(false, 'خطأ غير متوقع', e.stack);
   } finally {

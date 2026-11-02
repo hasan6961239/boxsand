@@ -3124,7 +3124,8 @@ namespace Qirtasiya
         static void SetupTray()
         {
             Tray = new NotifyIcon();
-            try { Tray.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            /* الصغيرة بمقاسها (بجانب الساعة 16): المكبَّرة من 32 تظهر مموّهة */
+            try { Tray.Icon = AppIcons.Get(true); }
             catch { Tray.Icon = SystemIcons.Application; }
             if (Tray.Icon == null) Tray.Icon = SystemIcons.Application;
             Tray.Text = AppTitle;
