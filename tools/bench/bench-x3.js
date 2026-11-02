@@ -18,6 +18,7 @@
      node tools/bench/bench-x3.js                         الحالات الثلاث محلياً
      node tools/bench/bench-x3.js --scen day1 --net       يوم التسليم، والإنترنت
      node tools/bench/bench-x3.js --only net              الإنترنت وحده
+     node tools/bench/bench-x3.js --books 65000           بعدد كتب آخر (محلياً)
      ... --md out.md --json out.json
    يحتاج: mono-mcs وxvfb-run وplaywright-core وChromium.
    ============================================================ */
@@ -34,7 +35,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const med = a => a.length ? a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)] : -1;
 
 function args() {
-  const a = process.argv.slice(2), o = { scen: ['day1', '6m', '1y'], net: false, only: '', md: '', json: '', keep: false };
+  const a = process.argv.slice(2), o = { scen: ['day1', '6m', '1y'], net: false, only: '', md: '', json: '', keep: false, books: 20000 };
   for (let i = 0; i < a.length; i++) {
     if (a[i] === '--scen') o.scen = a[++i].split(',');
     else if (a[i] === '--net') o.net = true;
@@ -42,6 +43,7 @@ function args() {
     else if (a[i] === '--md') o.md = a[++i];
     else if (a[i] === '--json') o.json = a[++i];
     else if (a[i] === '--keep') o.keep = true;
+    else if (a[i] === '--books') o.books = parseInt(a[++i], 10);
     else throw new Error('خيار غير معروف: ' + a[i]);
   }
   return o;
@@ -49,9 +51,9 @@ function args() {
 
 /* ---------- البيانات ---------- */
 
-function stores(tmp) {
+function stores(tmp, books) {
   const g = path.join(tmp, 'gen-tripoli');
-  generate({ profile: 'tripoli', books: 20000, stationery: 2000, years: 1, store3: 1, out: g });
+  generate({ profile: 'tripoli', books: books, stationery: 2000, years: 1, store3: 1, out: g });
   const full = JSON.parse(fs.readFileSync(path.join(g, 'store3.json'), 'utf8'));
   full.branch = { id: 'tripoli', name: 'دار الحكمة — طرابلس', city: 'طرابلس', phone: '', label: '', no: 2 };
   full.meta.shopName = 'دار الحكمة — طرابلس';
@@ -443,12 +445,12 @@ async function internet(browser, tmp, exeT, exeM, data, profName, errs) {
 
 /* ---------- التقرير ---------- */
 
-function markdown(res) {
+function markdown(res, books) {
   const s = ms => ms === undefined || ms < 0 ? '—' : ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' ث';
   const out = [];
   const cpu = os.cpus()[0] ? os.cpus()[0].model : '?';
   if (res.local.length) {
-    out.push('### على الجهاز نفسه (طرابلس، 20 ألف كتاب وألفا صنف قرطاسية)\n');
+    out.push('### على الجهاز نفسه (طرابلس، ' + books.toLocaleString('en-US') + ' كتاب وألفا صنف قرطاسية)\n');
     const cols = [];
     for (const r of res.local) for (const m of ['old', 'new']) if (r[m]) cols.push(r[m]);
     const name = { day1: 'يوم التسليم', '6m': 'بعد 6 أشهر', '1y': 'بعد سنة' };
@@ -516,7 +518,7 @@ function markdown(res) {
   E.buildEngine(exeT, 'tripoli');
   if (o.net) E.buildEngine(exeM, 'misrata');
   console.log('يولّد البيانات...');
-  const data = stores(tmp);
+  const data = stores(tmp, o.books);
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox', '--enable-precise-memory-info'] });
   const errs = [];
   const res = { local: [], net: [] };
@@ -530,7 +532,7 @@ function markdown(res) {
   res.errors = errs;
   if (errs.length) console.log('أخطاء في الصفحات:\n' + errs.join('\n'));
   if (o.json) fs.writeFileSync(o.json, JSON.stringify(res, null, 1));
-  const md = markdown(res);
+  const md = markdown(res, o.books);
   if (o.md) fs.writeFileSync(o.md, md);
   console.log('\n' + md);
 })().catch(e => { console.error(e); process.exit(1); });
