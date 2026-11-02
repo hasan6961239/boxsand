@@ -113,10 +113,12 @@ $wsh = New-Object -ComObject WScript.Shell
 $dirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory'),
   [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('CommonPrograms'))
 $links = 0
+Write-Output ('LINK ' + (@{ dirs = $dirs } | ConvertTo-Json -Compress))
 foreach ($d in $dirs) {
   if (-not $d -or -not (Test-Path $d)) { continue }
   foreach ($l in Get-ChildItem -Path $d -Filter *.lnk -Recurse -ErrorAction SilentlyContinue) {
     $t = $wsh.CreateShortcut($l.FullName).TargetPath
+    Write-Output ('LINK ' + (@{ path = $l.FullName; target = $t } | ConvertTo-Json -Compress))
     if ($t -and ([IO.Path]::GetFullPath($t) -eq [IO.Path]::GetFullPath($Exe))) {
       $links++
       Probe ('shortcut' + $links + '-32') ([IconProbe]::ShellIcon($l.FullName, $false))

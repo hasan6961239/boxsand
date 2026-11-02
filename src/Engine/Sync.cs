@@ -110,7 +110,10 @@ namespace Qirtasiya.Engine
     {
         /* القطعة المضغوطة نصاً أقل من حدّ صف D1 (2 ميغا) بهامش */
         public const int MaxPart = 1400000;
-        public static int CatalogEveryMin = 10;
+        /* قائمة كتب الفرع للفروع الأخرى: كل نصف ساعة إن تغيّرت. لعشرين ألف كتاب 800 ك.ب صعوداً،
+           وكل فرع آخر ينزّلها: كل عشر دقائق كانت 50 ميغا في اليوم مع البيع، ونصف دقيقة من كل عشر
+           على رفع بطيء. «حدّث الآن» يرسلها في الحال */
+        public static int CatalogEveryMin = 30;
         public static int SnapshotEveryHours = 24;
 
         readonly Func<ShopDb> dbOf;
@@ -338,6 +341,7 @@ namespace Qirtasiya.Engine
             try
             {
                 db.SnapshotTo(tmp);
+                ShopDb.SlimSnapshot(tmp);
                 long seq = ShopDb.SnapshotSeq(tmp);
                 string packed = Convert.ToBase64String(ShopDb.PackFile(tmp));
                 int parts = Math.Max(1, (packed.Length + MaxPart - 1) / MaxPart);
@@ -381,7 +385,11 @@ namespace Qirtasiya.Engine
                 }
                 long from, to;
                 string json = db.LogChunk(pushed, rows, 50000, out from, out to);
-                if (json == null) return;
+                if (json == null)
+                {
+                    db.PruneLog(pushed);
+                    return;
+                }
                 Phase("رفع التغييرات");
                 string packed = ShopDb.Pack(json);
                 if (packed.Length > MaxPart && rows > 25) { rows /= 2; continue; }

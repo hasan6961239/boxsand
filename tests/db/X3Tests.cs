@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using Qirtasiya.Data;
 using Qirtasiya.Engine;
 
@@ -171,7 +172,175 @@ static class X3Tests
         db.Dispose();
         Second(dir);
         Empty(dir);
+        SameDiff();
+        Codes(dir);
         try { Directory.Delete(dir, true); } catch { }
+    }
+
+    /* ---------- الفرق من النص = التحليل الكامل ----------
+       X3Diff يقارن نص كل سجل بنظيره ولا يحلّل إلا ما اختلف (حفظ 20 ألف كتاب كان أكثر من ثانية).
+       يجب أن يعطي ما يعطيه X3DiffParsed (الملفان كاملين كائنات) بالضبط: مئات التغييرات
+       العشوائية، ومنها رقم كُتب بطريقة أخرى (15.0)، ومسافات، ونص فيه هروب، ومعرّفات أرقام */
+    static Dictionary<string, object> Big(Random r)
+    {
+        Dictionary<string, object> s = P(Store);
+        List<object> books = A(s["books"]), inv = A(s["invoices"]);
+        for (int i = 3; i < 40; i++)
+            books.Add(P("{\"id\":\"b" + i + "\",\"code\":\"K" + i.ToString("0000") + "\",\"title\":\"كتاب \\\"" + i + "\\\" \\\\ " + i +
+                "\",\"qty\":" + r.Next(0, 30) + ",\"price\":" + (r.Next(1, 400) / 4.0).ToString(System.Globalization.CultureInfo.InvariantCulture) + "}"));
+        for (int i = 3; i < 25; i++)
+            inv.Insert(0, P("{\"id\":\"i" + i + "\",\"no\":" + i + ",\"kind\":\"sale\",\"items\":[{\"type\":\"book\",\"id\":\"b" + (i + 3) + "\",\"qty\":1}],\"total\":" + i + "}"));
+        D(s["counters"])["invoice"] = 24L;
+        s["nums"] = new List<object> { P("{\"id\":1,\"v\":\"a\"}"), P("{\"id\":2.5,\"v\":\"b\"}"), P("{\"id\":3,\"v\":\"c\"}") };
+        return s;
+    }
+
+    static readonly string[] Colls = { "books", "invoices", "customers", "stationery", "nums", "warehouses" };
+    static int fresh;
+
+    static void Mutate(Random r, Dictionary<string, object> s)
+    {
+        string coll = Colls[r.Next(Colls.Length)];
+        List<object> l = s.ContainsKey(coll) ? s[coll] as List<object> : null;
+        switch (r.Next(12))
+        {
+            case 0: case 1: case 2:   // حقل في سجل
+                if (l == null || l.Count == 0 || D(l[r.Next(l.Count)]) == null) break;
+                Dictionary<string, object> d = D(l[r.Next(l.Count)]);
+                int f = r.Next(5);
+                if (f == 0) d["qty"] = (long)r.Next(-3, 50);
+                else if (f == 1) d["price"] = r.Next(0, 900) / 8.0;
+                else if (f == 2) d["title"] = "عنوان \"" + r.Next(100) + "\" \\ جديد";
+                else if (f == 3) d["extra" + r.Next(3)] = new List<object> { (long)r.Next(9), "س" };
+                else if (d.Count > 1) { List<string> ks = new List<string>(d.Keys); ks.Remove("id"); if (ks.Count > 0) d.Remove(ks[r.Next(ks.Count)]); }
+                break;
+            case 3: case 4:           // سجل جديد في مكان ما
+                if (l == null) break;
+                Dictionary<string, object> nr = P("{\"id\":\"new" + (++fresh) + "\",\"code\":\"K" + r.Next(1, 60).ToString("0000") + "\",\"qty\":3}");
+                if (coll == "invoices" && r.Next(2) == 0)
+                {
+                    nr["kind"] = "return";
+                    nr["refNo"] = (long)r.Next(1, 30);
+                    nr["no"] = (long)(100 + fresh);
+                }
+                l.Insert(r.Next(l.Count + 1), nr);
+                break;
+            case 5:                   // حذف سجل
+                if (l != null && l.Count > 0) l.RemoveAt(r.Next(l.Count));
+                break;
+            case 6:                   // ترتيب آخر
+                if (l != null && l.Count > 1) { int a = r.Next(l.Count), b = r.Next(l.Count); object t = l[a]; l[a] = l[b]; l[b] = t; }
+                break;
+            case 7:                   // مصفوفة صارت فارغة، أو قسم حُذف، أو قسم جديد
+                int k = r.Next(3);
+                if (k == 0) s[coll] = new List<object>();
+                else if (k == 1) s.Remove(coll);
+                else s["key" + r.Next(4)] = r.Next(2) == 0 ? (object)(long)r.Next(9) : P("{\"x\":[1,2,{\"y\":\"ص\"}]}");
+                break;
+            case 8:                   // سجل بلا معرّف، أو معرّف مكرر: لم تعد سجلات
+                if (l == null || l.Count == 0) break;
+                if (r.Next(2) == 0) l.Add(P("{\"name\":\"بلا معرّف\"}"));
+                else if (D(l[0]) != null) l.Add(P("{\"id\":" + Json.Write(Json.Get(D(l[0]), "id")) + ",\"dup\":true}"));
+                break;
+            case 9:                   // meta وcounters
+                D(s["meta"])["shopName"] = "مكتبة " + r.Next(100);
+                if (s.ContainsKey("counters") && D(s["counters"]) != null) D(s["counters"])["invoice"] = (long)r.Next(20, 40);
+                break;
+            case 10:                  // ترتيب المفاتيح
+                List<string> keys = new List<string>(s.Keys);
+                string kk = keys[r.Next(keys.Count)];
+                object v = s[kk];
+                s.Remove(kk);
+                s[kk] = v;
+                break;
+            default:                  // لا شيء (الحفظ نفسه مرة أخرى)
+                break;
+        }
+    }
+
+    /* القيم نفسها بنص آخر: 15 ← 15.0، ومسافات بعد الفواصل في بعض السجلات */
+    static string Reformat(Random r, string t)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < t.Length; i++)
+        {
+            sb.Append(t[i]);
+            if (t[i] == ':' && i + 1 < t.Length && char.IsDigit(t[i + 1]) && r.Next(5) == 0)
+            {
+                int j = i + 1;
+                while (j < t.Length && char.IsDigit(t[j])) j++;
+                if (j < t.Length && (t[j] == ',' || t[j] == '}')) { sb.Append(t, i + 1, j - i - 1).Append(".0"); i = j - 1; }
+            }
+            else if (t[i] == ',' && r.Next(9) == 0) sb.Append(' ');
+        }
+        return sb.ToString();
+    }
+
+    static void SameDiff()
+    {
+        Random r = new Random(20261102);
+        int same = 0, total = 0, withOps = 0;
+        string first = null;
+        for (int round = 0; round < 600; round++)
+        {
+            Dictionary<string, object> b = Big(r);
+            int pre = r.Next(3);
+            for (int i = 0; i < pre; i++) Mutate(r, b);
+            string bt = Json.Write(b);
+            if (r.Next(6) == 0) bt = Reformat(r, bt);
+            Dictionary<string, object> n = P(bt);
+            int k = r.Next(0, 6);
+            for (int i = 0; i < k; i++) Mutate(r, n);
+            string nt = Json.Write(n);
+            if (r.Next(4) == 0) nt = Reformat(r, nt);
+            string a = ShopDb.X3OpsJson(ShopDb.X3Diff(bt, nt)), c = ShopDb.X3OpsJson(ShopDb.X3DiffParsed(bt, nt));
+            total++;
+            if (a != "[]") withOps++;
+            if (a == c) same++;
+            else if (first == null) first = "جولة " + round + ": " + a + " ≠ " + c;
+        }
+        ok(same == total && withOps > total / 2, "الفرق من النص = التحليل الكامل في " + total + " حفظاً عشوائياً (" + withOps + " فيها تغيير)", first);
+        string plain = Json.Write(Big(new Random(1)));
+        ok(ShopDb.X3Diff(plain, Reformat(new Random(2), plain).Replace(":24,", ":24.0,")).Count == 0,
+            "والقيم نفسها بكتابة أخرى (15.0، مسافات): لا تغيير");
+        ok(ShopDb.X3Diff(null, plain).Count == ShopDb.X3DiffParsed(null, plain).Count && ShopDb.X3Diff("null", "{}").Count == 0,
+            "وبلا ملف سابق: كل شيء جديد، كما كان");
+        bool bad = false;
+        try { ShopDb.X3Diff(plain, "[1,2]"); }
+        catch (ShopException) { bad = true; }
+        ok(bad, "وما ليس ملف 3.x يُرفض كما كان");
+    }
+
+    /* ---------- رموز الأصناف ----------
+       كان كل صنف جديد يسأل القاعدة عن رمزه بالمرور على كل الأصناف: نقل عشرين ألف كتاب أخذ
+       أكثر من أربع دقائق. صارت الرموز تُقرأ مرة في الحفظ وتُتابَع فيه */
+    static void Codes(string dir)
+    {
+        ShopDb db = ShopDb.Open(Path.Combine(dir, "x3-codes.db"), null);
+        StringBuilder sb = new StringBuilder("{\"books\":[");
+        int n = 6000;
+        for (int i = 1; i <= n; i++)
+            sb.Append(i > 1 ? "," : "").Append("{\"id\":\"b").Append(i).Append("\",\"code\":\"K").Append(i.ToString("00000"))
+              .Append("\",\"title\":\"كتاب ").Append(i).Append("\",\"qty\":3}");
+        sb.Append("],\"counters\":{\"invoice\":0,\"book\":").Append(n).Append(",\"stat\":0}}");
+        System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+        db.X3Adopt(sb.ToString(), 1);
+        long ms = sw.ElapsedMilliseconds;
+        ok(ms < 20000 && db.X3Export() == sb.ToString(), "أخذ " + n + " كتاب للقاعدة في " + ms + " ms، كما هي حرفياً");
+        /* حذف كتاب، ثم كتاب جديد برمزه نفسه (يبقى)، وكتاب برمز موجود (يأخذ التالي) */
+        Dictionary<string, object> s = P(db.X3Export());
+        List<object> books = A(s["books"]);
+        books.RemoveAt(0);
+        db.X3Save(db.X3Export(), Json.Write(s), 1);
+        s = P(db.X3Export());
+        books = A(s["books"]);
+        books.Insert(0, P("{\"id\":\"x1\",\"code\":\"K00001\",\"title\":\"مكان المحذوف\",\"qty\":1}"));
+        books.Insert(0, P("{\"id\":\"x2\",\"code\":\"K00002\",\"title\":\"رمز مأخوذ\",\"qty\":1}"));
+        ShopDb.X3Result res = db.X3Save(db.X3Export(), Json.Write(s), 1);
+        Dictionary<string, object> after = P(db.X3Export());
+        ok(Json.Str(Find(after, "books", "x1"), "code") == "K00001" && Json.Str(Find(after, "books", "x2"), "code") == "K6001" &&
+            res.Merged, "الرمز الذي حُذف صاحبه يبقى، والمأخوذ يصير التالي", Json.Write(Find(after, "books", "x2")));
+        db.Dispose();
     }
 
     /* محل بلا قرطاسية (أو بلا كتب): المصفوفة الفارغة قسم واحد لا صنف جديد */

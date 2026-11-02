@@ -178,6 +178,10 @@ Section "البرنامج" SecMain
   CreateShortCut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\${EXENAME}" "" "$INSTDIR\${EXENAME}" 0
   CreateShortCut "$SMPROGRAMS\${APPNAME}\إلغاء التثبيت.lnk" "$INSTDIR\uninstall.exe"
   CreateShortCut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${EXENAME}" "" "$INSTDIR\${EXENAME}" 0
+
+  ;  ويندوز يعيد قراءة الأيقونات، ومنها ما ثُبّت على شريط المهام: أيقونة نسخة سابقة لم
+  ;  تُقرأ (صفحة بيضاء) تبقى في ذاكرته حتى يُطلب منه هذا (SHCNE_ASSOCCHANGED)
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 SectionEnd
 
 ;  ---------- إلغاء التثبيت ----------

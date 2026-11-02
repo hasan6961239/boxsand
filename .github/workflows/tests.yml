@@ -115,10 +115,24 @@ jobs:
           tools/build-linux.sh
           EDITION=tripoli tools/build-linux.sh
 
+      # تشخيص الشعار: نافذتان صغيرتان بالمترجم نفسه، بالأيقونة القديمة (PNG في كل المقاسات)
+      # والجديدة، يقارنهما ويندوز في windows-install
+      - name: نافذتا مقارنة الشعار (قبل وبعد)
+        run: |
+          git fetch -q --depth=1 origin d878d753a077bec651a02d405c60d559a16f5bfd
+          git show FETCH_HEAD:app/app.ico > build/old.ico
+          for v in old new; do
+            ico=build/old.ico; [ "$v" = new ] && ico=app/app.ico
+            mcs -nologo -sdk:4.8-api -target:winexe -win32icon:$ico -r:System.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll \
+              -out:build/probe-$v.exe tools/icon-probe.cs
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: Qirtasiya-Setup
-          path: build/Qirtasiya-*-Setup-*.exe
+          path: |
+            build/Qirtasiya-*-Setup-*.exe
+            build/probe-*.exe
           retention-days: 14
 
   windows:
@@ -225,6 +239,18 @@ jobs:
 
       - name: التثبيت كما في المحل — بيانات 3.x، الربط، الإطفاء الفجائي، التحديث، وطرابلس
         run: node tools/test-win-install.js setup
+
+      - name: الشعار قبل وبعد — كما يراه ويندوز في نافذة (تشخيص)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          foreach ($v in 'old', 'new') {
+            $p = Start-Process -FilePath "setup\probe-$v.exe" -PassThru
+            Write-Output "== probe-$v"
+            pwsh -NoProfile -ExecutionPolicy Bypass -File tools\win-icon-check.ps1 -Exe (Resolve-Path "setup\probe-$v.exe").Path -Ico (Resolve-Path app\app.ico).Path -ProcId $p.Id -Out shots-icons\probe-$v
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
 
       - name: جهازان، انقطاع الكهرباء والنت، طرابلس، والاختبارات كاملة — على البرنامج المثبَّت
         shell: bash

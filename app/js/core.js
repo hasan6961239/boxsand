@@ -446,7 +446,8 @@ var App = (function () {
   var hbTimer = null;
   function beat() {
     if (readOnly || !ownerToken) return;
-    apiJson("/api/heartbeat", { method: "POST", body: "{}" })
+    /* ومعه النسخة التي عليها هذه النافذة (قرار 0025): البرنامج لا ينساها */
+    apiJson("/api/heartbeat", { method: "POST", body: "{}", headers: x3.rev ? { "X-X3-Rev": x3.rev } : {} })
       .then(function (res) {
         if (res && res.notOwner && res.free) reclaimAndSave();      // المحرك أُعيد تشغيله
         else if (res && res.notOwner) lostOwnership();
@@ -791,7 +792,20 @@ var App = (function () {
     return p >= 3 && s.substr(p - 3, 3) === "وال" && (p === 3 || notL(s.charAt(p - 4)));
   }
 
+  /* القوائم الكبيرة (كتب فرع آخر، 22 ألف صنف): تطبيع كل خانة مع كل حرف كان أكثر من عُشر
+     ثانية. ما طُبِّع مرة يُحفظ بنصه نفسه، فما تغيّر نصه يُطبَّع من جديد وحده */
+  var hayCache = new Map();
   function hayParts(h) {
+    var key = Array.isArray(h) ? "\u0001" + h.join("\u0001") : "\u0002" + String(h == null ? "" : h);
+    var hit = hayCache.get(key);
+    if (hit) return hit;
+    var p = hayPartsOf(h);
+    if (hayCache.size > 150000) hayCache.clear();
+    hayCache.set(key, p);
+    return p;
+  }
+
+  function hayPartsOf(h) {
     if (!Array.isArray(h)) return { name: norm(h), other: "", raw: String(h || "") };
     var others = h.slice(1).map(function (x) { return x == null ? "" : String(x); });
     return {

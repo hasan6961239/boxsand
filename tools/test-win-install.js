@@ -73,6 +73,7 @@ function iconCheck(a, ico) {
     const j = JSON.parse(l.slice(5));
     ok(j.ok, a.exe + ': شعار ' + j.name, j);
   }
+  for (const l of lines) if (l.startsWith('LINK ')) console.log('  INFO  ' + a.exe + ': ' + l);
   const t = lines.find(l => l.startsWith('TASKBAR '));
   console.log('  INFO  ' + a.exe + ': ' + (t || 'لا شريط مهام'));
   if (r.status !== 0) ok(false, a.exe + ': فحص الشعار', (r.stderr || r.error || '').toString().slice(0, 600));

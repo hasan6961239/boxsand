@@ -711,6 +711,38 @@ namespace Qirtasiya.Data
             }
         }
 
+        /* النسخة الكاملة للخادم بلا سجل التغييرات: كل ما فيه قبل رقمها، والأجهزة الثانية تبدأ
+           منها ولا تقرؤه (رقمه يبقى في sqlite_sequence). كان نصف حجمها أو أكثر */
+        public static void SlimSnapshot(string path)
+        {
+            using (Sqlite c = Sqlite.Open(path, false, false))
+            {
+                c.Exec("DELETE FROM change_log");
+                c.Exec("VACUUM");
+            }
+        }
+
+        /* أيام يبقاها السجل على جهاز المحل بعد رفعه (الحد الأدنى للاحتفاظ، قرار 0007) */
+        public static int KeepLogDays = 7;
+
+        /* جهاز المحل: ما رُفع للخادم من السجل ومرّ عليه أسبوع لا يحتاجه أحد هنا (الأجهزة الثانية
+           تأخذه من الخادم أو من النسخة الكاملة). بقاؤه كله كان يكبّر القاعدة كل يوم (حوالي 100
+           ميغا في السنة)، ومعها النسخ اليومية. ما لم يُرفع لا يُمس، ورقم آخر تغيير يبقى في
+           sqlite_sequence. الأوامر بالترتيب وصفوف كل أمر بعد صفوف ما قبله: ما قبل أول صف من
+           أوامر الأسبوع الأخير هو الأقدم، فلا يُمرّ على السجل كله كل دقيقة */
+        public int PruneLog(long upTo)
+        {
+            lock (gate)
+            {
+                if (replica || upTo <= 0 || Report.ReadOnly) return 0;
+                long keepOp = db.Long("SELECT MIN(id) FROM ops WHERE at >= ?", long.MaxValue, Stamp(clock().AddDays(-KeepLogDays)));
+                long keepSeq = db.Long("SELECT seq FROM change_log WHERE op_id >= ? ORDER BY seq LIMIT 1", long.MaxValue, keepOp);
+                long last = Math.Min(upTo, keepSeq - 1);
+                if (db.Long("SELECT seq FROM change_log WHERE seq <= ? LIMIT 1", 0, last) == 0) return 0;
+                return db.Run("DELETE FROM change_log WHERE seq <= ?", last);
+            }
+        }
+
         /* رقم السجل داخل نسخة كاملة أُخذت للتو (آخر ما فيها) */
         public static long SnapshotSeq(string path)
         {

@@ -217,6 +217,22 @@ static class SyncTests
         long nextOp = main.Read<long>(delegate (Sqlite c) { return c.Long("SELECT op_id FROM change_log WHERE seq = ?", -1, to + 1); });
         ok(rows.Count >= 3 && lastOp != nextOp, "القطعة تنتهي بآخر صف من أمرها", rows.Count + " صف");
 
+        /* ---------- جهاز المحل يقصّ من سجله ما رُفع ومرّ عليه أسبوع (قرار 0007) ---------- */
+        Pull(main, second, 50);
+        long upTo = main.LogSeq();
+        long logRows = main.Read<long>(delegate (Sqlite c) { return c.Long("SELECT COUNT(*) FROM change_log", 0); });
+        ok(main.PruneLog(upTo) == 0 && logRows > 0, "ما رُفع اليوم يبقى في سجل جهاز المحل أسبوعاً", logRows);
+        now = now.AddDays(8);
+        ma = Login(mainApi);
+        Data(mainApi, "sale", ma, "{\"lines\":[{\"itemId\":" + book + ",\"qty\":1}]}");
+        ok(second.PruneLog(upTo) == 0, "والجهاز الثاني لا يقصّ من سجله");
+        int cut = main.PruneLog(upTo);
+        long minSeq = main.Read<long>(delegate (Sqlite c) { return c.Long("SELECT MIN(seq) FROM change_log", 0); });
+        ok(cut == logRows && minSeq > upTo && main.LogSeq() > upTo, "بعد أسبوع: يُقصّ ما رُفع، وتبقى البيعة الجديدة ورقم آخر تغيير",
+            cut + " من " + logRows + "، أول ما بقي " + minSeq);
+        ok(main.PruneLog(main.LogSeq()) == 0, "وما رُفع من أوامر الأسبوع الأخير يبقى");
+        ok(Pull(main, second, 50) > 0 && Dump(main) == Dump(second), "والجهاز الثاني يأخذ ما بعده كالعادة");
+
         main.Dispose(); second.Dispose(); trip.Dispose();
         try { Directory.Delete(dir, true); }
         catch { }

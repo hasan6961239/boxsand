@@ -9,10 +9,25 @@
 
      node tools/fake-cloud.js [المنفذ] [كلمة السر]
    أو من اختبار: require('./fake-cloud').start({ secret })
+
+   timing: مدة كل طلب، ومنها ما قضاه في D1. الباقي حساب الـ Worker نفسه، وهو ما
+   يحدّه Cloudflare في الخطة المجانية (10 ميلي ثانية لكل طلب)؛ D1 انتظار لا يُحسب.
    ============================================================ */
 'use strict';
 const fs = require('fs'), path = require('path'), http = require('http');
+const { AsyncLocalStorage } = require('async_hooks');
 const { DatabaseSync } = require('node:sqlite');
+
+/* وقت D1 للطلب الجاري (timing) */
+const d1Time = new AsyncLocalStorage();
+function d1Run(f) {
+  const t = process.hrtime.bigint();
+  try { return f(); }
+  finally {
+    const st = d1Time.getStore();
+    if (st) st.d1 += Number(process.hrtime.bigint() - t) / 1e6;
+  }
+}
 
 const ROOT = path.join(__dirname, '..');
 
@@ -26,17 +41,17 @@ function d1(file) {
       bind(...a) { return stmt(sql, a); },
       async first(col) {
         stats.reads++;
-        const r = db.prepare(sql).get(...args);
+        const r = d1Run(() => db.prepare(sql).get(...args));
         if (r === undefined) return null;
         return col ? r[col] : Object.assign({}, r);
       },
       async all() {
         stats.reads++;
-        return { success: true, results: db.prepare(sql).all(...args).map(r => Object.assign({}, r)) };
+        return { success: true, results: d1Run(() => db.prepare(sql).all(...args)).map(r => Object.assign({}, r)) };
       },
       async run() {
         stats.writes++;
-        const r = db.prepare(sql).run(...args);
+        const r = d1Run(() => db.prepare(sql).run(...args));
         return { success: true, meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } };
       },
       _exec() {
@@ -54,15 +69,17 @@ function d1(file) {
     prepare(sql) { return stmt(sql, []); },
     /* كما في D1: الكل في معاملة واحدة، أو لا شيء */
     async batch(list) {
-      db.exec('BEGIN');
-      try {
-        const out = list.map(s => s._exec());
-        db.exec('COMMIT');
-        return out;
-      } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-      }
+      return d1Run(() => {
+        db.exec('BEGIN');
+        try {
+          const out = list.map(s => s._exec());
+          db.exec('COMMIT');
+          return out;
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      });
     }
   };
 }
@@ -106,6 +123,7 @@ async function start(opts) {
   const env = { SHOP_SECRET: opts.secret || 'test-secret', SHOP: kv() };
   if (!opts.noD1) env.DB = d1(opts.dbFile);
   const log = [];
+  const timing = [];
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', c => chunks.push(c));
@@ -120,10 +138,16 @@ async function start(opts) {
         if (forced) { res.writeHead(forced, { 'Content-Type': 'text/plain' }); res.end('forced'); return; }
         const headers = {};
         for (const [k, v] of Object.entries(req.headers)) headers[k] = Array.isArray(v) ? v.join(',') : v;
-        const r = await worker.fetch(new Request(url, {
+        const tm = { d1: 0 };
+        const t0 = process.hrtime.bigint();
+        const r = await d1Time.run(tm, () => worker.fetch(new Request(url, {
           method: req.method, headers, body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body
-        }), env, { waitUntil() { } });
+        }), env, { waitUntil() { } }));
         const out = Buffer.from(await r.arrayBuffer());
+        if (opts.timing) {
+          const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+          timing.push({ method: req.method, path: req.url.split('?')[0], ms, d1: tm.d1, cpu: ms - tm.d1, in: body.length, out: out.length, status: r.status });
+        }
         const h = {};
         r.headers.forEach((v, k) => { h[k] = v; });
         res.writeHead(r.status, h);
@@ -137,7 +161,7 @@ async function start(opts) {
   await new Promise(r => server.listen(opts.port || 0, '127.0.0.1', r));
   const port = server.address().port;
   return {
-    port, env, log,
+    port, env, log, timing,
     url: 'http://127.0.0.1:' + port,
     close: () => new Promise(r => server.close(r))
   };

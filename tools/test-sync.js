@@ -109,6 +109,8 @@ function dump(d) {
     st = await B.data('sync.status');
     ok(st.role === 'second' && st.branch === 'misrata' && st.main === 'جهاز المحل', 'يعرف أنه ثانٍ ومن جهاز المحل', st);
     ok(dump(A) === dump(B), 'قاعدته نسخة من جهاز المحل صفاً صفاً');
+    /* النسخة الكاملة على الخادم بلا سجل التغييرات (كل ما فيه قبلها): كان نصف حجمها أو أكثر */
+    ok(B.q('SELECT COUNT(*) AS n FROM change_log')[0].n === 0, 'ونسخة الخادم التي نزلت بلا سجل التغييرات');
     const s1 = await B.data('search', { q: 'الفيزياء الاساسيه', limit: 3 });
     ok(s1.items.length > 0 && s1.items[0].title === 'الفيزياء الأساسية', 'والبحث فيه يعمل', s1.items.map(i => i.title));
 
@@ -120,6 +122,11 @@ function dump(d) {
     st = await B.sync();
     ok(!st.error && st.behind === 0, 'جهازي لحق المحل', st);
     ok(dump(A) === dump(B), 'البيعة والكتاب الجديد عنده كما عند المحل');
+    /* ما رُفع للخادم يبقى في سجل جهاز المحل أسبوعاً ثم يُقصّ (SyncTests بساعة التجربة): لا تكبر
+       قاعدته ولا نسخته اليومية، ورقم آخر تغيير يبقى */
+    const logLeft = A.q('SELECT COUNT(*) AS n FROM change_log')[0].n;
+    const logSeq = A.q("SELECT seq FROM sqlite_sequence WHERE name = 'change_log'")[0].seq;
+    ok(logLeft > 0 && logSeq > 0, 'سجل جهاز المحل بعد الرفع باقٍ أسبوعاً (' + logLeft + ' صف، آخر رقم ' + logSeq + ')', { logLeft, logSeq });
     const inv = await B.data('invoices.page', { no: sale.no });
     ok(inv.invoices.length === 1 && inv.invoices[0].total === sale.total, 'فاتورة المحل رقم ' + sale.no + ' تظهر عنده', inv);
 

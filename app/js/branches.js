@@ -655,7 +655,8 @@ var Stock = (function () {
         hay: [App.itemName(x.it), x.it.barcode, x.it.code, x.it.author],
         where: S().branch.name || "فرعي", mine: true, bid: S().branch.id,
         n: App.itemName(x.it), a: x.it.author || "", q: App.num(x.it.qty), p: App.num(x.it.price),
-        loc: x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"), ri: null
+        /* الموقع يُكتب للسطر الذي يُعرض فقط (كان لكل الأصناف مع كل حرف) */
+        loc: null, mk: function () { return x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"); }, ri: null
       });
     });
     remotes().forEach(function (r) {
@@ -664,7 +665,7 @@ var Stock = (function () {
           hay: [i.n, i.b, i.k, i.a],
           where: r.name, mine: false, bid: r.id, at: r.at,
           n: i.n, a: i.a || "", q: App.num(i.q), p: App.num(i.p),
-          loc: i.t === "book" ? locOf(i) : App.esc(i.loc || "—"), ri: i
+          loc: null, mk: function () { return i.t === "book" ? locOf(i) : App.esc(i.loc || "—"); }, ri: i
         });
       });
     });
@@ -699,7 +700,7 @@ var Stock = (function () {
               (r.at ? ' <span class="muted small">' + App.esc(String(r.at).slice(5, 16)) + "</span>" : "");
           }
         },
-        { h: "الموقع", c: function (r) { return r.loc; } },
+        { h: "الموقع", c: function (r) { return r.loc != null ? r.loc : (r.loc = r.mk()); } },
         {
           h: "المتوفر", cls: "num", c: function (r) {
             return r.q > 0 ? "<b>" + r.q + "</b>" : '<span class="badge bad">0</span>';

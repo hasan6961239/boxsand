@@ -140,8 +140,24 @@ namespace Qirtasiya.Data
             return null;
         }
 
-        /* ما غيّرته الواجهة بين base (آخر ما رأته) وnow (ما ترسله الآن) */
+        /* ما غيّرته الواجهة بين base (آخر ما رأته) وnow (ما ترسله الآن): من النص سجلاً سجلاً
+           (X3DiffText)، وما لا يُفهم هكذا بالتحليل الكامل كما كان */
         public static List<X3Op> X3Diff(string baseJson, string nowJson)
+        {
+            X3Doc n = null, b = null;
+            try
+            {
+                n = X3Scan(nowJson ?? "");
+                if (n != null) b = string.IsNullOrEmpty(baseJson) ? new X3Doc() : (X3Scan(baseJson) ?? new X3Doc());
+            }
+            catch (FormatException) { n = null; }
+            catch (InvalidCastException) { n = null; }
+            if (n == null || b == null) return X3DiffParsed(baseJson, nowJson);
+            return X3DiffText(b, n);
+        }
+
+        /* الطريقة الأولى: الملفان كاملين كائنات. للاحتياط، ومرجعاً في الاختبار */
+        public static List<X3Op> X3DiffParsed(string baseJson, string nowJson)
         {
             Dictionary<string, object> b = string.IsNullOrEmpty(baseJson) ? null : Json.Parse(baseJson) as Dictionary<string, object>;
             Dictionary<string, object> n = Json.Parse(nowJson) as Dictionary<string, object>;
@@ -251,6 +267,297 @@ namespace Qirtasiya.Data
                 ops.Add(o);
                 break;
             }
+        }
+
+        /* ---------- الفرق من النص ----------
+           تحليل الملف كله (8 ميغا لعشرين ألف كتاب) مرتين مع كل حفظ كان أكثر من نصف ثانية.
+           الشاشة ترسل كل سجل لم يتغيّر بالنص نفسه، فيكفي مقارنة نص كل سجل بنظيره، ولا
+           يُحلَّل إلا ما اختلف نصه، ثم يُقارن بقيمته (اختلاف كتابة رقم وحده ليس تغييراً).
+           النتيجة هي نفسها بالضبط كـ X3DiffParsed (X3Tests يقارن بينهما). */
+        internal sealed class X3Sec
+        {
+            public int Start, Len;
+            /* مصفوفة سجلات (كـ X3IsRecords): المعرّفات ومواضع السجلات، وإلا null */
+            public List<string> Ids;
+            public List<int> RStart, RLen;
+        }
+
+        internal sealed class X3Doc
+        {
+            public string Src = "";
+            public readonly List<string> Keys = new List<string>();
+            public readonly Dictionary<string, X3Sec> Secs = new Dictionary<string, X3Sec>(StringComparer.Ordinal);
+            public object Parse(int start, int len) { return Json.Parse(Src.Substring(start, len)); }
+            public Dictionary<string, object> Rec(X3Sec s, int i) { return (Dictionary<string, object>)Parse(s.RStart[i], s.RLen[i]); }
+        }
+
+        static int SkipWs(string s, int i)
+        {
+            while (i < s.Length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) i++;
+            return i;
+        }
+
+        /* i على علامة ": الموضع بعد علامة الإغلاق */
+        static int SkipStr(string s, int i)
+        {
+            for (i++; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '\\') { i++; continue; }
+                if (c == '"') return i + 1;
+            }
+            throw new FormatException("نص لم يُغلق.");
+        }
+
+        /* قيمة كاملة تبدأ عند i: الموضع بعدها */
+        static int SkipVal(string s, int i)
+        {
+            if (i >= s.Length) throw new FormatException("قيمة ناقصة.");
+            char c = s[i];
+            if (c == '"') return SkipStr(s, i);
+            if (c == '{' || c == '[')
+            {
+                int depth = 0;
+                while (i < s.Length)
+                {
+                    char ch = s[i];
+                    if (ch == '"') { i = SkipStr(s, i); continue; }
+                    if (ch == '{' || ch == '[') depth++;
+                    else if (ch == '}' || ch == ']') { if (--depth == 0) return i + 1; }
+                    i++;
+                }
+                throw new FormatException("قوس لم يُغلق.");
+            }
+            int j = i;
+            while (j < s.Length && s[j] != ',' && s[j] != '}' && s[j] != ']' && s[j] != ' ' && s[j] != '\t' && s[j] != '\n' && s[j] != '\r') j++;
+            if (j == i) throw new FormatException("قيمة غير مفهومة.");
+            return j;
+        }
+
+        /* نص قيمة مفتاح في المستوى الأول من الكائن الذي بين start وend، أو null */
+        static string X3TopRaw(string s, int start, int end, string key)
+        {
+            int i = SkipWs(s, start + 1);
+            while (i < end && s[i] == '"')
+            {
+                int ke = SkipStr(s, i);
+                bool match = ke - i - 2 == key.Length && string.CompareOrdinal(s, i + 1, key, 0, key.Length) == 0;
+                i = SkipWs(s, ke);
+                if (i >= end || s[i] != ':') return null;
+                int vs = SkipWs(s, i + 1);
+                int ve = SkipVal(s, vs);
+                if (match) return s.Substring(vs, ve - vs);
+                i = SkipWs(s, ve);
+                if (i < end && s[i] == ',') { i = SkipWs(s, i + 1); continue; }
+                return null;
+            }
+            return null;
+        }
+
+        /* معرّف السجل كما يعطيه X3Id، من نصه */
+        static string X3TextId(string s, int start, int end)
+        {
+            string raw = X3TopRaw(s, start, end, "id");
+            if (raw == null) return null;
+            object v = Json.Parse(raw);
+            string str = v as string;
+            if (str != null) return str.Length > 0 ? str : null;
+            if (v is long || v is double) return Json.Write(v);
+            return null;
+        }
+
+        /* رمز الصنف (K0001) من نص سجله: النص وحده، كما يقرؤه json_extract في القاعدة */
+        static string X3Code(string body)
+        {
+            try
+            {
+                string raw = body.Length > 0 && body[0] == '{' ? X3TopRaw(body, 0, body.Length, "code") : null;
+                return raw != null && raw.Length > 0 && raw[0] == '"' ? Json.Parse(raw) as string : null;
+            }
+            catch (FormatException) { return null; }
+        }
+
+        /* الملف: مفاتيحه بالترتيب، ومكان كل قسم، وسجلاته إن كان مصفوفة سجلات. null: ليس كائناً */
+        /* للحفظ القادم: الملف مفحوصاً مرة (البرنامج يحفظه مع النص الذي رأته الشاشة). null: لا يُفهم هكذا */
+        internal static X3Doc X3ScanOrNull(string json)
+        {
+            try { return X3Scan(json ?? ""); }
+            catch (FormatException) { return null; }
+            catch (InvalidCastException) { return null; }
+        }
+
+        /* الفرق بين ملفين مفحوصين من قبل */
+        internal static List<X3Op> X3Diff(X3Doc b, X3Doc n)
+        {
+            return X3DiffText(b, n);
+        }
+
+        static X3Doc X3Scan(string s)
+        {
+            X3Doc d = new X3Doc();
+            d.Src = s;
+            int i = SkipWs(s, 0);
+            if (i >= s.Length || s[i] != '{') return null;
+            i = SkipWs(s, i + 1);
+            if (i < s.Length && s[i] == '}') return SkipWs(s, i + 1) == s.Length ? d : null;
+            while (true)
+            {
+                if (i >= s.Length || s[i] != '"') throw new FormatException("مفتاح متوقع.");
+                int ke = SkipStr(s, i);
+                string key = (string)Json.Parse(s.Substring(i, ke - i));
+                i = SkipWs(s, ke);
+                if (i >= s.Length || s[i] != ':') throw new FormatException("«:» متوقعة.");
+                int vs = SkipWs(s, i + 1);
+                int ve = SkipVal(s, vs);
+                if (d.Secs.ContainsKey(key)) throw new FormatException("مفتاح مكرر.");
+                X3Sec sec = new X3Sec();
+                sec.Start = vs;
+                sec.Len = ve - vs;
+                if (s[vs] == '[') X3ScanRecords(s, sec);
+                d.Keys.Add(key);
+                d.Secs[key] = sec;
+                i = SkipWs(s, ve);
+                if (i < s.Length && s[i] == ',') { i = SkipWs(s, i + 1); continue; }
+                if (i < s.Length && s[i] == '}') break;
+                throw new FormatException("«,» أو «}» متوقعة.");
+            }
+            if (SkipWs(s, i + 1) != s.Length) throw new FormatException("نص بعد آخر الملف.");
+            return d;
+        }
+
+        /* مصفوفة سجلات كما يعرّفها X3IsRecords: غير فارغة، وكل عنصر كائن بمعرّف لا يتكرر */
+        static void X3ScanRecords(string s, X3Sec sec)
+        {
+            int end = sec.Start + sec.Len - 1;
+            int i = SkipWs(s, sec.Start + 1);
+            if (i >= end) return;
+            List<string> ids = new List<string>();
+            List<int> st = new List<int>(), ln = new List<int>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            while (true)
+            {
+                if (s[i] != '{') return;
+                int e = SkipVal(s, i);
+                string id = X3TextId(s, i, e);
+                if (id == null || !seen.Add(id)) return;
+                ids.Add(id);
+                st.Add(i);
+                ln.Add(e - i);
+                i = SkipWs(s, e);
+                if (i == end) break;
+                if (i < end && s[i] == ',') { i = SkipWs(s, i + 1); continue; }
+                throw new FormatException("«,» أو «]» متوقعة.");
+            }
+            sec.Ids = ids;
+            sec.RStart = st;
+            sec.RLen = ln;
+        }
+
+        static bool SameText(string a, int aStart, int aLen, string b, int bStart, int bLen)
+        {
+            return aLen == bLen && string.CompareOrdinal(a, aStart, b, bStart, aLen) == 0;
+        }
+
+        static List<X3Op> X3DiffText(X3Doc b, X3Doc n)
+        {
+            List<X3Op> ops = new List<X3Op>();
+            List<object> bKeys = new List<object>(), nKeys = new List<object>();
+            foreach (string k in b.Keys) bKeys.Add(k);
+            foreach (string k in n.Keys) nKeys.Add(k);
+            if (!JsonEqual(bKeys, nKeys)) ops.Add(Single("$keys", b.Keys.Count > 0, bKeys, true, nKeys));
+
+            foreach (string key in n.Keys)
+            {
+                X3Sec ns = n.Secs[key], bs;
+                bool had = b.Secs.TryGetValue(key, out bs);
+                if (had && SameText(b.Src, bs.Start, bs.Len, n.Src, ns.Start, ns.Len)) continue;
+                bool bRec = had && bs.Ids != null, nRec = ns.Ids != null;
+                if (!nRec)
+                {
+                    object nv = n.Parse(ns.Start, ns.Len);
+                    object bv = had ? b.Parse(bs.Start, bs.Len) : null;
+                    if (had && JsonEqual(bv, nv)) continue;
+                    if (bRec) for (int i = 0; i < bs.Ids.Count; i++) ops.Add(Rec(key, b.Rec(bs, i), null));
+                    ops.Add(Single(key, had && !bRec, bv, true, nv));
+                    continue;
+                }
+                if (had && !bRec) ops.Add(Single(key, true, b.Parse(bs.Start, bs.Len), false, null));
+                RecordsDiffText(key, b, bRec ? bs : null, n, ns, ops);
+            }
+            foreach (string key in b.Keys)
+            {
+                if (n.Secs.ContainsKey(key)) continue;
+                X3Sec bs = b.Secs[key];
+                if (bs.Ids != null) for (int i = 0; i < bs.Ids.Count; i++) ops.Add(Rec(key, b.Rec(bs, i), null));
+                else ops.Add(Single(key, true, b.Parse(bs.Start, bs.Len), false, null));
+            }
+            return ops;
+        }
+
+        /* كـ RecordsDiff، والسجل الذي لم يتغيّر نصه لا يُحلَّل */
+        static void RecordsDiffText(string coll, X3Doc b, X3Sec bs, X3Doc n, X3Sec ns, List<X3Op> ops)
+        {
+            List<string> bOrder = bs == null ? new List<string>() : bs.Ids;
+            Dictionary<string, int> bm = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < bOrder.Count; i++) bm[bOrder[i]] = i;
+            List<string> nOrder = ns.Ids;
+            HashSet<string> nSet = new HashSet<string>(nOrder, StringComparer.Ordinal);
+            string[] nextOld = new string[nOrder.Count];
+            string after = null;
+            for (int i = nOrder.Count - 1; i >= 0; i--)
+            {
+                nextOld[i] = after;
+                if (bm.ContainsKey(nOrder[i])) after = nOrder[i];
+            }
+
+            for (int i = 0; i < nOrder.Count; i++)
+            {
+                string id = nOrder[i];
+                int bi;
+                if (bm.TryGetValue(id, out bi))
+                {
+                    if (SameText(b.Src, bs.RStart[bi], bs.RLen[bi], n.Src, ns.RStart[i], ns.RLen[i])) continue;
+                    Dictionary<string, object> od = b.Rec(bs, bi), nd = n.Rec(ns, i);
+                    if (!JsonEqual(od, nd)) ops.Add(Rec(coll, od, nd));
+                    continue;
+                }
+                Dictionary<string, object> d = n.Rec(ns, i);
+                X3Op op = Rec(coll, null, d);
+                op.Prev = i > 0 ? nOrder[i - 1] : null;
+                op.Next = nextOld[i];
+                if (coll == "invoices") op.RefId = ReturnRefIdText(d, n, ns);
+                ops.Add(op);
+            }
+            foreach (string id in bOrder) if (!nSet.Contains(id)) ops.Add(Rec(coll, b.Rec(bs, bm[id]), null));
+
+            List<string> bCommon = bOrder.FindAll(delegate (string id) { return nSet.Contains(id); });
+            List<string> nCommon = nOrder.FindAll(delegate (string id) { return bm.ContainsKey(id); });
+            for (int i = 0; i < bCommon.Count; i++)
+            {
+                if (bCommon[i] == nCommon[i]) continue;
+                X3Op o = new X3Op();
+                o.Coll = coll; o.Key = ""; o.Order = nOrder;
+                o.HasBase = true; o.HasNow = true;
+                ops.Add(o);
+                break;
+            }
+        }
+
+        /* كـ ReturnRefId: من نص الفواتير، رقم كل فاتورة ونوعها فقط */
+        static string ReturnRefIdText(Dictionary<string, object> v, X3Doc n, X3Sec ns)
+        {
+            if (Json.Str(v, "kind") != "return") return "";
+            object rn;
+            if (!v.TryGetValue("refNo", out rn) || rn == null) return "";
+            for (int i = 0; i < ns.Ids.Count; i++)
+            {
+                int s0 = ns.RStart[i], e0 = s0 + ns.RLen[i];
+                string kind = X3TopRaw(n.Src, s0, e0, "kind");
+                if (kind != null && (Json.Parse(kind) as string) == "return") continue;
+                string no = X3TopRaw(n.Src, s0, e0, "no");
+                if (no != null && JsonEqual(Json.Parse(no), rn)) return ns.Ids[i];
+            }
+            return "";
         }
 
         /* إرجاع جديد: معرّف الفاتورة التي رقمها refNo في ما ترسله الواجهة */
@@ -369,7 +676,8 @@ namespace Qirtasiya.Data
             double? OrdBefore(string coll, double ord);
             double? MaxOrd(string coll);
             void Renumber(string coll);
-            bool CodeUsed(string coll, string code, string exceptKey);
+            /* رموز الأصناف (النصية) في القسم */
+            List<string> Codes(string coll);
             void SetOrd(string coll, string key, double ord);
         }
 
@@ -412,9 +720,15 @@ namespace Qirtasiya.Data
                     c.Run("UPDATE x3_docs SET ord = ? WHERE id = ?", (double)(++i * 1024), r[0]);
                 Changes++;
             }
-            public bool CodeUsed(string coll, string code, string exceptKey)
+            public List<string> Codes(string coll)
             {
-                return c.Long("SELECT COUNT(*) FROM x3_docs WHERE coll = ? AND key <> ? AND key <> '' AND json_extract(body, '$.code') = ?", 0, coll, exceptKey, code) > 0;
+                List<string> l = new List<string>();
+                foreach (object[] r in c.Rows("SELECT json_extract(body, '$.code') FROM x3_docs WHERE coll = ? AND key <> ''", coll))
+                {
+                    string s = r[0] as string;
+                    if (s != null) l.Add(s);
+                }
+                return l;
             }
             public void SetOrd(string coll, string key, double ord)
             {
@@ -456,15 +770,16 @@ namespace Qirtasiya.Data
                 l.Sort(delegate (X3Row a, X3Row b) { return a.Ord.CompareTo(b.Ord); });
                 for (int i = 0; i < l.Count; i++) l[i].Ord = (i + 1) * 1024;
             }
-            public bool CodeUsed(string coll, string code, string exceptKey)
+            public List<string> Codes(string coll)
             {
+                List<string> l = new List<string>();
                 foreach (KeyValuePair<string, X3Row> kv in C(coll))
                 {
-                    if (kv.Key.Length == 0 || kv.Key == exceptKey) continue;
-                    Dictionary<string, object> d = Json.Parse(kv.Value.Body) as Dictionary<string, object>;
-                    if (d != null && Json.Str(d, "code") == code) return true;
+                    if (kv.Key.Length == 0) continue;
+                    string s = X3Code(kv.Value.Body);
+                    if (s != null) l.Add(s);
                 }
-                return false;
+                return l;
             }
             public void SetOrd(string coll, string key, double ord) { X3Row r = Get(coll, key); if (r != null) r.Ord = ord; }
 
@@ -506,10 +821,58 @@ namespace Qirtasiya.Data
             public Dictionary<string, long> Renumbered = new Dictionary<string, long>(StringComparer.Ordinal);
         }
 
+        /* رموز الأصناف في القسم: تُقرأ مرة واحدة عند أول صنف جديد في الحفظ، ثم تُتابَع مع كل
+           ما يدخل ويخرج فيه. كان السؤال لكل صنف جديد يمرّ على كل الأصناف: نقل عشرين ألف كتاب
+           للقاعدة («هذا جهاز المحل») أخذ أكثر من أربع دقائق، وكل كتاب ينتظر على الجهاز الثاني
+           كان يقرأ كل الكتب عند كل تحميل */
+        sealed class X3Codes
+        {
+            readonly IX3Store st;
+            readonly Dictionary<string, Dictionary<string, int>> sets = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+
+            public X3Codes(IX3Store store) { st = store; }
+
+            Dictionary<string, int> Set(string coll)
+            {
+                Dictionary<string, int> m;
+                if (sets.TryGetValue(coll, out m)) return m;
+                sets[coll] = m = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (string c in st.Codes(coll)) Bump(m, c, 1);
+                return m;
+            }
+
+            static void Bump(Dictionary<string, int> m, string code, int by)
+            {
+                if (string.IsNullOrEmpty(code)) return;
+                int k;
+                m.TryGetValue(code, out k);
+                if (k + by <= 0) m.Remove(code); else m[code] = k + by;
+            }
+
+            public bool Used(string coll, string code)
+            {
+                return Set(coll).ContainsKey(code);
+            }
+
+            /* سجل خرج من القسم أو دخله. قبل أن تُقرأ رموزه لا شيء: تُقرأ لاحقاً كما صارت */
+            public void Gone(string coll, string body)
+            {
+                Dictionary<string, int> m;
+                if (sets.TryGetValue(coll, out m)) Bump(m, X3Code(body), -1);
+            }
+
+            public void Came(string coll, string body)
+            {
+                Dictionary<string, int> m;
+                if (sets.TryGetValue(coll, out m)) Bump(m, X3Code(body), 1);
+            }
+        }
+
         /* يطبّق التغييرات على st. remote: من جهاز ثانٍ (أرقام الفواتير والرموز تُعطى هنا) */
         static X3Result X3ApplyTo(IX3Store st, List<X3Op> ops, bool remote)
         {
             X3Result res = new X3Result();
+            X3Codes codes = new X3Codes(st);
             X3Row countersRow = st.Get("counters", "");
             Dictionary<string, object> counters = countersRow == null ? null : Json.Parse(countersRow.Body) as Dictionary<string, object>;
             long invBase = counters == null ? 0 : Json.Long(counters, "invoice", 0);
@@ -564,9 +927,14 @@ namespace Qirtasiya.Data
                 }
                 if (o.Order != null) { ApplyOrder(st, o.Coll, o.Order); continue; }
                 X3Row cur = st.Get(o.Coll, o.Key);
+                bool item = (o.Coll == "books" || o.Coll == "stationery") && o.Key.Length > 0;
                 if (!o.HasNow)
                 {
-                    if (cur != null) st.Del(o.Coll, o.Key);
+                    if (cur != null)
+                    {
+                        if (item) codes.Gone(o.Coll, cur.Body);
+                        st.Del(o.Coll, o.Key);
+                    }
                     continue;
                 }
                 object curV = cur == null ? null : Json.Parse(cur.Body);
@@ -585,9 +953,15 @@ namespace Qirtasiya.Data
                     countersBumped = false;
                 }
                 /* صنف جديد فقط: المصفوفة الفارغة (لا كتب أو لا قرطاسية) قسم واحد بلا معرّف */
-                if ((o.Coll == "books" || o.Coll == "stationery") && o.Key.Length > 0 && !o.HasBase && cur == null) val = FreshCode(st, o.Coll, (Dictionary<string, object>)val, o.Key, ref counters, res);
+                if (item && !o.HasBase && cur == null) val = FreshCode(codes, o.Coll, (Dictionary<string, object>)val, ref counters, res);
                 double ord = cur != null ? cur.Ord : o.Key.Length == 0 ? 0 : NewOrd(st, o.Coll, o.Prev, o.Next);
-                st.Put(o.Coll, o.Key, ord, Json.Write(val));
+                string body = Json.Write(val);
+                if (item)
+                {
+                    if (cur != null) codes.Gone(o.Coll, cur.Body);
+                    codes.Came(o.Coll, body);
+                }
+                st.Put(o.Coll, o.Key, ord, body);
             }
             /* أرقام جديدة بلا تغيير في counters من الواجهة نفسها */
             if (countersBumped && counters != null && Json.Long(counters, "invoice", 0) < nextNo)
@@ -617,15 +991,15 @@ namespace Qirtasiya.Data
         }
 
         /* صنف جديد برمز مأخوذ هنا (جهازان أضافا معاً): الرمز التالي K0187 / Q0042 */
-        static object FreshCode(IX3Store st, string coll, Dictionary<string, object> v, string key, ref Dictionary<string, object> counters, X3Result res)
+        static object FreshCode(X3Codes codes, string coll, Dictionary<string, object> v, ref Dictionary<string, object> counters, X3Result res)
         {
             string code = Json.Str(v, "code");
-            if (code.Length == 0 || !st.CodeUsed(coll, code, key)) return v;
+            if (code.Length == 0 || !codes.Used(coll, code)) return v;
             string kind = coll == "books" ? "book" : "stat", prefix = coll == "books" ? "K" : "Q";
             if (counters == null) counters = new Dictionary<string, object>();
             long n = Json.Long(counters, kind, 0);
             string fresh;
-            do { n++; fresh = prefix + n.ToString(CultureInfo.InvariantCulture).PadLeft(4, '0'); } while (st.CodeUsed(coll, fresh, key));
+            do { n++; fresh = prefix + n.ToString(CultureInfo.InvariantCulture).PadLeft(4, '0'); } while (codes.Used(coll, fresh));
             counters[kind] = n;
             counters["$dirty"] = true;
             Dictionary<string, object> r = new Dictionary<string, object>(v);
