@@ -2524,7 +2524,7 @@ var Inv = (function () {
     editBook: editBook, editStat: editStat, del: del, addStock: addStock, move: move,
     setF: setF, setG: setG, showShelf: showShelf, printShoppingList: printShoppingList,
     restockAll: restockAll, printPickList: printPickList,
-    searchItems: searchItems, byBarcode: byBarcode,
+    searchItems: searchItems, byBarcode: byBarcode, itemHay: itemHay,
     pd: pd, purSuggest: purSuggest, purKey: purKey, purAdd: purAdd, purClearQ: purClearQ, purBlur: purBlur,
     purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase, purSetTo: purSetTo,
     purPay: purPay, purPast: purPast, pastImport: pastImport, __pastPlan: pastPlan, __pastApply: pastApply,

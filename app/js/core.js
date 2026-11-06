@@ -369,7 +369,7 @@ var App = (function () {
     x3.busy = true;
     var edits = x3.edits;
     if (x3p.on && x3p.snap && x3p.rev === x3.rev) {
-      api("/api/x3/since", { headers: { "X-X3-Rev": x3.rev } }).then(function (r) {
+      return api("/api/x3/since", { headers: { "X-X3-Rev": x3.rev } }).then(function (r) {
         var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
         return r.text().then(function (t) {
           x3.busy = false;
@@ -377,7 +377,7 @@ var App = (function () {
           var p = null;
           try { p = JSON.parse(t); } catch (e) { }
           var res = p && !p.full && rev ? x3Apply(p) : null;
-          if (!res) { x3p.snap = null; x3p.rev = ""; x3Idle(); return; }   // التحميل كله
+          if (!res) { x3p.snap = null; x3p.rev = ""; return x3Idle(); }    // التحميل كله
           x3.rev = rev;
           if (gen !== null && gen !== "") x3.gen = +gen;
           x3p.snap = res.snap; x3p.rev = rev;
@@ -386,9 +386,8 @@ var App = (function () {
           rerender();
         });
       }).catch(function () { x3.busy = false; });
-      return;
     }
-    api("/api/load").then(function (r) {
+    return api("/api/load").then(function (r) {
       var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
       return r.text().then(function (t) {
         x3.busy = false;
@@ -402,6 +401,7 @@ var App = (function () {
         S = heal(parsed);
         x3.stale = false;
         rerender();
+        setTimeout(warmSearch, 400);
       });
     }).catch(function () { x3.busy = false; });
   }
@@ -1040,6 +1040,19 @@ var App = (function () {
     };
   }
 
+  /* أول حرف في البيع بعد الفتح كان يطبّع كل الأصناف مرة واحدة (63 ألفاً: 0.4 ث). تُطبَّع في الخلفية
+     بعد الفتح وبعد كل تحميل كامل، 3000 صنف كل مرة، فلا تتوقف الشاشة */
+  function warmSearch() {
+    if (typeof Inv === "undefined" || !Inv.itemHay || !S) return;
+    var mine = S, list = allItems(), i = 0;
+    (function step() {
+      if (S !== mine) return;
+      var end = Math.min(i + 3000, list.length);
+      for (; i < end; i++) hayParts(Inv.itemHay(list[i]), list[i].it);
+      if (i < list.length) setTimeout(step, 30);
+    })();
+  }
+
   function exactScore(nq, qs, p) {
     var nh = p.name, no = p.other;
     if (nh === nq) return 1000;
@@ -1075,11 +1088,22 @@ var App = (function () {
       if (s) exact.push({ r: r, s: s, l: s >= 700 ? p.name.length : 0, i: i });
       else rest.push(p, r);
     });
-    exact.sort(function (a, b) { return b.s - a.s || a.l - b.l || a.i - b.i; });
+    var byRank = function (a, b) { return b.s - a.s || a.l - b.l || a.i - b.i; };
     var names = 0;
     exact.forEach(function (x) { if (x.s === 1000) names++; });
     if (limit && exact.length >= limit) {
-      var top = exact.slice(0, limit).map(function (x) { return x.r; });
+      /* أول limit بالترتيب نفسه دون ترتيب الكل: حرف واحد في البيع يطابق 60 ألف كتاب، وترتيبها كلها
+         لثمانية نتائج كان ثلث ثانية */
+      var best = [];
+      for (var e = 0; e < exact.length; e++) {
+        var x = exact[e];
+        if (best.length === limit && byRank(x, best[limit - 1]) >= 0) continue;
+        var at = best.length;
+        while (at > 0 && byRank(x, best[at - 1]) < 0) at--;
+        best.splice(at, 0, x);
+        if (best.length > limit) best.pop();
+      }
+      var top = best.map(function (x) { return x.r; });
       top.fz = { first: -1, q: q, names: Math.min(names, limit) };
       return top;
     }
@@ -1103,6 +1127,7 @@ var App = (function () {
         near.push({ r: rest[i + 1], s: sc });
       }
     }
+    exact.sort(byRank);
     near.sort(function (a, b) { return b.s - a.s; });
     // البعيد جداً عن أقرب نتيجة ضجيج لا يفيد
     if (near.length) near = near.filter(function (x) { return x.s >= near[0].s - 20; });
@@ -2482,6 +2507,7 @@ var App = (function () {
 
   function boot() {
     load().then(function () {
+      setTimeout(warmSearch, 1200);
       buildNav();
       paintVersion();
       window.addEventListener("hashchange", route);
@@ -2545,7 +2571,16 @@ var App = (function () {
     /* على الأساس الجديد (قرار 0025): النواة تعطي رقم ما رأته الشاشة مع كل تحميل */
     isX3: function () { return !!x3.rev; },
     /* للاختبار: الحفظ بالفرق */
-    __snap: { of: snapOf, text: snapText, patch: snapPatch, apply: x3Apply, ready: function () { return !!(x3p.on && x3p.snap && x3p.rev === x3.rev); } },
+    __snap: {
+      of: snapOf, text: snapText, patch: snapPatch, apply: x3Apply,
+      ready: function () { return !!(x3p.on && x3p.snap && x3p.rev === x3.rev); },
+      /* القياس (bench-x3.js): نسخة سابقة كأن جهازاً آخر غيّر ما بعدها، ثم إعادة التحميل كما تجري */
+      state: function (st) {
+        if (!st) return { snap: x3p.snap, rev: x3.rev, gen: x3.gen };
+        x3p.snap = st.snap; x3p.rev = st.rev; x3.rev = st.rev; x3.gen = st.gen; x3.stale = true;
+      },
+      idle: function () { return Promise.resolve(x3Idle()); }
+    },
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
     retryConnect: retryConnect,
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,

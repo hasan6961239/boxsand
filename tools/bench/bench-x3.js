@@ -237,6 +237,24 @@ async function measureUi(browser, d, errs) {
     /* بالفرق: الشاشة تقطّع ما حمّلته لتعرف ما رآه البرنامج (core.js: x3Snap) */
     out.reload_snap = App.__snap && App.__snap.ready() ? t(() => App.__snap.of(parsed)) : 0;
     out.reload_render = t(() => App.rerender());
+    /* بالفرق (X4): جهاز آخر غيّر سعر كتاب، والشاشة تأخذ ما تغيّر وحده (/api/x3/since) وتطبّقه وترسم.
+       الشاشة نفسها تحفظ التغيير ثم ترجع لنسختها قبله، فتطلب منه ما يطلبه جهاز لم يره */
+    out.reload_since = -1;
+    if (App.__snap && App.__snap.ready()) {
+      await idle();
+      const st = App.__snap.state();
+      const it2 = App.S.books[200];
+      it2.price = Math.round((+it2.price + 1) * 100) / 100;
+      n0 = window.__saveEnd.length; App.save(); await saved(n0); await idle();
+      await new Promise(r => setTimeout(r, 300));
+      App.__snap.state(st);
+      t1 = performance.now();
+      await App.__snap.idle();
+      out.reload_since = Math.round(performance.now() - t1);
+      out.reload_since_ok = App.__snap.ready() && App.S.books[200].price === it2.price;
+    }
+    /* الذاكرة بعد تنظيفها (gc): ما تبقى فعلاً لا ما تراكم من القياسات قبلها */
+    if (window.gc) { App.rerender(); window.gc(); await new Promise(r => setTimeout(r, 300)); window.gc(); }
     out.heap_mb = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : -1;
     return out;
   });
@@ -484,7 +502,8 @@ function markdown(res, books) {
       ['فلترة جدول الكتب', c => s(c.books_filter)],
       ['فتح جدول الكتب', c => s(c.books_table)],
       ['صفحة التنبيهات / الراكد / الفواتير', c => s(c.page_alerts) + ' / ' + s(c.page_stale) + ' / ' + s(c.page_invoices)],
-      ['إعادة التحميل حين يغيّر جهاز آخر شيئاً', c => c.mode === 'new' ? s(c.reload_fetch + c.reload_parse + (c.reload_snap || 0) + c.reload_render) : '—'],
+      ['إعادة التحميل حين يغيّر جهاز آخر شيئاً', c => c.mode === 'new' ? (c.reload_since >= 0 ? s(c.reload_since) + (c.reload_since_ok ? '' : ' (!)') : s(c.reload_fetch + c.reload_parse + (c.reload_snap || 0) + c.reload_render)) : '—'],
+      ['  التحميل كله (إن لزم)', c => c.mode === 'new' ? s(c.reload_fetch + c.reload_parse + (c.reload_snap || 0) + c.reload_render) : '—'],
       ['ذاكرة الشاشة / البرنامج', c => c.heap_mb + ' / ' + c.rss_mb + ' ميغا'],
       ['القاعدة على القرص', c => c.db_mb ? c.db_mb + ' ميغا' : '—']
     ];
@@ -533,7 +552,7 @@ function markdown(res, books) {
   if (o.net) E.buildEngine(exeM, 'misrata');
   console.log('يولّد البيانات...');
   const data = stores(tmp, o.books);
-  const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox', '--enable-precise-memory-info'] });
+  const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox', '--enable-precise-memory-info', '--js-flags=--expose-gc'] });
   const errs = [];
   const res = { local: [], net: [] };
   try {
