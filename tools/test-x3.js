@@ -229,6 +229,76 @@ function device(tmp, name) {
     ok(await until(pB, () => App.S.books.find(b => b.id === 'b2').price === 32), 'وسعر المحل الجديد وصل اللابتوب');
     ok(JSON.stringify(await S(pB)) === JSON.stringify(await S(pA)), 'والجهازان متطابقان');
 
+    console.log('\n== ديون الموردين: فاتورة آجلة وتسديد في الجهازين في الوقت نفسه ==');
+    /* الدين لا يُخزَّن رقماً: دين سابق + فواتير آجلة − تسديدات. فاتورة من
+       اللابتوب وتسديد من المحل في الوقت نفسه لا يأكل أحدهما الآخر. */
+    await pA.evaluate(() => {
+      App.S.suppliers.push({ id: 'sp1', name: 'مورد تجربة', city: 'مصراتة', opening: 100, created: App.nowStamp() });
+      App.save();
+    });
+    await sleep(500);
+    await link(pA, 'now'); await link(pB, 'now');
+    ok(await until(pB, () => window.People && People.supDebt(People.supplier('sp1')) === 100), 'المورد ودينه السابق (100) وصلوا اللابتوب');
+    const q2 = book(await S(pB), 'b2').qty;
+    await pB.evaluate(() => { location.hash = '#/purchases'; App.route(); }); await sleep(400);
+    await pB.evaluate(() => {
+      Inv.gset('mode', 'qty');
+      Inv.pd('supplierId', 'sp1'); Inv.pd('note', 'فاتورة 77'); Inv.purPay('credit');
+      Inv.purAdd('book', 'b2'); Inv.purSet(0, 'qty', 4); Inv.purSet(0, 'cost', 10);
+      Inv.purSave();
+      App.S.supPayments.unshift({ id: App.uid(), supplierId: 'sp1', amount: 10, date: App.today(), at: App.nowStamp(), note: 'من اللابتوب', fromDrawer: false });
+      App.save();
+    });
+    await pA.evaluate(() => {
+      App.S.supPayments.unshift({ id: App.uid(), supplierId: 'sp1', amount: 30, date: App.today(), at: App.nowStamp(), note: 'من المحل', fromDrawer: true });
+      App.save();
+    });
+    await sleep(500);
+    await link(pB, 'now'); await link(pA, 'now'); await link(pB, 'now');
+    const debtOk = q => App.S.supPayments.length === 2 && People.supDebt(People.supplier('sp1')) === 100 &&
+      App.S.books.find(b => b.id === 'b2').qty === q;
+    ok(await until(pA, debtOk, q2 + 4), 'المحل: الفاتورة الآجلة (40) والتسديدان (10 و30) كلهم — الدين 100، والكمية زادت 4');
+    ok(await until(pB, debtOk, q2 + 4), 'واللابتوب كذلك');
+    s = await S(pA);
+    const pur = s.purchases.find(p => p.supplierId === 'sp1');
+    ok(pur && pur.pay === 'credit' && pur.total === 40 && !pur.past, 'الفاتورة محفوظة «آجل» بقيمتها', pur);
+    ok(JSON.stringify(await S(pB)) === JSON.stringify(s), 'والجهازان متطابقان حرفياً');
+
+    console.log('\n== اللاصقات: كتاب بلا باركود في جهاز، وطباعة لاصقته في الثاني ==');
+    /* شكوى المستخدم: كتب بلا باركود لا تظهر أحياناً في «لم تُطبع»، ومطبوعة لا تخرج منها */
+    const printLabel = async (pg, id, yes) => {
+      await pg.evaluate(() => { location.hash = '#/labels'; App.route(); }); await sleep(400);
+      await pg.evaluate(id => { window.print = () => { }; Labels.clearSel(); Labels.toggle(id, 1); Labels.preview(); }, id); await sleep(500);
+      await pg.click('#modalHost button:has-text("طباعة الآن")'); await sleep(1300);
+      await pg.click('#modalHost button:has-text("' + (yes ? 'أيوه، طلعت' : 'لا، خليها') + '")'); await sleep(500);
+    };
+    const inList = id => !!Labels.needsLabel(App.findItem('book', id));
+    await pB.evaluate(() => {
+      App.S.books.unshift({ id: 'lb1', code: App.nextCode('book'), title: 'كتاب بلا باركود من اللابتوب', barcode: '', price: 15, cost: 10, qty: 2, lib: 'A', shelf: '1', created: App.nowStamp() });
+      App.save();
+    });
+    await pA.evaluate(() => {
+      App.S.books.unshift({ id: 'lb2', code: App.nextCode('book'), title: 'كتاب بلا باركود من المحل', barcode: '', price: 18, cost: 11, qty: 1, lib: 'A', shelf: '2', created: App.nowStamp() });
+      App.save();
+    });
+    await sleep(500);
+    await link(pB, 'now'); await link(pA, 'now'); await link(pB, 'now');
+    ok(await until(pA, () => App.findItem('book', 'lb1') && Labels.needsLabel(App.findItem('book', 'lb1'))), 'كتاب اللابتوب بلا باركود يظهر في «لم تُطبع» في المحل');
+    ok(await until(pB, () => App.findItem('book', 'lb2') && Labels.needsLabel(App.findItem('book', 'lb2'))), 'وكتاب المحل يظهر في «لم تُطبع» في اللابتوب');
+    await printLabel(pA, 'lb1', false);
+    ok(await pA.evaluate(inList, 'lb1'), 'المحل: طباعة ثم «لا» — يبقى في القائمة');
+    await printLabel(pA, 'lb1', true);
+    await printLabel(pB, 'lb2', true);
+    ok(!await pA.evaluate(inList, 'lb1') && !await pB.evaluate(inList, 'lb2'), 'و«أيوه، طلعت» تُخرجه من القائمة في الجهاز اللي طبع');
+    await sleep(500);
+    await link(pB, 'now'); await link(pA, 'now'); await link(pB, 'now');
+    const out2 = () => !Labels.needsLabel(App.findItem('book', 'lb1')) && !Labels.needsLabel(App.findItem('book', 'lb2'));
+    ok(await until(pA, out2) && await until(pB, out2), 'وبعد المزامنة: الاثنين خارج القائمة في الجهازين');
+    await pA.reload({ waitUntil: 'domcontentloaded' });
+    await pA.waitForFunction(() => window.App && App.S && App.S.books && window.Labels, null, { timeout: 30000 }); await sleep(900);
+    ok(await pA.evaluate(out2), 'وبعد إعادة فتح شاشة المحل: ما رجعوش للقائمة');
+    ok(JSON.stringify(await S(pB)) === JSON.stringify(await S(pA)), 'والجهازان متطابقان حرفياً');
+
     console.log('\n== حماية بيانات المحل من اللابتوب ==');
     await pB.evaluate(() => Rep.wipeAll()); await sleep(400);
     ok(await pB.evaluate(() => !document.querySelector('.modal')), '«مسح جميع البيانات» على اللابتوب: يُرفض قبل أن يبدأ');

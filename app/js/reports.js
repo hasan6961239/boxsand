@@ -52,10 +52,18 @@ var Rep = (function () {
       if (to && p.date > to) return;
       consOut += App.num(p.amount);
     });
+    /* تسديد المورد من الدرج يخرج من النقد مثل تسديد أصحاب المباع */
+    var supOut = 0;
+    (S().supPayments || []).forEach(function (p) {
+      if (!p.fromDrawer) return;
+      if (from && p.date < from) return;
+      if (to && p.date > to) return;
+      supOut += App.num(p.amount);
+    });
     return {
       salesCash: App.r3(cash), upfront: App.r3(upfront), debtPaid: App.r3(debtPaid), nPaid: nPaid,
-      refundCredit: App.r3(refundCredit), consOut: App.r3(consOut),
-      cash: App.r3(cash + upfront + debtPaid - refundCredit - consOut),
+      refundCredit: App.r3(refundCredit), consOut: App.r3(consOut), supOut: App.r3(supOut),
+      cash: App.r3(cash + upfront + debtPaid - refundCredit - consOut - supOut),
       card: App.r3(card),
       due: App.r3(inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0))
     };
@@ -542,7 +550,8 @@ var Rep = (function () {
         (tk.debtPaid ? " · تسديد ديون " + App.money0(tk.debtPaid) : "") +
         (tk.upfront ? " · مقدّم آجل " + App.money0(tk.upfront) : "") +
         (tk.refundCredit ? " · رُدّ " + App.money0(tk.refundCredit) : "") +
-        (tk.consOut ? " · دُفع لأصحاب المباع " + App.money0(tk.consOut) : "") + "</div></div>" +
+        (tk.consOut ? " · دُفع لأصحاب المباع " + App.money0(tk.consOut) : "") +
+        (tk.supOut ? " · دُفع لموردين " + App.money0(tk.supOut) : "") + "</div></div>" +
       '<div class="paybox card"><div class="pb-t">' + App.esc(S().meta.cardName || "البطاقة المصرفية") + "</div>" +
       '<div class="pb-v num">' + App.money0(card2) + "</div>" +
       '<div class="pb-s">' + cntBy("card") + " فاتورة</div></div>" +
@@ -697,6 +706,7 @@ var Rep = (function () {
       '<div class="tot"><span>بطاقة مصرفية</span><span class="num">' + App.money0(card2) + "</span></div>" +
       (tk.debtPaid ? '<div class="tot"><span>منها تسديد ديون</span><span class="num">' + App.money0(tk.debtPaid) + "</span></div>" : "") +
       (tk.consOut ? '<div class="tot"><span>دُفع لأصحاب المباع من الدرج</span><span class="num">−' + App.money0(tk.consOut) + "</span></div>" : "") +
+      (tk.supOut ? '<div class="tot"><span>دُفع لموردين من الدرج</span><span class="num">−' + App.money0(tk.supOut) + "</span></div>" : "") +
       '<div class="tot"><span>آجل (لم يُقبض)</span><span class="num">' + App.money0(tk.due) + "</span></div>" +
       '<div class="tot g"><span>المقبوض فعلياً</span><span class="num">' + App.money0(cash + card2) + " " + App.esc(S().meta.currency) + "</span></div>" +
       "<hr>" +
@@ -920,7 +930,7 @@ var Rep = (function () {
           }).then(function () {
             var s2 = S();
             ["books", "stationery", "customers", "suppliers", "invoices", "payments", "purchases",
-              "log", "consignors", "consignments", "consPayments", "closings", "warehouses"].forEach(function (k) {
+              "log", "consignors", "consignments", "consPayments", "closings", "warehouses", "supPayments"].forEach(function (k) {
                 s2[k] = [];
               });
             s2.counters = { invoice: 0, book: 0, stat: 0 };
@@ -1467,6 +1477,7 @@ var Rep = (function () {
     backupNow: backupNow, openFolder: openFolder, restore: restore,
     recoverScreen: recoverScreen, setBackupDir: setBackupDir,
     archivePage: archivePage, doArchive: doArchive, viewArchive: viewArchive,
-    exportAll: exportAll, importAll: importAll
+    exportAll: exportAll, importAll: importAll,
+    __takings: takings
   };
 })();

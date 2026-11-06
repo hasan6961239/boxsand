@@ -47,6 +47,7 @@ var App = (function () {
         bigAmount: 100, dailyHour: 20, lastDaily: "", log: []
       },
       consignors: [], consignments: [], consPayments: [], closings: [], publishers: [],
+      supPayments: [],
       counts: [], countSession: null,
       remotes: [],
       warehouses: [],
@@ -78,7 +79,7 @@ var App = (function () {
     for (var c in b.counters) { if (typeof s.counters[c] !== "number") s.counters[c] = b.counters[c]; }
     ["books", "stationery", "customers", "suppliers", "invoices", "payments", "purchases", "log",
       "remotes", "warehouses", "outbox",
-      "consignors", "consignments", "consPayments", "closings", "publishers", "counts"]
+      "consignors", "consignments", "consPayments", "closings", "publishers", "counts", "supPayments"]
       .forEach(function (k) { if (!Array.isArray(s[k])) s[k] = []; });
     return s;
   }

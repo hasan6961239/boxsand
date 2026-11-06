@@ -363,6 +363,135 @@ const check = (name, ok, got) => {
     await pg.close();
   }
 
+  /* ------ ديون الموردين: دين سابق + فواتير آجلة − تسديدات ------ */
+  console.log('\n[ي] ديون الموردين');
+  {
+    const pg = await fresh(d => { d.suppliers = [{ id: 'sp1', name: 'مورد تجربة', city: 'مصراتة', opening: 50 }]; });
+    const debt = () => pg.evaluate(() => People.supDebt(People.supplier('sp1')));
+    const buy = (lines, opt) => pg.evaluate(([lines, opt]) => {
+      location.hash = '#/purchases'; App.route();
+      Inv.gset('mode', 'qty'); Inv.purClear();
+      if (opt.sup) Inv.pd('supplierId', opt.sup);
+      Inv.purPay(opt.pay); Inv.purPast(!!opt.past);
+      lines.forEach(([id, q, c], i) => { Inv.purAdd('book', id); Inv.purSet(i, 'qty', q); Inv.purSet(i, 'cost', c); });
+      Inv.purSave();
+    }, [lines, opt]);
+    const bk = id => pg.evaluate(id => { const x = App.findItem('book', id); return { qty: x.qty, cost: x.cost }; }, id);
+
+    await buy([['b1', 3, 25]], { pay: 'credit' }); await sleep(300);
+    let n = await pg.evaluate(() => App.S.purchases.length);
+    check('الآجل بدون مورد يُرفض: لا فاتورة ولا كمية', n === 0 && (await bk('b1')).qty === 10, n + ' فاتورة');
+
+    await buy([['b1', 3, 25]], { pay: 'credit', sup: 'sp1' }); await sleep(300);
+    let p = await pg.evaluate(() => App.S.purchases[0]);
+    check('شراء آجل 3×25: الدين 50+75 = 125، والكمية 13، والجملة 25',
+      p.pay === 'credit' && p.total === 75 && await debt() === 125 && JSON.stringify(await bk('b1')) === '{"qty":13,"cost":25}',
+      JSON.stringify({ p: p.pay, t: p.total, d: await debt(), b: await bk('b1') }));
+
+    await buy([['b1', 1, 25]], { pay: 'cash', sup: 'sp1' }); await sleep(300);
+    check('شراء نقداً من نفس المورد لا يزيد الدين', await debt() === 125 && (await bk('b1')).qty === 14, await debt());
+
+    await buy([['b2', 5, 8]], { pay: 'credit', sup: 'sp1', past: true }); await sleep(300);
+    p = await pg.evaluate(() => App.S.purchases[0]);
+    check('فاتورة سابقة آجلة 5×8: الدين 165، والكمية والجملة ما تغيّروش',
+      p.past === true && p.total === 40 && await debt() === 165 && JSON.stringify(await bk('b2')) === '{"qty":10,"cost":10}',
+      JSON.stringify({ past: p.past, d: await debt(), b: await bk('b2') }));
+
+    const pay = async (amount, drawer) => {
+      await pg.evaluate(() => People.supPay('sp1')); await sleep(300);
+      await pg.fill('#modalHost #f_amount', String(amount));
+      await pg.selectOption('#modalHost #f_drawer', drawer);
+      await pg.click('#modalHost button:has-text("تسجيل التسديد")'); await sleep(300);
+      await pg.evaluate(() => document.querySelectorAll('#modalHost .overlay').forEach(o => o.remove()));
+    };
+    await pay(1000, 'yes');
+    check('تسديد أكثر من الدين يُرفض', (await pg.evaluate(() => App.S.supPayments.length)) === 0 && await debt() === 165, await debt());
+    await pay(65, 'yes');
+    let tk = await pg.evaluate(() => Rep.__takings([], App.today(), App.today()));
+    check('تسديد 65 من الدرج: الدين 100، ويُطرح من نقد اليوم', await debt() === 100 && tk.supOut === 65 && tk.cash === -65,
+      JSON.stringify({ d: await debt(), tk }));
+    await pay(20, 'no');
+    tk = await pg.evaluate(() => Rep.__takings([], App.today(), App.today()));
+    check('تسديد 20 من خارج الدرج: الدين 80، والنقد ما تغيّرش', await debt() === 80 && tk.cash === -65, JSON.stringify({ d: await debt(), c: tk.cash }));
+
+    await pg.evaluate(() => People.delSupplier('sp1')); await sleep(300);
+    check('مورد علينا له دين ما ينحذفش', (await pg.evaluate(() => App.S.suppliers.length)) === 1 &&
+      !(await pg.evaluate(() => document.querySelector('#modalHost .overlay'))), 'انحذف أو طلع تأكيد');
+
+    await pg.evaluate(() => People.supStatement('sp1')); await sleep(300);
+    const st = await pg.evaluate(() => {
+      const rows = [...document.querySelectorAll('#modalHost .overlay:last-child tbody tr')];
+      return { n: rows.length, last: rows.length ? rows[rows.length - 1].lastElementChild.textContent.trim() : '' };
+    });
+    check('كشف الحساب: دين سابق + فاتورتين آجلة + تسديدين، والرصيد الأخير 80', st.n === 5 && /^80(\.00)?$/.test(st.last), JSON.stringify(st));
+    await pg.evaluate(() => document.querySelectorAll('#modalHost .overlay').forEach(o => o.remove()));
+
+    await pg.evaluate(() => App.saveNow()); await sleep(500);
+    await pg.reload({ waitUntil: 'domcontentloaded' });
+    await pg.waitForFunction(() => window.App && App.S && App.S.books && window.People, null, { timeout: 30000 }); await sleep(600);
+    check('بعد إعادة الفتح: الدين 80 والتسديدان محفوظين', await debt() === 80 &&
+      (await pg.evaluate(() => App.S.supPayments.length)) === 2, await debt());
+
+    await pg.evaluate(() => { location.hash = '#/customers'; App.route(); }); await sleep(300);
+    await pg.click('#view button:has-text("ديون الموردين")'); await sleep(400);
+    const row = await pg.evaluate(() => (document.querySelector('#sList') || {}).textContent || '');
+    check('خانة «ديون الموردين» في الزبائن والديون تعرض المورد ودينه', row.indexOf('مورد تجربة') >= 0 && row.indexOf('80') >= 0, row.slice(0, 120));
+    await pg.click('#view button:has-text("ديون الزبائن")'); await sleep(300);
+    check('والرجوع لـ«ديون الزبائن» يعرض الزبائن كما كانوا', !!(await pg.$('#cList')), 'ما رجعتش');
+    await pg.close();
+  }
+
+  /* ------ تحميل فواتير شراء سابقة من ملف: بلا كمية، والدين الآن أو بعدين ------ */
+  console.log('\n[ك] تحميل فواتير سابقة من ملف');
+  {
+    const pg = await fresh(d => { d.suppliers = [{ id: 'sp1', name: 'الدار الليبية', opening: 0 }]; });
+    const csv = '﻿رقم الفاتورة,التاريخ,المورد,الباركود,الصنف,الكمية,سعر الشراء\n' +
+      'م-1,2026-09-02 18:01,الدار الليبية,1001,كتاب أ,2,30\n' +
+      'م-1,2026-09-02 18:01,الدار الليبية,,كتاب ب,3,10\n' +
+      'م-2,2026-08-28 16:11,قرطاسية زليتن,999999,صنف مش موجود,4,2.5\n';
+    const f = path.join(DATA, 'past-invoices.csv');
+    fs.writeFileSync(f, csv);
+    const debt = name => pg.evaluate(n => { const s = App.S.suppliers.find(x => x.name === n); return s ? People.supDebt(s) : null; }, name);
+    await pg.evaluate(() => { location.hash = '#/purchases'; App.route(); Inv.gset('mode', 'qty'); }); await sleep(400);
+    await pg.click('#view button:has-text("تحميل فواتير سابقة من ملف")'); await sleep(400);
+    const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('#modalHost button:has-text("اختيار الملف")')]);
+    await fc.setFiles(f); await sleep(800);
+    const review = await pg.evaluate(() => (document.querySelector('#modalHost .overlay:last-child') || {}).textContent || '');
+    check('المراجعة قبل التحميل: فاتورتين، 3 بنود، المجموع 100، وزليتن مورد جديد، وصنف مش موجود',
+      /\b2\b/.test(review) && review.indexOf('100') >= 0 && review.indexOf('جديد') >= 0 && review.indexOf('صنف مش موجود') >= 0, review.slice(0, 220));
+    await pg.click('#modalHost button:has-text("تحميل الفواتير")'); await sleep(600);   // الافتراضي: الدين بعدين
+    let s = await pg.evaluate(() => ({ p: App.S.purchases.map(p => [p.ref, p.pay, p.past, p.total, p.lines.length]),
+      q: App.S.books.map(b => b.qty), c: App.S.books.map(b => b.cost), sups: App.S.suppliers.map(x => x.name) }));
+    check('تسجلت الفاتورتين «سابقة» ودينهم مؤجّل، والأحدث فوق', JSON.stringify(s.p) === JSON.stringify([['م-1', 'later', true, 90, 2], ['م-2', 'later', true, 10, 1]]), JSON.stringify(s.p));
+    check('والكميات وأسعار الشراء ما تغيّروش', JSON.stringify(s.q) === '[10,10]' && JSON.stringify(s.c) === '[30,10]', JSON.stringify(s));
+    check('ومورد جديد «قرطاسية زليتن» تسجّل وحده', s.sups.indexOf('قرطاسية زليتن') >= 0, JSON.stringify(s.sups));
+    check('والدين مؤجّل: ما انحسبش', await debt('الدار الليبية') === 0 && await debt('قرطاسية زليتن') === 0);
+    const line = await pg.evaluate(() => App.S.purchases[0].lines.map(l => [l.name, l.id]));
+    check('البند بلا باركود انعرف بالاسم', JSON.stringify(line) === JSON.stringify([['كتاب أ', 'b1'], ['كتاب ب', 'b2']]), JSON.stringify(line));
+
+    const again = await pg.evaluate(t => Inv.__pastPlan(App.parseCsv(t)), csv);
+    check('نفس الملف مرة ثانية: ما فيه حتى فاتورة جديدة', again.invoices.length === 0 && again.dupes === 2, JSON.stringify({ n: again.invoices.length, d: again.dupes }));
+
+    await pg.evaluate(() => { location.hash = '#/customers'; App.route(); People.setTab('sup'); }); await sleep(400);
+    const row = await pg.evaluate(() => (document.querySelector('#sList') || {}).textContent || '');
+    check('ديون الموردين تبيّن «مؤجّلة» وزر «احسب المؤجّلة»', row.indexOf('مؤجّلة') >= 0 && row.indexOf('احسب المؤجّلة') >= 0, row.slice(0, 160));
+    await pg.evaluate(() => People.supCountLater('sp1')); await sleep(300);
+    await pg.click('#modalHost button:has-text("احسبها في الدين")'); await sleep(500);
+    check('«احسب المؤجّلة» تضيفهم للدين: الدار الليبية 90، وزليتن مازال مؤجّل', await debt('الدار الليبية') === 90 && await debt('قرطاسية زليتن') === 0,
+      JSON.stringify([await debt('الدار الليبية'), await debt('قرطاسية زليتن')]));
+
+    const csv2 = '﻿رقم الفاتورة,التاريخ,المورد,الباركود,الصنف,الكمية,سعر الشراء\nم-3,2026-10-15 07:56,الدار الليبية,1002,كتاب ب,1,12.5\n';
+    await pg.evaluate(t => Inv.__pastApply(Inv.__pastPlan(App.parseCsv(t)), 'credit'), csv2); await sleep(400);
+    check('تحميل «آجل — ينضاف للدين توا»: الدين يزيد 12.5', await debt('الدار الليبية') === 102.5, await debt('الدار الليبية'));
+    check('والفاتورة في مكانها بالتاريخ (الأحدث فوق)', JSON.stringify(await pg.evaluate(() => App.S.purchases.map(p => p.ref))) === '["م-3","م-1","م-2"]',
+      JSON.stringify(await pg.evaluate(() => App.S.purchases.map(p => p.ref))));
+    await pg.evaluate(() => App.saveNow()); await sleep(500);
+    await pg.reload({ waitUntil: 'domcontentloaded' });
+    await pg.waitForFunction(() => window.App && App.S && App.S.books && window.People, null, { timeout: 30000 }); await sleep(600);
+    check('بعد إعادة الفتح: الفواتير والدين محفوظين', await debt('الدار الليبية') === 102.5 && (await pg.evaluate(() => App.S.purchases.length)) === 3);
+    await pg.close();
+  }
+
   console.log('\nأخطاء JavaScript:', errs.length ? [...new Set(errs)] : 'لا شيء');
   if (errs.length) fail++;
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));

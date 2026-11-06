@@ -1795,13 +1795,15 @@ var Inv = (function () {
   }
 
   function purchases() {
-    if (!draft) draft = { supplierId: "", date: App.today(), note: "", lines: [] };
+    ensureDraft();
+    var past = !!draft.past, credit = draft.pay === "credit";
 
     var h = '<div class="card" style="margin-bottom:18px">' +
-      '<div class="card-head"><h3>إدخال بضاعة جديدة</h3><div class="spacer"></div>' +
-      '<span class="muted small">تُضاف الكميات للمخزون وتُحدَّث أسعار الجملة</span></div>' +
+      '<div class="card-head"><h3>' + (past ? "تسجيل فاتورة شراء سابقة" : "إدخال بضاعة جديدة") + '</h3><div class="spacer"></div>' +
+      '<span class="muted small">' + (past ? "الفاتورة تتسجل بس — الكميات والأسعار ما تتغيّرش"
+        : "تُضاف الكميات للمخزون وتُحدَّث أسعار الجملة") + "</span></div>" +
       '<div class="card-body">' +
-      '<div style="margin-bottom:16px">' + destTabs(purTo(), "Inv.purSetTo") + "</div>" +
+      (past ? "" : '<div style="margin-bottom:16px">' + destTabs(purTo(), "Inv.purSetTo") + "</div>") +
       '<div class="grid g3 pur-meta">' +
       '<div class="field"><label>المورد</label><select class="inp" onchange="Inv.pd(\'supplierId\',this.value)">' +
       '<option value="">— بدون مورد —</option>' +
@@ -1809,6 +1811,14 @@ var Inv = (function () {
       "</select></div>" +
       '<div class="field"><label>التاريخ</label><input type="date" class="inp" value="' + draft.date + '" onchange="Inv.pd(\'date\',this.value)"></div>' +
       '<div class="field"><label>ملاحظة / رقم فاتورة المورد</label><input class="inp" value="' + App.esc(draft.note) + '" oninput="Inv.pd(\'note\',this.value)"></div>' +
+      "</div>" +
+      '<div class="grid g2 pur-meta">' +
+      '<div class="field"><label>الدفع</label><div class="seg">' +
+      '<button class="' + (credit ? "" : "on") + '" onclick="Inv.purPay(\'cash\')">نقداً</button>' +
+      '<button class="' + (credit ? "on" : "") + '" onclick="Inv.purPay(\'credit\')">آجل — ينضاف لدين المورد</button></div></div>' +
+      '<div class="field"><label>فاتورة سابقة؟</label>' +
+      '<label class="row small" style="gap:8px;cursor:pointer;min-height:42px"><input type="checkbox" ' + (past ? "checked" : "") +
+      ' onchange="Inv.purPast(this.checked)"> البضاعة موجودة في المحل من قبل — سجّل الفاتورة بس، لا تزيد الكمية</label></div>' +
       "</div>" +
       '<div class="field pur-find">' +
       '<label>ابحث عن الصنف الذي وصلتك منه كمية</label>' +
@@ -1826,16 +1836,26 @@ var Inv = (function () {
       '<div class="spacer"></div>' +
       '<div style="font-size:17px;font-weight:700">الإجمالي: <span class="num" id="purTotal">0.00</span></div>' +
       '<button class="btn" onclick="Inv.purClear()">مسح</button>' +
-      '<button class="btn primary lg" onclick="Inv.purSave()">' + (purTo() === "store" ? "حفظ — للمخزن" : "حفظ — للرفوف") + "</button>" +
+      '<button class="btn primary lg" onclick="Inv.purSave()">' +
+      (past ? "حفظ الفاتورة السابقة" : purTo() === "store" ? "حفظ — للمخزن" : "حفظ — للرفوف") + "</button>" +
       "</div></div></div>";
 
-    h += '<div class="card"><div class="card-head"><h3>سجل الإدخالات السابقة</h3></div>' +
+    h += '<div class="card"><div class="card-head"><h3>سجل الإدخالات السابقة</h3><div class="spacer"></div>' +
+      '<button class="btn" onclick="Inv.pastImport()">تحميل فواتير سابقة من ملف</button></div>' +
       App.table([
         { h: "التاريخ", c: function (p) { return App.esc(p.date); } },
         { h: "المورد", c: function (p) { var s = People.supplier(p.supplierId); return s ? App.esc(s.name) : '<span class="muted">—</span>'; } },
         { h: "عدد الأصناف", cls: "num", c: function (p) { return p.lines.length; } },
         { h: "إجمالي القطع", cls: "num", c: function (p) { return p.lines.reduce(function (s, l) { return s + App.num(l.qty); }, 0); } },
         { h: "التكلفة", cls: "num", c: function (p) { return "<b>" + App.money0(p.total) + "</b>"; } },
+        {
+          h: "الدفع", c: function (p) {
+            /* الإدخالات القديمة (قبل خانة الدفع) لا نعرف كيف دُفعت */
+            return (p.pay === "credit" ? '<span class="badge warn">آجل</span>' : p.pay === "cash" ? '<span class="badge ok">نقداً</span>' :
+              p.pay === "later" ? '<span class="badge bad" title="آجل، ودينه ما انحسبش بعد">آجل — مؤجّل</span>' : '<span class="muted">—</span>') +
+              (p.past ? ' <span class="badge info">سابقة</span>' : "");
+          }
+        },
         { h: "ملاحظة", c: function (p) { return App.esc(p.note || "—"); } },
         { h: "", cls: "act", c: function (p) { return '<button class="btn sm" onclick="Inv.showPurchase(\'' + p.id + '\')">تفاصيل</button>'; } }
       ], S().purchases, { emptyIcon: "goods", emptyTitle: "لا توجد إدخالات بعد", emptyText: "كل بضاعة تدخل المحل سجّلها هنا لتتبع التكاليف والموردين." }) +
@@ -1860,11 +1880,15 @@ var Inv = (function () {
 
   /* المسوّدة قد تُستدعى قبل رسم الصفحة — ننشئها عند الحاجة */
   function ensureDraft() {
-    if (!draft) draft = { supplierId: "", date: App.today(), note: "", lines: [] };
+    if (!draft) draft = { supplierId: "", date: App.today(), note: "", lines: [], pay: "cash", past: false };
     return draft;
   }
 
   function pd(k, v) { ensureDraft()[k] = v; }
+
+  /* نقداً أو آجل، وفاتورة سابقة (بضاعتها في المحل من قبل) */
+  function purPay(v) { ensureDraft().pay = v === "credit" ? "credit" : "cash"; App.rerender(); }
+  function purPast(v) { ensureDraft().past = !!v; App.rerender(); }
 
   /* الكمية المضافة من الصنف في هذه الإدخالية — تظهر علامةً في نتائج البحث */
   function purHave(type, id) {
@@ -1944,13 +1968,23 @@ var Inv = (function () {
       var t0 = document.getElementById("purTotal"); if (t0) t0.textContent = "0.00";
       return;
     }
-    var total = 0;
-    var h = '<table class="tbl"><thead><tr><th>الصنف</th><th>الموجود حالياً</th><th>الكمية المضافة</th>' +
-      "<th>سعر الشراء الجديد</th><th>الإجمالي</th><th>يصير</th><th></th></tr></thead><tbody>";
+    var total = 0, past = !!draft.past;
+    var h = '<table class="tbl"><thead><tr><th>الصنف</th><th>الموجود حالياً</th><th>' + (past ? "الكمية في الفاتورة" : "الكمية المضافة") + "</th>" +
+      "<th>" + (past ? "سعر الشراء" : "سعر الشراء الجديد") + "</th><th>الإجمالي</th><th>يصير</th><th></th></tr></thead><tbody>";
     draft.lines.forEach(function (l, i) {
       var sub = App.num(l.qty) * App.num(l.cost); total += sub;
       var it0 = App.findItem(l.type, l.id);
       var have = it0 ? App.num(it0.qty) : 0;
+      if (past) {
+        h += "<tr><td>" + App.esc(l.name) + "</td>" +
+          '<td class="num">' + have + "</td>" +
+          '<td><input class="inp num" style="width:88px" type="number" min="1" value="' + App.num(l.qty) + '" onchange="Inv.purSet(' + i + ',\'qty\',this.value)"></td>' +
+          '<td><input class="inp num" style="width:110px" type="number" step="0.01" min="0" value="' + App.num(l.cost) + '" onchange="Inv.purSet(' + i + ',\'cost\',this.value)"></td>' +
+          '<td class="num"><b>' + App.money0(sub) + "</b></td>" +
+          '<td class="num"><b>' + have + '</b><div class="muted small">ما تتغيّرش</div></td>' +
+          '<td class="act"><button class="btn sm ghost" onclick="Inv.purDel(' + i + ')">✕</button></td></tr>';
+        return;
+      }
       var ts = lineToStore(l);
       var sh1 = (it0 ? App.shelfQty(it0) : 0) + App.num(l.qty) - ts, st1 = (it0 ? App.storeQty(it0) : 0) + ts;
       h += "<tr><td>" + App.esc(l.name) + "</td>" +
@@ -1982,14 +2016,17 @@ var Inv = (function () {
   function lineToStore(l) { return purTo() === "store" ? App.num(l.qty) : 0; }
 
   function purDel(i) { ensureDraft(); draft.lines.splice(i, 1); paintPurLines(); }
-  function purClear() { draft = { supplierId: "", date: App.today(), note: "", lines: [] }; App.rerender(); }
+  function purClear() { draft = null; ensureDraft(); App.rerender(); }
 
   function purSave() {
     ensureDraft();
     draft.lines = draft.lines.filter(function (l) { return App.num(l.qty) > 0; });
     if (!draft.lines.length) { App.toast("أضف صنفاً واحداً على الأقل.", "warn"); return; }
-    var total = draft.lines.reduce(function (s, l) { return s + App.num(l.qty) * App.num(l.cost); }, 0);
+    var credit = draft.pay === "credit", past = !!draft.past;
+    if (credit && !People.supplier(draft.supplierId)) { App.toast("الشراء بالآجل يحتاج مورد — اختر المورد أولاً.", "warn"); return; }
+    var total = App.r3(draft.lines.reduce(function (s, l) { return s + App.num(l.qty) * App.num(l.cost); }, 0));
     draft.lines.forEach(function (l) {
+      if (past) { l.st = 0; return; }          // فاتورة سابقة: بضاعتها محسوبة من قبل
       var it = App.findItem(l.type, l.id);
       if (!it) return;
       l.st = lineToStore(l);
@@ -1997,12 +2034,18 @@ var Inv = (function () {
       if (App.num(l.cost) > 0) it.cost = App.num(l.cost);
       it.updated = App.nowStamp();
     });
-    S().purchases.unshift({
+    var rec = {
       id: App.uid(), date: draft.date, supplierId: draft.supplierId,
-      note: draft.note, lines: draft.lines.slice(), total: total, at: App.nowStamp()
-    });
-    App.log("إدخال بضاعة", draft.lines.length + " صنف بقيمة " + App.money0(total));
-    App.toast("أُدخلت البضاعة وحُدِّث المخزون.");
+      note: draft.note, lines: draft.lines.slice(), total: total, at: App.nowStamp(),
+      pay: credit ? "credit" : "cash"
+    };
+    if (past) rec.past = true;
+    S().purchases.unshift(rec);
+    var sup = People.supplier(draft.supplierId);
+    App.log(past ? "فاتورة شراء سابقة" : "إدخال بضاعة", draft.lines.length + " صنف بقيمة " + App.money0(total) +
+      (credit ? " — آجل على " + sup.name : ""));
+    App.toast((past ? "سُجّلت الفاتورة السابقة — الكميات ما تغيّرتش." : "أُدخلت البضاعة وحُدِّث المخزون.") +
+      (credit ? " علينا لـ" + sup.name + " الآن: " + App.money(People.supDebt(sup)) : ""));
     draft = null;
     App.saveNow(); App.rerender();
   }
@@ -2013,8 +2056,10 @@ var Inv = (function () {
     if (!p) return;
     var s = People.supplier(p.supplierId);
     App.modal({
-      title: "إدخال بضاعة — " + p.date,
+      title: (p.past ? "فاتورة شراء سابقة — " : "إدخال بضاعة — ") + p.date,
       body: '<div class="row small muted" style="margin-bottom:12px">المورد: ' + App.esc(s ? s.name : "—") +
+        (p.pay === "credit" ? " · آجل" : p.pay === "cash" ? " · نقداً" : p.pay === "later" ? " · آجل (دينه مؤجّل)" : "") +
+        (p.past ? " · سابقة (ما زادتش الكمية)" : "") +
         (p.note ? " · " + App.esc(p.note) : "") + "</div>" +
         App.table([
           { h: "الصنف", c: function (l) { return App.esc(l.name); } },
@@ -2025,6 +2070,181 @@ var Inv = (function () {
         '<div class="row" style="margin-top:12px;font-size:16px;font-weight:700"><div class="spacer"></div>الإجمالي: ' +
         App.money(p.total) + "</div>"
     });
+  }
+
+  /* ============================================================
+     تحميل فواتير شراء سابقة من ملف (مثلاً من منظومة أخرى)
+     ------------------------------------------------------------
+     كل سطر في الملف بند: رقم الفاتورة، التاريخ، المورد، الباركود، الصنف،
+     الكمية، سعر الشراء. البنود تُجمع فواتير بالرقم والمورد.
+     - تُسجَّل «سابقة»: بضاعتها في المحل من قبل، فلا كمية ولا سعر يتغيّر.
+     - الصنف يُعرف بالباركود ثم بالاسم؛ ما لا يُعرف يُحفظ باسمه في الفاتورة.
+     - فاتورة موجودة (نفس الرقم ونفس المورد) لا تتكرر لو حُمّل الملف مرتين.
+     - الدين: «آجل» الآن، أو «مؤجّل» (pay:"later") لا يُحسب حتى يختار ذلك
+       من «ديون الموردين».
+     ============================================================ */
+
+  var PAST_HEAD = {
+    ref: ["رقم الفاتورة", "الفاتورة", "رقم"],
+    date: ["التاريخ"],
+    supplier: ["المورد", "اسم المورد"],
+    barcode: ["الباركود", "barcode"],
+    name: ["الصنف", "اسم الصنف", "اسم الكتاب"],
+    qty: ["الكمية", "العدد"],
+    cost: ["سعر الشراء", "السعر", "سعر الجملة"]
+  };
+  var PAST_COLS = ["رقم الفاتورة", "التاريخ", "المورد", "الباركود", "الصنف", "الكمية", "سعر الشراء"];
+
+  function pastImport() {
+    App.modal({
+      title: "تحميل فواتير شراء سابقة من ملف",
+      body: '<p style="line-height:1.9;margin-top:0">ملف CSV، كل سطر فيه بند من فاتورة:</p>' +
+        '<div style="background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:11px;font-size:12.5px" class="num">' +
+        App.esc(PAST_COLS.join(" ، ")) + "</div>" +
+        '<ul class="small" style="line-height:1.9;margin:10px 0 0;padding-inline-start:20px">' +
+        "<li>الفواتير تتسجل <b>سابقة</b>: الكميات والأسعار اللي في المنظومة ما تتغيّرش.</li>" +
+        "<li>المورد اللي مش موجود يتسجل وحده.</li>" +
+        "<li>فاتورة متسجلة من قبل (نفس الرقم ونفس المورد) ما تتكررش، لو حمّلت الملف مرتين.</li>" +
+        "<li>قبل ما يتسجل أي شي، توريك المنظومة قداش فاتورة وقداش مبلغ، وتختار الدين توا ولا بعدين.</li></ul>",
+      actions: [
+        { label: "تحميل ملف نموذج", click: function () { App.download("نموذج-فواتير-سابقة.csv", App.toCsv([PAST_COLS])); } },
+        {
+          label: "اختيار الملف", kind: "primary", click: function (close) {
+            App.pickFile(".csv,text/csv", function (txt) {
+              var plan = pastPlan(App.parseCsv(txt));
+              if (plan.error) { App.toast(plan.error, "bad"); return; }
+              if (!plan.invoices.length) {
+                App.toast(plan.dupes ? "كل الفواتير اللي في الملف متسجلة من قبل." : "ما لقيتش في الملف حتى فاتورة.", "warn");
+                return;
+              }
+              close();
+              pastConfirm(plan);
+            });
+          }
+        }
+      ]
+    });
+  }
+
+  /* يقرأ الملف ويجهّز الفواتير — قبل أن يُلمس أي شيء */
+  function pastPlan(rows) {
+    var map = null, start = 0;
+    for (var r = 0; r < Math.min(rows.length, 8) && !map; r++) {
+      var m = {}, n = 0;
+      rows[r].forEach(function (h, i) {
+        var t = App.norm(String(h || "").replace(/^﻿/, ""));
+        Object.keys(PAST_HEAD).forEach(function (k) {
+          if (m[k] === undefined && PAST_HEAD[k].some(function (x) { return App.norm(x) === t; })) { m[k] = i; n++; }
+        });
+      });
+      if (m.ref !== undefined && m.supplier !== undefined && (m.barcode !== undefined || m.name !== undefined) && m.qty !== undefined) { map = m; start = r + 1; }
+    }
+    if (!map) return { error: "الملف ما فيهش العناوين المطلوبة: رقم الفاتورة، المورد، الباركود أو الصنف، الكمية." };
+    function cell(row, k) { return map[k] === undefined ? "" : String(row[map[k]] === undefined ? "" : row[map[k]]).trim(); }
+
+    var groups = {}, order = [], unknown = {}, nLines = 0;
+    rows.slice(start).forEach(function (row) {
+      var ref = cell(row, "ref"), sup = cell(row, "supplier");
+      var qty = App.num(cell(row, "qty"));
+      if (!ref || !sup || qty <= 0) return;
+      var key = App.norm(sup) + "|" + ref;
+      if (!groups[key]) { groups[key] = { ref: ref, supplier: sup, date: cell(row, "date"), lines: [] }; order.push(key); }
+      var bc = cell(row, "barcode"), name = cell(row, "name");
+      var hit = bc ? byBarcode(bc) : null;
+      if (!hit && name) {
+        var same = App.allItems().filter(function (x) { return App.norm(App.itemName(x.it)) === App.norm(name); });
+        if (same.length === 1) hit = same[0];
+      }
+      if (!hit) unknown[name || bc] = 1;
+      groups[key].lines.push({
+        type: hit ? hit.type : "", id: hit ? hit.it.id : "", name: hit ? App.itemName(hit.it) : (name || bc),
+        qty: qty, cost: App.num(cell(row, "cost")), st: 0
+      });
+      nLines++;
+    });
+
+    var invoices = [], dupes = 0;
+    order.forEach(function (key) {
+      var g = groups[key];
+      var s = null;
+      S().suppliers.forEach(function (x) { if (App.norm(x.name) === App.norm(g.supplier)) s = x; });
+      var dup = s && S().purchases.some(function (p) { return p.supplierId === s.id && p.ref === g.ref; });
+      if (dup) { dupes++; return; }
+      g.total = App.r3(g.lines.reduce(function (t, l) { return t + App.num(l.qty) * App.num(l.cost); }, 0));
+      g.sup = s;
+      invoices.push(g);
+    });
+    return { invoices: invoices, dupes: dupes, unknown: Object.keys(unknown), lines: nLines };
+  }
+
+  function pastConfirm(plan) {
+    var bySup = {}, total = 0;
+    plan.invoices.forEach(function (g) {
+      var k = App.norm(g.supplier);
+      if (!bySup[k]) bySup[k] = { name: g.supplier, isNew: !g.sup, n: 0, total: 0 };
+      bySup[k].n++; bySup[k].total += g.total; total += g.total;
+    });
+    var rows = Object.keys(bySup).map(function (k) { return bySup[k]; });
+    var pay = "later";
+    App.modal({
+      title: "قبل التحميل — راجع الفواتير",
+      body: '<p style="line-height:1.9;margin-top:0">حتتسجل <b class="num">' + plan.invoices.length + "</b> فاتورة سابقة، فيها <b class=\"num\">" +
+        plan.invoices.reduce(function (t, g) { return t + g.lines.length; }, 0) + "</b> بند، مجموعها <b class=\"num\">" + App.money(total) + "</b>.</p>" +
+        App.table([
+          { h: "المورد", c: function (r) { return App.esc(r.name) + (r.isNew ? ' <span class="badge info">جديد</span>' : ""); } },
+          { h: "الفواتير", cls: "num", c: function (r) { return r.n; } },
+          { h: "المبلغ", cls: "num", c: function (r) { return "<b>" + App.money0(r.total) + "</b>"; } }
+        ], rows) +
+        (plan.dupes ? '<p class="muted small" style="line-height:1.8">' + plan.dupes + " فاتورة متسجلة من قبل — ما حتتكررش.</p>" : "") +
+        (plan.unknown.length ? '<p class="small" style="line-height:1.8;color:var(--stamp)">' + plan.unknown.length +
+          " صنف ما لقيتهوش في المنظومة، يتسجل في الفاتورة باسمه بس: " + App.esc(plan.unknown.slice(0, 6).join("، ")) +
+          (plan.unknown.length > 6 ? " …" : "") + "</p>" : "") +
+        '<div class="field" style="margin-top:14px"><label>الدين على الموردين</label><div class="seg" id="pastPay">' +
+        '<button class="on" data-v="later">سجّلها بس — الدين بعدين</button>' +
+        '<button data-v="credit">آجل — ينضاف للدين توا</button></div>' +
+        '<div class="hint">الكميات والأسعار ما تتغيّرش في الحالتين. «الدين بعدين» تقدر تحسبه وقت ما تبي من «ديون الموردين».</div></div>',
+      actions: [{
+        label: "تحميل الفواتير", kind: "primary", click: function (close) {
+          close();
+          pastApply(plan, pay);
+        }
+      }],
+      cancelLabel: "إلغاء"
+    });
+    var seg = document.getElementById("pastPay");
+    if (seg) seg.addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b) return;
+      pay = b.getAttribute("data-v");
+      [].forEach.call(seg.querySelectorAll("button"), function (x) { x.classList.toggle("on", x === b); });
+    });
+  }
+
+  function pastApply(plan, pay) {
+    var made = 0, newSup = 0;
+    plan.invoices.slice().reverse().forEach(function (g) {      // الأقدم أولاً في الأسفل
+      var s = g.sup;
+      if (!s) {
+        S().suppliers.forEach(function (x) { if (App.norm(x.name) === App.norm(g.supplier)) s = x; });
+        if (!s) { s = { id: App.uid(), name: g.supplier, opening: 0, created: App.nowStamp() }; S().suppliers.push(s); newSup++; }
+      }
+      if (S().purchases.some(function (p) { return p.supplierId === s.id && p.ref === g.ref; })) return;
+      var d = String(g.date || "").replace("T", " ");
+      var date = /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : App.today();
+      var rec = {
+        id: App.uid(), date: date, supplierId: s.id, note: "فاتورة " + g.ref, ref: g.ref,
+        lines: g.lines, total: g.total, at: d.length >= 16 ? d.slice(0, 16) : date + " 00:00",
+        pay: pay === "credit" ? "credit" : "later", past: true, imported: true
+      };
+      /* السجل الأحدث أولاً: الفاتورة القديمة تدخل في مكانها بالتاريخ، لا فوق إدخالات اليوم */
+      var list = S().purchases, i = 0;
+      while (i < list.length && String(list[i].at || list[i].date || "") >= rec.at) i++;
+      list.splice(i, 0, rec);
+      made++;
+    });
+    App.log("فواتير سابقة", made + " فاتورة من ملف" + (newSup ? "، و" + newSup + " مورد جديد" : "") + (pay === "credit" ? " — آجل" : " — الدين مؤجّل"));
+    App.saveNow(); App.rerender();
+    App.toast("تسجلت " + made + " فاتورة سابقة" + (pay === "credit" ? " وانضافت لديون الموردين." : " — الدين تحسبه بعدين من «ديون الموردين»."), "ok");
   }
 
   /* ============================================================
@@ -2304,6 +2524,7 @@ var Inv = (function () {
     searchItems: searchItems, byBarcode: byBarcode,
     pd: pd, purSuggest: purSuggest, purKey: purKey, purAdd: purAdd, purClearQ: purClearQ, purBlur: purBlur,
     purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase, purSetTo: purSetTo,
+    purPay: purPay, purPast: purPast, pastImport: pastImport, __pastPlan: pastPlan, __pastApply: pastApply,
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
     pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint, normRate: normRate,
     newPublisher: newPublisher, newSupplier: newSupplier,

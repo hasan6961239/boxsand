@@ -676,6 +676,11 @@ var Labels = (function () {
     var nameMm = nameLineMm(L);          // نفس الرقم المحجوز في barHeightPx
     return "<style>" +
       "@page { size: " + L.w + "mm " + L.h + "mm; margin: 0; }" +
+      /* ورقة اللاصقة صغيرة: ارتفاع الصفحة 100% وما يبقى من عناصرها كان يدفع
+         صفحات فارغة بعد اللاصقة (لاصقة واحدة ← 3 أو 4 أوراق على XP-365B).
+         نفس علاج الإيصال: لا يُطبع إلا #printArea وبارتفاعه هو. */
+      "@media print { html, body { height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; }" +
+      " body > *:not(#printArea) { display: none !important; } #printArea { margin: 0; padding: 0; } }" +
       ".lbl-sheet{direction:rtl}" +
       ".lbl-one{width:" + L.w + "mm;height:" + L.h + "mm;box-sizing:border-box;" +
       "padding:" + PAD_MM + "mm;display:flex;flex-direction:column;align-items:center;" +
@@ -773,13 +778,47 @@ var Labels = (function () {
       actions: [{
         label: "طباعة الآن", kind: "primary", click: function (close) {
           App.printHtml(css + '<div class="lbl-sheet">' + body + "</div>");
-          markPrinted(ids);
           close();
-          App.toast("طُبعت " + n + " لاصقة — أُزيلت علامتها الحمراء.", "ok");
-          sel = {};
-          App.rerender();
+          /* كانت تُعلَّم «مطبوعة» لحظة الضغط، قبل أن تفتح نافذة الطباعة: من ألغى
+             الطباعة (أو طلعت فاضية) اختفت كتبه من القائمة ولم تُلصق. الآن تُسأل
+             بعد أن تُغلق نافذة الطباعة، والاختيار يبقى إن قلت «لا». */
+          afterPrint(function () { askPrinted(ids, n); });
         }
       }]
+    });
+  }
+
+  /* مرة واحدة بعد أن تُغلق نافذة الطباعة (طبعت أو ألغيت). window.print يوقف
+     الصفحة حتى تُغلق، فالمؤقّت لا يسبقها؛ وafterprint لمتصفح لا يوقفها. */
+  function afterPrint(cb) {
+    var done = false;
+    function once() {
+      if (done) return;
+      done = true;
+      window.removeEventListener("afterprint", once);
+      cb();
+    }
+    window.addEventListener("afterprint", once);
+    setTimeout(once, 700);
+  }
+
+  function askPrinted(ids, n) {
+    App.modal({
+      title: "طلعت اللاصقات؟",
+      size: "narrow",
+      body: '<p style="margin:0;line-height:1.9">لو طلعت اللاصقات كويسة (العدد: ' + n + ")، نشيلوا أصنافها من قائمة «لم تُطبع».</p>" +
+        '<p class="muted small" style="margin:8px 0 0;line-height:1.8">لو لغيت الطباعة أو طلعت فاضية، اضغط «لا»: ' +
+        "تبقى في القائمة ومختارة، وتقدر تعاود تطبعها.</p>",
+      actions: [{
+        label: "أيوه، طلعت — شيلها من القائمة", kind: "primary", click: function (close) {
+          close();
+          markPrinted(ids);
+          ids.forEach(function (id) { delete sel[id]; });
+          App.toast("طُبعت " + n + " لاصقة — خرجت من قائمة «لم تُطبع».", "ok");
+          App.rerender();
+        }
+      }],
+      cancelLabel: "لا، خليها في القائمة"
     });
   }
 

@@ -5,6 +5,8 @@
 var People = (function () {
 
   var q = "", onlyDebt = false;
+  /* الصفحة فيها الديون كلها: «لنا» على الزبائن، و«علينا» للموردين */
+  var tab = "cust", sq = "", sOnlyDebt = false;
 
   function S() { return App.S; }
 
@@ -26,11 +28,20 @@ var People = (function () {
      الزبائن
      ============================================================ */
 
+  function debtTabs() {
+    return '<div class="seg" style="margin-bottom:16px">' +
+      '<button class="' + (tab === "cust" ? "on" : "") + '" onclick="People.setTab(\'cust\')">ديون الزبائن — لنا</button>' +
+      '<button class="' + (tab === "sup" ? "on" : "") + '" onclick="People.setTab(\'sup\')">ديون الموردين — علينا</button></div>';
+  }
+
+  function setTab(t) { tab = t; App.rerender(); }
+
   function customers() {
+    if (tab === "sup") return debtTabs() + supDebts();
     var totalDebt = S().customers.reduce(function (s, c) { return s + App.num(c.balance); }, 0);
     var withDebt = S().customers.filter(function (c) { return App.num(c.balance) > 0; }).length;
 
-    var h = '<div class="grid g3" style="margin-bottom:16px">' +
+    var h = debtTabs() + '<div class="grid g3" style="margin-bottom:16px">' +
       '<div class="card stat bad"><div class="lbl">إجمالي الديون على الزبائن</div><div class="val">' +
       App.money0(totalDebt) + '</div><div class="foot">' + withDebt + " زبون عليه دين</div></div>" +
       '<div class="card stat accent"><div class="lbl">عدد الزبائن</div><div class="val">' + S().customers.length + "</div></div>" +
@@ -270,6 +281,244 @@ var People = (function () {
   }
 
   /* ============================================================
+     ديون الموردين — ما علينا
+     ------------------------------------------------------------
+     الدين لا يُخزَّن رقماً يتعدّل، بل يُحسب كل مرة من سجلات لا تتغيّر:
+       الدين السابق (opening) + فواتير الشراء الآجلة − التسديدات.
+     هكذا لا يضيع تسديد سُجّل في جهاز وفاتورة سُجّلت في جهاز آخر.
+     ============================================================ */
+
+  function supCredits(id) {
+    return S().purchases.filter(function (p) { return p.supplierId === id && p.pay === "credit"; });
+  }
+
+  function supPays(id) {
+    return (S().supPayments || []).filter(function (p) { return p.supplierId === id; });
+  }
+
+  /* فواتير آجلة سُجّلت ودينها مؤجّل (من «تحميل فواتير سابقة») — لا تُحسب حتى يُختار ذلك */
+  function supLater(id) {
+    return S().purchases.filter(function (p) { return p.supplierId === id && p.pay === "later"; });
+  }
+
+  function sumTotal(list) {
+    return App.r3(list.reduce(function (t, p) { return t + App.num(p.total); }, 0));
+  }
+
+  function supCountLater(id) {
+    var s = supplier(id), list = supLater(id);
+    if (!s || !list.length) return;
+    App.confirm("الفواتير المؤجّلة لـ«" + s.name + "» (" + list.length + " فاتورة بـ " + App.money(sumTotal(list)) +
+      ") تنضاف لدينه توا، وتصير «آجل» عادي.", function () {
+        list.forEach(function (p) { p.pay = "credit"; });
+        App.log("دين مؤجّل انحسب", s.name + " " + list.length + " فاتورة بـ " + App.money0(sumTotal(list)));
+        App.saveNow(); App.rerender();
+        App.toast("انضافت. علينا لـ" + s.name + " الآن: " + App.money(supDebt(s)), "ok");
+      }, { yes: "احسبها في الدين" });
+  }
+
+  function supDebt(s) {
+    if (!s) return 0;
+    var d = App.num(s.opening);
+    supCredits(s.id).forEach(function (p) { d += App.num(p.total); });
+    supPays(s.id).forEach(function (p) { d -= App.num(p.amount); });
+    return App.r3(d);
+  }
+
+  function supDebts() {
+    var list = S().suppliers;
+    var total = 0, withDebt = 0;
+    list.forEach(function (s) { var d = supDebt(s); if (d > 0) { total += d; withDebt++; } });
+    var month = App.today().slice(0, 7);
+    var paidMonth = (S().supPayments || []).filter(function (p) { return String(p.date).slice(0, 7) === month; })
+      .reduce(function (t, p) { return t + App.num(p.amount); }, 0);
+    var later = S().purchases.filter(function (p) { return p.pay === "later"; });
+
+    var h = '<div class="grid g3" style="margin-bottom:16px">' +
+      '<div class="card stat bad"><div class="lbl">إجمالي ما علينا للموردين</div><div class="val">' +
+      App.money0(total) + '</div><div class="foot">' + withDebt + " مورد علينا ليه" +
+      (later.length ? " · وفيه " + later.length + " فاتورة دينها مؤجّل بـ " + App.money0(sumTotal(later)) : "") + "</div></div>" +
+      '<div class="card stat accent"><div class="lbl">عدد الموردين</div><div class="val">' + list.length + "</div></div>" +
+      '<div class="card stat blue"><div class="lbl">سدّدنا هذا الشهر</div><div class="val">' + App.money0(paidMonth) + "</div></div></div>";
+
+    h += '<div class="row" style="margin-bottom:14px">' +
+      '<div class="search-wrap"><span class="mag">⌕</span>' +
+      '<input class="inp" placeholder="ابحث باسم المورد أو رقم هاتفه…" value="' + App.esc(sq) + '" oninput="People.setSQ(this.value)"></div>' +
+      '<label class="row small" style="gap:6px;cursor:pointer"><input type="checkbox" ' + (sOnlyDebt ? "checked" : "") +
+      ' onchange="People.setSDebtOnly(this.checked)"> اللي علينا ليهم فقط</label>' +
+      '<div class="spacer"></div>' +
+      '<button class="btn primary" onclick="People.editSupplier()">+ مورد جديد</button></div>' +
+      '<div class="card"><div id="sList"></div></div>' +
+      '<p class="muted small" style="line-height:1.8;margin-top:12px">فاتورة الشراء الآجلة تُسجَّل من «إدخال بضاعة ← إضافة كمية» ' +
+      "باختيار «آجل»، فتنضاف لدين المورد وحدها.</p>";
+
+    setTimeout(paintSupDebts, 0);
+    return h;
+  }
+
+  function paintSupDebts() {
+    var host = document.getElementById("sList");
+    if (!host) return;
+    var rows = App.rank(S().suppliers.filter(function (s) {
+      return !(sOnlyDebt && supDebt(s) <= 0);
+    }).sort(function (a, b) { return supDebt(b) - supDebt(a); }), sq, function (s) { return [s.name, s.phone]; });
+
+    host.innerHTML = App.table([
+      {
+        h: "المورد", c: function (s) {
+          return '<div class="name">' + App.esc(s.name) + "</div>" +
+            '<div class="sub">' + App.esc(s.phone || s.city || "بدون رقم") + "</div>";
+        }
+      },
+      {
+        h: "علينا", cls: "num", c: function (s) {
+          var d = supDebt(s);
+          return d > 0 ? '<b style="color:var(--stamp)">' + App.money0(d) + "</b>" : '<span class="badge ok">خالص</span>';
+        }
+      },
+      {
+        h: "فواتير آجلة", cls: "num", c: function (s) {
+          var l = supLater(s.id);
+          return supCredits(s.id).length + (l.length ? '<div class="sub" style="color:var(--stamp)">+ ' + l.length +
+            " مؤجّلة (" + App.money0(sumTotal(l)) + ")</div>" : "");
+        }
+      },
+      {
+        h: "آخر فاتورة", c: function (s) {
+          var last = "";
+          supCredits(s.id).concat(supLater(s.id)).forEach(function (p) { if (String(p.date) > last) last = String(p.date); });
+          return last ? App.esc(last) : '<span class="muted">—</span>';
+        }
+      },
+      { h: "ملاحظة", c: function (s) { return App.esc(s.note || "—"); } },
+      {
+        h: "", cls: "act", c: function (s) {
+          return (supDebt(s) > 0 ? '<button class="btn sm primary" onclick="People.supPay(\'' + s.id + '\')">تسديد</button> ' : "") +
+            (supLater(s.id).length ? '<button class="btn sm" onclick="People.supCountLater(\'' + s.id + '\')">احسب المؤجّلة</button> ' : "") +
+            '<button class="btn sm" onclick="People.supStatement(\'' + s.id + '\')">كشف حساب</button> ' +
+            '<button class="btn sm ghost" onclick="People.editSupplier(\'' + s.id + '\')">تعديل</button>';
+        }
+      }
+    ], rows, {
+      rowClass: function (s) { return supDebt(s) > 0 ? "low" : ""; },
+      emptyIcon: "home",
+      emptyTitle: S().suppliers.length ? "لا نتيجة مطابقة" : "لا يوجد موردون",
+      emptyText: "سجّل الموردين الذين تشتري منهم بالآجل لتعرف قداش عليك لكل واحد.",
+      emptyAction: S().suppliers.length ? "" : '<button class="btn primary" onclick="People.editSupplier()">+ إضافة مورد</button>'
+    });
+  }
+
+  function setSQ(v) { sq = v; paintSupDebts(); }
+  function setSDebtOnly(v) { sOnlyDebt = v; paintSupDebts(); }
+
+  function supPay(id) {
+    var s = supplier(id);
+    if (!s) return;
+    var debt = supDebt(s);
+    App.form({
+      title: "تسديد للمورد — " + s.name,
+      size: "narrow",
+      values: { amount: Math.round(debt * 100) / 100, date: App.today(), drawer: "yes" },
+      fields: [
+        { k: "amount", label: "المبلغ المسدَّد", type: "money", min: 0, required: true, full: true, hint: "علينا حالياً: " + App.money(debt) },
+        {
+          k: "drawer", label: "من أين دُفع؟", type: "select", full: true,
+          options: [{ v: "yes", t: "من درج المحل (يُخصم من النقد المفروض)" }, { v: "no", t: "من خارج الدرج" }],
+          hint: "ما يُدفع من الدرج يُطرح من «النقد المفروض» عند إقفال اليوم، فلا يظهر عجز غير حقيقي."
+        },
+        { k: "date", label: "التاريخ", type: "date", full: true },
+        { k: "note", label: "ملاحظة", full: true }
+      ],
+      saveLabel: "تسجيل التسديد",
+      onSave: function (v) {
+        var amt = App.num(v.amount);
+        if (amt <= 0) { App.toast("أدخل مبلغاً صحيحاً.", "warn"); return false; }
+        if (amt > supDebt(s) + 0.009) { App.toast("علينا للمورد " + App.money(supDebt(s)) + " فقط — لا تسدّد أكثر منه.", "warn"); return false; }
+        S().supPayments.unshift({
+          id: App.uid(), supplierId: s.id, amount: amt,
+          date: v.date || App.today(), at: App.nowStamp(), note: v.note || "",
+          fromDrawer: v.drawer !== "no"
+        });
+        App.log("تسديد لمورد", s.name + " " + App.money0(amt));
+        App.saveNow(); App.rerender();
+        App.toast("سُجّل التسديد. الباقي علينا: " + App.money(supDebt(s)));
+      }
+    });
+  }
+
+  function supStatementRows(id) {
+    var s = supplier(id), rows = [];
+    if (s && App.num(s.opening) > 0) {
+      rows.push({ date: String(s.created || "").slice(0, 10) || "—", at: "", id: "", t: "دين سابق (رصيد افتتاحي)", dr: App.num(s.opening), cr: 0 });
+    }
+    supCredits(id).forEach(function (p) {
+      rows.push({ date: p.date, at: p.at, id: p.id, pid: p.id, dr: App.num(p.total), cr: 0,
+        t: "فاتورة شراء آجل" + (p.note ? " — " + p.note : "") + (p.past ? " (سابقة)" : "") });
+    });
+    supLater(id).forEach(function (p) {
+      rows.push({ date: p.date, at: p.at, id: p.id, pid: p.id, dr: 0, cr: 0, later: App.num(p.total),
+        t: "فاتورة آجل — دينها مؤجّل، مش محسوب (" + App.money0(p.total) + ")" + (p.note ? " — " + p.note : "") });
+    });
+    supPays(id).forEach(function (p) {
+      rows.push({ date: p.date, at: p.at, id: p.id, dr: 0, cr: App.num(p.amount),
+        t: "تسديد" + (p.fromDrawer ? " من الدرج" : "") + (p.note ? " — " + p.note : "") });
+    });
+    rows.sort(function (a, b) {
+      var x = String(a.at || ""), y = String(b.at || "");
+      if (x !== y) return x < y ? -1 : 1;
+      return String(a.id || "") < String(b.id || "") ? -1 : 1;
+    });
+    return rows;
+  }
+
+  function supStatement(id) {
+    var s = supplier(id);
+    if (!s) return;
+    var run = 0;
+    App.modal({
+      title: "كشف حساب المورد — " + s.name,
+      size: "wide",
+      body: App.table([
+        { h: "التاريخ", c: function (r) { return App.esc(r.date); } },
+        {
+          h: "البيان", c: function (r) {
+            return App.esc(r.t) + (r.pid ? ' <button class="btn sm ghost" onclick="Inv.showPurchase(\'' + r.pid + '\')">الأصناف</button>' : "");
+          }
+        },
+        { h: "علينا", cls: "num", c: function (r) { return r.dr ? App.money0(r.dr) : "—"; } },
+        { h: "دفعنا", cls: "num", c: function (r) { return r.cr ? App.money0(r.cr) : "—"; } },
+        { h: "الرصيد", cls: "num", c: function (r) { run += r.dr - r.cr; return "<b>" + App.money0(Math.max(run, 0)) + "</b>"; } }
+      ], supStatementRows(id), { emptyIcon: "books", emptyTitle: "لا توجد حركات", emptyText: "لم تُسجَّل فواتير آجلة لهذا المورد." }) +
+        '<div class="row" style="margin-top:14px;font-size:17px;font-weight:700"><div class="spacer"></div>' +
+        "علينا حالياً: " + App.money(supDebt(s)) + "</div>",
+      actions: [
+        { label: "طباعة الكشف", kind: "primary", click: function () { printSupStatement(id); } },
+        { label: "تسديد", click: function (close) { close(); supPay(id); } }
+      ]
+    });
+  }
+
+  function printSupStatement(id) {
+    var s = supplier(id);
+    var run = 0;
+    var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
+      '<div class="c">كشف حساب المورد — ' + App.esc(s.name) + (s.phone ? " · " + App.esc(s.phone) : "") + "</div>" +
+      '<div class="c">حتى ' + App.dateAr(App.today()) + "</div><hr>" +
+      "<table><thead><tr><th>التاريخ</th><th>البيان</th><th>علينا</th><th>دفعنا</th><th>الرصيد</th></tr></thead><tbody>";
+    supStatementRows(id).forEach(function (r) {
+      run += r.dr - r.cr;
+      h += "<tr><td>" + App.esc(r.date) + "</td><td>" + App.esc(r.t) + '</td><td class="num">' +
+        (r.dr ? App.money0(r.dr) : "") + '</td><td class="num">' + (r.cr ? App.money0(r.cr) : "") +
+        '</td><td class="num">' + App.money0(Math.max(run, 0)) + "</td></tr>";
+    });
+    h += '</tbody></table><hr><div class="tot g"><span>علينا حالياً</span><span class="num">' +
+      App.money0(supDebt(s)) + " " + App.esc(S().meta.currency) + "</span></div>" +
+      '<br><div style="display:flex;justify-content:space-between"><span>توقيع المورد: ..............</span>' +
+      "<span>توقيع المحل: ..............</span></div></div>";
+    App.printHtml(h);
+  }
+
+  /* ============================================================
      الموردون
      ============================================================ */
 
@@ -342,11 +591,16 @@ var People = (function () {
         { k: "name", label: "اسم المورد", required: true, full: true },
         { k: "phone", label: "رقم الهاتف" },
         { k: "city", label: "المدينة / العنوان" },
+        {
+          k: "opening", label: "دين سابق علينا (رصيد افتتاحي)", type: "money", min: 0,
+          hint: s ? "عدّله بحذر — الفواتير الآجلة والتسديدات تُحسب وحدها" : "اتركه صفراً إن لم يكن علينا له شيء"
+        },
         { k: "note", label: "ملاحظة", type: "textarea", full: true }
       ],
       onSave: function (v) {
+        v.opening = App.num(v.opening);
         if (s) { Object.keys(v).forEach(function (k) { s[k] = v[k]; }); }
-        else { v.id = App.uid(); S().suppliers.push(v); }
+        else { v.id = App.uid(); v.created = App.nowStamp(); S().suppliers.push(v); }
         App.log("مورد", v.name);
         App.save(); App.rerender();
         App.toast("حُفظت بيانات المورد.");
@@ -396,6 +650,7 @@ var People = (function () {
   function delSupplier(id) {
     var s = supplier(id);
     if (!s) return;
+    if (supDebt(s) > 0 || supLater(id).length) { App.toast("لا يمكن حذف مورد علينا له دين (أو فواتير دينها مؤجّل). سدّد الدين أولاً.", "warn"); return; }
     App.confirm("سيُحذف المورد «" + s.name + "». سجل المشتريات يبقى محفوظاً.", function () {
       S().suppliers.splice(S().suppliers.indexOf(s), 1);
       App.save(); App.rerender();
@@ -405,7 +660,10 @@ var People = (function () {
   return {
     customers: customers, customer: customer, editCustomer: editCustomer, delCustomer: delCustomer,
     pay: pay, statement: statement, printStatement: printStatement, exportDebts: exportDebts,
-    setQ: setQ, setDebtOnly: setDebtOnly,
+    setQ: setQ, setDebtOnly: setDebtOnly, setTab: setTab,
+    supDebt: supDebt, supPay: supPay, supStatement: supStatement, printSupStatement: printSupStatement,
+    supCountLater: supCountLater,
+    setSQ: setSQ, setSDebtOnly: setSDebtOnly,
     suppliers: suppliers, supplier: supplier, editSupplier: editSupplier, delSupplier: delSupplier,
     publisher: publisher, editPublisher: editPublisher, delPublisher: delPublisher
   };

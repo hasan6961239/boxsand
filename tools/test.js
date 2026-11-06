@@ -464,18 +464,51 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     });
     check('وشارة حمراء على تبويب اللاصقات', badge === '1', 'badge=' + badge);
 
-    // الطباعة تُزيل العلامة
+    // الطباعة لا تُزيل العلامة إلا بعد «أيوه، طلعت»: من ألغى الطباعة كانت كتبه تختفي من القائمة
     await pg.evaluate(() => { location.hash = '#/labels'; App.route(); }); await sleep(700);
     await pg.evaluate(() => Labels.toggle('p2', 1)); await sleep(400);
-    await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1400);
-    await pg.evaluate(() => {
+    const printNow = () => pg.evaluate(() => {
       window.print = function () { };           // لا نفتح حوار الطباعة في الاختبار
       const b = [...document.querySelectorAll('#modalHost button')].find(x => x.textContent.indexOf('طباعة الآن') >= 0);
       if (b) b.click();
     });
-    await sleep(1200);
+    const answer = t => pg.evaluate(t => {
+      const b = [...document.querySelectorAll('#modalHost button')].find(x => x.textContent.indexOf(t) >= 0);
+      if (b) b.click();
+      return !!b;
+    }, t);
+    await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1400);
+    await printNow(); await sleep(1200);
+    check('بعد الطباعة يسأل «طلعت اللاصقات؟»', await answer('لا، خليها في القائمة'));
+    await sleep(500);
+    check('و«لا» تبقيه في القائمة ومختاراً', await pg.evaluate(() => Labels.pendingCount()) === 1 &&
+      !await pg.evaluate(() => App.S.books.find(b => b.id === 'p2').labelPrinted) &&
+      await pg.evaluate(() => !!document.querySelector('#view tbody input[type=checkbox]:checked')));
+    await pg.click('button:has-text("معاينة وطباعة")'); await sleep(1400);
+    await printNow(); await sleep(1200);
+    check('و«أيوه، طلعت» تُكمل', await answer('أيوه، طلعت'));
+    await sleep(500);
     check('الطباعة تسجّل التاريخ على الصنف', !!await pg.evaluate(() => App.S.books.find(b => b.id === 'p2').labelPrinted));
     check('وتُزيل العلامة الحمراء', await pg.evaluate(() => Labels.pendingCount()) === 0);
+
+    // لاصقة واحدة = ورقة واحدة: كانت html/body بارتفاع 100% تدفع 2-3 أوراق فارغة بعدها
+    {
+      const fpdf = path.join(DATA, 'one-label.pdf');
+      for (const [w, h] of [[38, 25], [50, 30], [40, 27]]) {
+        await pg.evaluate(([w, h]) => {
+          const L = Labels.__cfg(); L.w = w; L.h = h;
+          App.S.books.find(b => b.id === 'p2').labelPrinted = undefined;
+          location.hash = '#/labels'; App.route();
+        }, [w, h]); await sleep(400);
+        await pg.evaluate(() => { Labels.clearSel(); Labels.toggle('p2', 1); Labels.preview(); }); await sleep(600);
+        await printNow(); await sleep(400);
+        await pg.pdf({ path: fpdf, preferCSSPageSize: true });
+        const pages = (fs.readFileSync(fpdf, 'latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+        check('لاصقة واحدة ' + w + '×' + h + ' مم = ورقة واحدة', pages === 1, pages + ' أوراق');
+        await sleep(600); await answer('لا، خليها في القائمة'); await sleep(300);
+      }
+      await pg.evaluate(() => { App.S.books.find(b => b.id === 'p2').labelPrinted = '2026-11-06'; App.saveNow(); }); await sleep(400);
+    }
 
     // والتراجع يعيدها
     await pg.evaluate(() => Labels.unmark('book', 'p2')); await sleep(600);
@@ -513,6 +546,10 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       const b = [...document.querySelectorAll('#modalHost button')].find(x => x.textContent.indexOf('طباعة الآن') >= 0);
       if (b) b.click();
     }); await sleep(1200);
+    await pg.evaluate(() => {
+      const b = [...document.querySelectorAll('#modalHost button')].find(x => x.textContent.indexOf('أيوه، طلعت') >= 0);
+      if (b) b.click();
+    }); await sleep(500);
     check('والباركود المولَّد يجده مسح نقطة البيع',
       await pg.evaluate(() => { const h = Inv.byBarcode(App.S.books.find(b => b.id === 'n1').barcode); return h && h.it.id; }) === 'n1');
     check('ولا يتكرر باركود بين صنفين', await pg.evaluate(() => {
