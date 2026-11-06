@@ -11,6 +11,9 @@ var App = (function () {
   var dirty = false;
   /* تطبيق طرابلس يعلّم body (قرار 0026): محله الجديد بلونه البنفسجي */
   var EDITION = (document.body && document.body.getAttribute("data-edition")) || "misrata";
+  /* X4 (طرابلس): ما يُبنى لها لا يصل مصراتة قبل صوره وموافقة صاحب المشروع. يُقرأ كل مرة
+     (الاختبار يغيّره على صفحة مفتوحة) */
+  function isX4() { return !!document.body && document.body.getAttribute("data-edition") === "tripoli"; }
 
   /* ---------- النموذج الافتراضي ---------- */
 
@@ -2570,6 +2573,7 @@ var App = (function () {
     isSecond: function () { return !!dev.second; },
     /* على الأساس الجديد (قرار 0025): النواة تعطي رقم ما رأته الشاشة مع كل تحميل */
     isX3: function () { return !!x3.rev; },
+    isX4: isX4,
     /* للاختبار: الحفظ بالفرق */
     __snap: {
       of: snapOf, text: snapText, patch: snapPatch, apply: x3Apply,

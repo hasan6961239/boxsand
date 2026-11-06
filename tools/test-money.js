@@ -492,6 +492,49 @@ const check = (name, ok, got) => {
     await pg.close();
   }
 
+  /* ------ X4 (طرابلس): الكتاب بلا سعر يُسعَّر وقت البيع ------ */
+  console.log('\n[ل] X4: كتاب سعره صفر وقت البيع');
+  {
+    const pg = await fresh(d => {
+      d.books.push({ id: 'z1', code: 'K91', title: 'كتاب بلا سعر', lib: 'A', shelf: '2', cost: 0, price: 0, qty: 5, min: 0 });
+      d.books.push({ id: 'z2', code: 'K92', title: 'كتاب هدية', lib: 'A', shelf: '2', cost: 0, price: 0, qty: 5, min: 0 });
+    });
+    await pg.evaluate(() => { location.hash = '#/pos'; App.route(); }); await sleep(300);
+    await pg.evaluate(() => { Sales.add('book', 'z1'); Sales.complete(); }); await sleep(400);
+    const old = await pg.evaluate(() => (document.getElementById('modalHost') || {}).textContent || '');
+    check('مصراتة كما كانت: تنبيه «سيُباع مجاناً» بلا خانة سعر', old.indexOf('سيُباع مجاناً') >= 0 && !(await pg.$('#zp0')), old.slice(0, 80));
+    await pg.evaluate(() => { document.getElementById('modalHost').innerHTML = ''; Sales.clear && Sales.clear(); });
+    await pg.close();
+
+    const p2 = await fresh(d => {
+      d.books.push({ id: 'z1', code: 'K91', title: 'كتاب بلا سعر', lib: 'A', shelf: '2', cost: 0, price: 0, qty: 5, min: 0 });
+      d.books.push({ id: 'z2', code: 'K92', title: 'كتاب هدية', lib: 'A', shelf: '2', cost: 0, price: 0, qty: 5, min: 0 });
+    });
+    await p2.evaluate(() => document.body.setAttribute('data-edition', 'tripoli'));
+    await p2.evaluate(() => { location.hash = '#/pos'; App.route(); }); await sleep(300);
+    await p2.evaluate(() => { Sales.add('book', 'z1'); Sales.setQty(0, 2); Sales.add('book', 'b1'); Sales.complete(); }); await sleep(400);
+    check('X4: «إتمام البيع» يفتح خانة سعر للكتاب', !!(await p2.$('#zp0')) && !(await p2.$('#zp1')));
+    await clickModal(p2, 'احفظ السعر وكمّل البيع');
+    check('بلا سعر مكتوب: ما يكمل', !!(await p2.$('#zp0')) && !(await p2.$('.pay-btn')));
+    await p2.fill('#zp0', '١٢٫٥'); await p2.keyboard.press('Enter'); await sleep(500);
+    check('السعر (بأرقام عربية) يُحفظ للكتاب، وتظهر نافذة الدفع', !!(await p2.$('.pay-btn')) && (await S(p2, () => App.S.books.find(b => b.id === 'z1').price)) === 12.5,
+      await S(p2, () => App.S.books.find(b => b.id === 'z1').price));
+    await p2.evaluate(() => Sales.pick('cash')); await sleep(500);
+    const inv = await S(p2, () => App.S.invoices[0]);
+    check('الفاتورة بالسعر الجديد: 2 × 12.5 + 50 = 75', inv && inv.total === 75 && inv.items.find(i => i.id === 'z1').price === 12.5, JSON.stringify(inv && { t: inv.total, it: inv.items }));
+    check('والتسعير في سجل الحركات', await S(p2, () => App.S.log.some(l => l.action === 'تسعير عند البيع' && l.detail.indexOf('كتاب بلا سعر') >= 0)));
+
+    await p2.evaluate(() => { location.hash = '#/pos'; App.route(); }); await sleep(300);
+    await p2.evaluate(() => { Sales.add('book', 'z1'); Sales.add('book', 'z2'); Sales.complete(); }); await sleep(400);
+    check('كتاب سُعِّر قبل لا يُسأل عنه مرة ثانية', !!(await p2.$('#zp0')) && !(await p2.$('#zp1')));
+    await clickModal(p2, 'بيعه مجاناً'); await sleep(200);
+    await p2.evaluate(() => Sales.pick('cash')); await sleep(500);
+    const inv2 = await S(p2, () => App.S.invoices[0]);
+    check('«بيعه مجاناً»: يُباع بصفر ويبقى سعره صفراً', inv2.items.find(i => i.id === 'z2').price === 0 && inv2.total === 12.5 &&
+      (await S(p2, () => App.S.books.find(b => b.id === 'z2').price)) === 0, JSON.stringify(inv2.items));
+    await p2.close();
+  }
+
   console.log('\nأخطاء JavaScript:', errs.length ? [...new Set(errs)] : 'لا شيء');
   if (errs.length) fail++;
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));

@@ -156,7 +156,8 @@ var Sales = (function () {
     paint();
     focusScan();
     if (App.num(it.qty) <= 0) App.toast("تنبيه: «" + App.itemName(it) + "» كميته صفر في المخزون.", "warn");
-    if (App.sellPrice(it, mode) <= 0) App.toast("«" + App.itemName(it) + "» سعره صفر — سيُباع مجاناً إن لم تكتب سعره.", "bad");
+    if (App.sellPrice(it, mode) <= 0) App.toast("«" + App.itemName(it) + "» سعره صفر — " +
+      (App.isX4 && App.isX4() ? "تكتب سعره عند «إتمام البيع»." : "سيُباع مجاناً إن لم تكتب سعره."), App.isX4 && App.isX4() ? "warn" : "bad");
   }
 
   /* الوحدات التي تُباع بالكسور فعلاً — ما عداها كميات صحيحة.
@@ -484,6 +485,8 @@ var Sales = (function () {
 
     /* كتاب سعره صفر كان يُباع مجاناً بلا كلمة — في ملف المحل 39 كتاباً هكذا */
     var free = cart.filter(function (l) { return App.num(l.price) <= 0; }).map(function (l) { return l.name; });
+    /* X4: 79% من كتب طرابلس بلا سعر في ملفها. السعر يُكتب هنا ويُحفظ للكتاب، فتكتمل الأسعار من البيع نفسه */
+    if (free.length && !complete.freeOk && App.isX4 && App.isX4()) { zeroPrices(); return; }
     if (free.length && !complete.freeOk) {
       App.confirm("سعر هذا الصنف صفر، وسيُباع مجاناً:\n\n" + free.join("\n") +
         "\n\nإن لم يكن هدية: ألغِ واكتب سعره من «إدخال بضاعة ← عرض وتعديل».",
@@ -502,6 +505,56 @@ var Sales = (function () {
       App.confirm("الكمية المطلوبة أكبر من المخزون في:\n\n" + short.join("\n") +
         "\n\nهل تكمل البيع؟ سيصبح رصيد المخزون بالسالب.", askPayment, { yes: "أكمل البيع" });
     } else askPayment();
+  }
+
+  /* أصناف الفاتورة التي سعرها صفر: سعر كل واحد يُكتب فيُحفظ له (ويُسجَّل)، أو تُباع مجاناً */
+  function zeroPrices() {
+    var lines = cart.filter(function (l) { return App.num(l.price) <= 0; });
+    var cur = S().meta.currency || "";
+    var body = '<p style="margin:0 0 12px;line-height:1.9">' + (lines.length === 1 ? "هذا الكتاب ما له سعر." : "هذه الأصناف ما لها سعر.") +
+      " اكتب سعر البيع ويُحفظ له، فلا يُسأل عنه مرة ثانية.</p>" +
+      lines.map(function (l, i) {
+        return '<div class="row" style="align-items:center;gap:10px;margin-bottom:8px">' +
+          '<div style="flex:1;min-width:0"><b>' + App.esc(l.name) + '</b><div class="muted small">الكمية ' + App.num(l.qty) + "</div></div>" +
+          '<input class="inp num" style="width:130px" inputmode="decimal" id="zp' + i + '" placeholder="السعر ' + App.esc(cur) + '">' +
+          "</div>";
+      }).join("");
+    var m = App.modal({
+      title: lines.length === 1 ? "كتاب بلا سعر" : "أصناف بلا سعر",
+      body: body,
+      actions: [
+        { label: "احفظ السعر وكمّل البيع", kind: "primary", click: function (close, ov) {
+          var vals = lines.map(function (l, i) { return App.r3(App.num(App.digits(ov.querySelector("#zp" + i).value))); });
+          var miss = vals.filter(function (v) { return !(v > 0); }).length;
+          if (miss) { App.toast(miss === lines.length ? "اكتب السعر، أو اختر «بيعه مجاناً»." : "اكتب سعر كل صنف، أو اختر «بيعه مجاناً».", "warn"); return; }
+          lines.forEach(function (l, i) {
+            var it = App.findItem(l.type, l.id);
+            if (it) {
+              it.price = vals[i];
+              it.updated = App.nowStamp();
+              App.log("تسعير عند البيع", App.itemName(it) + " ← " + App.money0(vals[i]));
+              l.price = App.sellPrice(it, mode);
+            } else l.price = vals[i];
+          });
+          App.save();
+          close();
+          paint();
+          complete();
+        } },
+        { label: "بيعه مجاناً", kind: "danger", click: function (close) {
+          close();
+          complete.freeOk = true;
+          try { complete(); } finally { complete.freeOk = false; }
+        } }
+      ],
+      cancelLabel: "رجوع"
+    });
+    m.el.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" || !/^zp/.test(e.target.id || "")) return;
+      e.preventDefault();
+      var next = m.el.querySelector("#zp" + (+e.target.id.slice(2) + 1));
+      if (next) next.focus(); else m.el.querySelector(".m-foot .btn.primary").click();
+    });
   }
 
   /* شاشة اختيار طريقة الدفع — تظهر بعد الضغط على إتمام البيع */
