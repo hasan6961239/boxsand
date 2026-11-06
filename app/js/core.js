@@ -154,6 +154,7 @@ var App = (function () {
           block("ملف البيانات تالف — لم تُفتح أي بيانات، ولن يُحفظ شيء فوقه.");
           return S;
         }
+        x3Snap(parsed);
         S = heal(parsed);
         return S;
       })
@@ -172,9 +173,11 @@ var App = (function () {
   var x3 = { rev: "", gen: -1, stale: false, edits: 0, busy: false };
 
   function x3Seen(r) {
-    var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
+    var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen"), p = r.headers.get("X-X3-Patch");
     if (rev) x3.rev = rev;
     if (gen !== null && gen !== "") x3.gen = +gen;
+    x3p.on = !!rev && (p === "1" || p === "2");
+    x3p.verify = p === "2";
   }
 
   function x3Saved(res) {
@@ -190,12 +193,201 @@ var App = (function () {
     return h;
   }
 
+  /* ---------- الحفظ بالفرق (X4) ----------
+     مع 61 ألف كتاب وسنة فواتير الملف 47 ميغا، وكل حفظ كان يرسله كله: ثانيتان ونصف حتى
+     «محفوظ». الآن تُرسل الأقسام والسجلات التي تغيّر نصها منذ آخر ما رآه البرنامج (snap:
+     نص كل سجل كما يكتبه JSON.stringify)، وترتيب السجلات إن تغيّر، والبرنامج يبني منها
+     الملف كله (ShopDb.X3Patch) ويكمل كما كان. النواة تعلن أنها تفهمه (X-X3-Patch)، وأي
+     رفض منها ({full:true}) يرجع للحفظ الكامل. السجلات: مصفوفة غير فارغة، كل عنصرها
+     كائن بمعرّف (نص أو عدد صحيح) لا يتكرر — كما يعرّفها البرنامج (X3ScanRecords) */
+  var x3p = { on: false, verify: false, snap: null, rev: "" };
+
+  function snapId(r) {
+    if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+    var id = r.id;
+    if (typeof id === "string") return id.length ? id : null;
+    if (typeof id === "number" && Number.isSafeInteger(id)) return String(id);
+    return null;
+  }
+
+  function snapSec(v) {
+    if (Array.isArray(v) && v.length) {
+      var n = v.length, ids = new Array(n), txt = new Array(n), map = new Map(), i, id;
+      for (i = 0; i < n; i++) {
+        id = snapId(v[i]);
+        if (id === null || map.has(id)) return { t: JSON.stringify(v) };
+        map.set(id, i); ids[i] = id; txt[i] = JSON.stringify(v[i]);
+      }
+      return { ids: ids, txt: txt, map: map };
+    }
+    return { t: JSON.stringify(v) };
+  }
+
+  /* الملف مقطّعاً: المفاتيح بترتيب JSON.stringify، ونص كل قسم أو كل سجل */
+  function snapOf(o) {
+    var keys = [], secs = {}, ks = Object.keys(o), i, k, v;
+    for (i = 0; i < ks.length; i++) {
+      k = ks[i]; v = o[k];
+      if (v === undefined || typeof v === "function" || typeof v === "symbol") continue;
+      keys.push(k);
+      secs[k] = snapSec(v);
+    }
+    return { keys: keys, secs: secs };
+  }
+
+  /* = JSON.stringify(الملف) حرفياً، من قطعه */
+  function snapText(n) {
+    var out = new Array(n.keys.length), i, k, s;
+    for (i = 0; i < n.keys.length; i++) {
+      k = n.keys[i]; s = n.secs[k];
+      out[i] = JSON.stringify(k) + ":" + (s.t !== undefined ? s.t : "[" + s.txt.join(",") + "]");
+    }
+    return "{" + out.join(",") + "}";
+  }
+
+  /* الترتيب الجديد: [من، كم] من ترتيب النسخة السابقة، أو معرّف سجل جديد */
+  function snapRuns(map, ids) {
+    var out = [], rs = -1, rl = 0, i, bi;
+    for (i = 0; i < ids.length; i++) {
+      bi = map.get(ids[i]);
+      if (bi !== undefined && rl && bi === rs + rl) { rl++; continue; }
+      if (rl) { out.push([rs, rl]); rl = 0; }
+      if (bi === undefined) out.push(ids[i]);
+      else { rs = bi; rl = 1; }
+    }
+    if (rl) out.push([rs, rl]);
+    return out;
+  }
+
+  function snapRecs(bs, ns) {
+    var put = [], same = ns.ids.length === bs.ids.length, map = bs.map, i, bi;
+    for (i = 0; i < ns.ids.length; i++) {
+      bi = map.get(ns.ids[i]);
+      if (bi === undefined) { put.push(ns.txt[i]); same = false; continue; }
+      if (bi !== i) same = false;
+      if (bs.txt[bi] !== ns.txt[i]) put.push(ns.txt[i]);
+    }
+    if (same && !put.length) return null;
+    var p = [];
+    if (put.length) p.push('"put":[' + put.join(",") + "]");
+    if (!same) p.push('"order":' + JSON.stringify(snapRuns(map, ns.ids)));
+    return "{" + p.join(",") + "}";
+  }
+
+  /* ما تغيّر من b إلى n (ShopDb.X3Patch يقرؤه) */
+  function snapPatch(b, n, verify) {
+    var out = [], i, k, ns, bs, part;
+    for (i = 0; i < n.keys.length; i++) {
+      k = n.keys[i]; ns = n.secs[k]; bs = b.secs[k]; part = null;
+      if (ns.t !== undefined) { if (!bs || bs.t !== ns.t) part = '{"t":' + ns.t + "}"; }
+      else if (!bs || !bs.ids) part = '{"t":[' + ns.txt.join(",") + "]}";
+      else part = snapRecs(bs, ns);
+      if (part) out.push(JSON.stringify(k) + ":" + part);
+    }
+    return '{"x3patch":1,"keys":' + JSON.stringify(n.keys) + ',"secs":{' + out.join(",") + "}" +
+      (verify ? ',"full":' + snapText(n) : "") + "}";
+  }
+
+  /* ما رآه البرنامج للتو (التحميل): قبل heal، فما يصلحه heal يُرسل مع أول حفظ */
+  function x3Snap(o) {
+    x3p.snap = null; x3p.rev = "";
+    if (!x3p.on || !x3.rev || !o || typeof o !== "object" || Array.isArray(o)) return;
+    x3p.snap = snapOf(o); x3p.rev = x3.rev;
+  }
+
+  /* نص الحفظ: فرقٌ إن عرفنا ما رآه البرنامج، وإلا الملف كله. snap: ما يصير معروفاً إن نجح */
+  function saveBody(full) {
+    if (!x3p.on || !x3.rev) return { path: "/api/save", body: JSON.stringify(S), snap: null };
+    var n = snapOf(S);
+    if (!full && x3p.snap && x3p.rev === x3.rev)
+      return { path: "/api/x3/patch", body: snapPatch(x3p.snap, n, x3p.verify), snap: n };
+    return { path: "/api/save", body: snapText(n), snap: n };
+  }
+
+  /* ---------- جهاز آخر غيّر شيئاً: ما تغيّر وحده (X4) ----------
+     كان كل تغيير من جهاز آخر يعيد تحميل الملف كله (ثانية ونصف مع سنة فواتير، والشاشة متوقفة).
+     الآن تطلب الشاشة ما تغيّر منذ ما رأته (/api/x3/since، بشكل الحفظ بالفرق نفسه) وتطبّقه على
+     ما في الذاكرة: السجل الذي لم يتغيّر يبقى هو نفسه. أي شك (null): التحميل كله كما كان */
+  function x3Apply(p) {
+    var snap = x3p.snap;
+    if (!snap || !p || p.x3patch !== 1 || !Array.isArray(p.keys) || !p.secs || typeof p.secs !== "object") return null;
+    var next = {}, secs = {}, i, j, q, k, ps, bs, cur, put, ids, txt, arr, map, list, e, o, bad;
+    function take(bi) {
+      var id = bs.ids[bi];
+      if (snapId(cur[bi]) !== id) return false;
+      var x = put.get(id);
+      if (x) { arr.push(x); txt.push(JSON.stringify(x)); put.delete(id); }
+      else { arr.push(cur[bi]); txt.push(bs.txt[bi]); }
+      ids.push(id);
+      return true;
+    }
+    for (i = 0; i < p.keys.length; i++) {
+      k = p.keys[i]; ps = p.secs[k]; bs = snap.secs[k];
+      if (!ps) {
+        if (!bs || !(k in S)) return null;
+        /* لم يتغيّر عند البرنامج: ما في الذاكرة هو نفسه (السجلات بمعرّفاتها وترتيبها) */
+        if (bs.ids) {
+          cur = S[k];
+          if (!Array.isArray(cur) || cur.length !== bs.ids.length) return null;
+          for (j = 0; j < cur.length; j++) if (snapId(cur[j]) !== bs.ids[j]) return null;
+        }
+        next[k] = S[k]; secs[k] = bs;
+        continue;
+      }
+      if ("t" in ps) { next[k] = ps.t; secs[k] = snapSec(ps.t); continue; }
+      cur = S[k];
+      if (!bs || !bs.ids || !Array.isArray(cur) || cur.length !== bs.ids.length) return null;
+      put = new Map(); list = Array.isArray(ps.put) ? ps.put : [];
+      for (j = 0; j < list.length; j++) { e = snapId(list[j]); if (e === null) return null; put.set(e, list[j]); }
+      ids = []; txt = []; arr = []; bad = false;
+      if (!ps.order) { for (j = 0; j < bs.ids.length && !bad; j++) bad = !take(j); }
+      else for (j = 0; j < ps.order.length && !bad; j++) {
+        e = ps.order[j];
+        if (Array.isArray(e)) { for (q = e[0]; q < e[0] + e[1] && !bad; q++) bad = q < 0 || q >= bs.ids.length || !take(q); }
+        else { o = put.get(e); if (!o) bad = true; else { arr.push(o); txt.push(JSON.stringify(o)); ids.push(e); put.delete(e); } }
+      }
+      if (bad || put.size || !arr.length) return null;
+      map = bs.map;
+      if (ps.order) {
+        map = new Map();
+        for (j = 0; j < ids.length; j++) { if (map.has(ids[j])) return null; map.set(ids[j], j); }
+      }
+      next[k] = arr; secs[k] = { ids: ids, txt: txt, map: map };
+    }
+    return { s: next, snap: { keys: p.keys.slice(), secs: secs } };
+  }
+
+  function x3Took(req, res) {
+    if (!req.snap) return;
+    if (res && res.ok && res.rev) { x3p.snap = req.snap; x3p.rev = res.rev; }
+  }
+
   function x3Idle() {
     if (!x3.stale || x3.busy || readOnly || saving || dirty || modalStack.length) return;
     var a = document.activeElement;
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && String(a.value || "").length) return;
     x3.busy = true;
     var edits = x3.edits;
+    if (x3p.on && x3p.snap && x3p.rev === x3.rev) {
+      api("/api/x3/since", { headers: { "X-X3-Rev": x3.rev } }).then(function (r) {
+        var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
+        return r.text().then(function (t) {
+          x3.busy = false;
+          if (edits !== x3.edits || saving || dirty) return;
+          var p = null;
+          try { p = JSON.parse(t); } catch (e) { }
+          var res = p && !p.full && rev ? x3Apply(p) : null;
+          if (!res) { x3p.snap = null; x3p.rev = ""; x3Idle(); return; }   // التحميل كله
+          x3.rev = rev;
+          if (gen !== null && gen !== "") x3.gen = +gen;
+          x3p.snap = res.snap; x3p.rev = rev;
+          S = heal(res.s);
+          x3.stale = false;
+          rerender();
+        });
+      }).catch(function () { x3.busy = false; });
+      return;
+    }
     api("/api/load").then(function (r) {
       var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
       return r.text().then(function (t) {
@@ -204,9 +396,10 @@ var App = (function () {
         var parsed = null;
         try { parsed = JSON.parse(t); } catch (e) { }
         if (!parsed || typeof parsed !== "object") return;
-        S = heal(parsed);
         if (rev) x3.rev = rev;
         if (gen !== null && gen !== "") x3.gen = +gen;
+        x3Snap(parsed);
+        S = heal(parsed);
         x3.stale = false;
         rerender();
       });
@@ -263,16 +456,21 @@ var App = (function () {
     }
     saving = true;
     setState("saving");
-    return api("/api/save", {
+    var req = saveBody(false);
+    return api(req.path, {
       method: "POST",
       headers: saveHeaders(),
-      body: JSON.stringify(S)
+      body: req.body
     }).then(function (r) { return r.json(); })
       .then(function (res) {
         saving = false;
-        if (res && res.ok) { dirty = false; firstDirtyAt = 0; setState("ok"); x3Saved(res); return; }
+        if (res && res.ok) { dirty = false; firstDirtyAt = 0; setState("ok"); x3Took(req, res); x3Saved(res); return; }
+        /* البرنامج لم يقبل الفرق (نسخة نسيها، أو لم يفهمه): الملف كله الآن */
+        if (res && res.full) { x3p.snap = null; x3p.rev = ""; return saveNow(); }
         /* الجهاز الثاني رفض حفظاً (مسح البيانات كلها مثلاً): ما في الشاشة يرجع لما في القاعدة */
         if (res && res.reload) {
+          /* ما في الشاشة لم يعد ما رآه البرنامج: يُحمَّل كله لا ما تغيّر وحده */
+          x3p.snap = null; x3p.rev = "";
           dirty = false; firstDirtyAt = 0; setState("ok");
           toast(res.error || "تعذّر الحفظ.", "bad");
           x3.stale = true; x3Idle();
@@ -305,8 +503,9 @@ var App = (function () {
       fixStores();
       saving = true;
       setState("saving");
-      return apiWrite("/api/save", { method: "POST", headers: saveHeaders(), body: JSON.stringify(S) })
-        .then(function (res) { saving = false; dirty = false; firstDirtyAt = 0; setState("ok"); x3Saved(res); },
+      var req = saveBody(true);
+      return apiWrite(req.path, { method: "POST", headers: saveHeaders(), body: req.body })
+        .then(function (res) { saving = false; dirty = false; firstDirtyAt = 0; setState("ok"); x3Took(req, res); x3Saved(res); },
           function (e) { saving = false; setState("error"); throw e; });
     });
   }
@@ -370,12 +569,14 @@ var App = (function () {
        بدل أن يضيع آخر تعديل (الحفظ عند الإغلاق محدود بـ64 كيلوبايت). */
     if (dirty || saving) { e.preventDefault(); e.returnValue = "لم يكتمل حفظ آخر تعديل بعد."; }
     // fetch مع keepalive بدل sendBeacon — لأن sendBeacon لا يحمل ترويسات مخصّصة
+    /* بالفرق يصل ولو كان الملف كبيراً: الفرق بيعة أو اثنتان، أقل بكثير من 64 كيلوبايت */
     if (dirty) {
       try {
-        api("/api/save", {
+        var req = saveBody(false);
+        api(req.path, {
           method: "POST",
           headers: saveHeaders(),
-          body: JSON.stringify(S),
+          body: req.body,
           keepalive: true
         });
       } catch (e) { }
@@ -753,8 +954,12 @@ var App = (function () {
   }
 
   /* درجة القرب لما لم يطابق حرفياً: 1..90 أو 0 */
-  function matchNear(q, hay) {
-    var qw = fzWords(q), hw = fzWords(hay);
+  function matchNear(q, hay) { return matchNearW(fzWords(q), fzWords(hay)); }
+
+  /* الكلمات نفسها مطويّة من قبل (rank يحفظها مع الصنف) */
+  function fzWords0(s) { return fold(s).split(" ").filter(Boolean).map(fzStem); }
+
+  function matchNearW(qw, hw) {
     if (!qw.length || !hw.length) return 0;
     var sum = 0, pos = 0;
     for (var k = 0; k < qw.length; k++) {
@@ -796,7 +1001,26 @@ var App = (function () {
   /* القوائم الكبيرة (كتب فرع آخر، 22 ألف صنف): تطبيع كل خانة مع كل حرف كان أكثر من عُشر
      ثانية. ما طُبِّع مرة يُحفظ بنصه نفسه، فما تغيّر نصه يُطبَّع من جديد وحده */
   var hayCache = new Map();
-  function hayParts(h) {
+  /* وما له سجل (كتاب، فاتورة): التطبيع محفوظ مع السجل نفسه، ومع كل حرف تُقارن خاناته بما
+     طُبِّع (11 مقارنة) بدل جمعها نصاً واحداً والبحث عنه في الذاكرة — 61 ألف كتاب مع كل حرف.
+     حتى 3 أشكال للسجل الواحد (البيع، جدول الكتب، الاختيار السريع يبحث كلٌّ بخاناته) */
+  var hayOwn = new WeakMap();
+  function sameHay(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return a === b;
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+  function hayParts(h, own) {
+    if (own && typeof own === "object") {
+      var list = hayOwn.get(own);
+      if (list) for (var i = 0; i < list.length; i++) if (sameHay(list[i].h, h)) return list[i].p;
+      var made = hayPartsOf(h);
+      if (!list) { list = []; hayOwn.set(own, list); }
+      if (list.length >= 3) list.shift();
+      list.push({ h: Array.isArray(h) ? h.slice() : h, p: made });
+      return made;
+    }
     var key = Array.isArray(h) ? "\u0001" + h.join("\u0001") : "\u0002" + String(h == null ? "" : h);
     var hit = hayCache.get(key);
     if (hit) return hit;
@@ -846,7 +1070,7 @@ var App = (function () {
     var qs = nq.split(" ");
     var exact = [], near = [], rest = [];
     rows.forEach(function (r, i) {
-      var p = hayParts(hayOf(r));
+      var p = hayParts(hayOf(r), r && typeof r === "object" ? (r.it && typeof r.it === "object" ? r.it : r) : null);
       var s = exactScore(nq, qs, p);
       if (s) exact.push({ r: r, s: s, l: s >= 700 ? p.name.length : 0, i: i });
       else rest.push(p, r);
@@ -862,14 +1086,18 @@ var App = (function () {
     /* القوائم الضخمة (آلاف الفواتير): القريب فقط لما ما فيش مطابق — حتى
        لا تثقل الكتابة */
     if (rows.length <= 4000 || !exact.length) {
+      /* كلمات كل صنف مطويّة تُحفظ معه (p.fw): كانت تُحفظ في 20 ألف خانة فقط، فمع 61 ألف
+         كتاب يُطوى كل شيء من جديد مع كل حرف (نصف ثانية حين لا يطابق شيء حرفياً) */
+      var qw = fzWords(q), qn = qw.length;
       for (var i = 0; i < rest.length; i += 2) {
-        var p = rest[i], sc = matchNear(q, p.raw);
+        var p = rest[i], sc = matchNearW(qw, p.fw || (p.fw = fzWords0(p.raw)));
         if (!sc) continue;
         // الاسم القريب أهمّ من كلمة قريبة في الوصف أو التصنيف، والاسم
         // القصير الذي تغطيه كلماتك أقرب من الطويل
-        var sn = p.other ? matchNear(q, p.name) : sc;
+        var fn = p.fn || (p.fn = fzWords0(p.name));
+        var sn = p.other ? matchNearW(qw, fn) : sc;
         if (sn) {
-          var nw = fzWords(p.name).length, qn = fzWords(q).length;
+          var nw = fn.length;
           sc = sn + 100 + Math.round(10 * qn / Math.max(nw, qn, 1));
         }
         near.push({ r: rest[i + 1], s: sc });
@@ -2316,6 +2544,8 @@ var App = (function () {
     isSecond: function () { return !!dev.second; },
     /* على الأساس الجديد (قرار 0025): النواة تعطي رقم ما رأته الشاشة مع كل تحميل */
     isX3: function () { return !!x3.rev; },
+    /* للاختبار: الحفظ بالفرق */
+    __snap: { of: snapOf, text: snapText, patch: snapPatch, apply: x3Apply, ready: function () { return !!(x3p.on && x3p.snap && x3p.rev === x3.rev); } },
     isReadOnly: isReadOnly, readOnlyReason: readOnlyReason, takeOver: takeOver,
     retryConnect: retryConnect,
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,

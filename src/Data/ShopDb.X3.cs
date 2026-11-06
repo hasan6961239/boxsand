@@ -280,6 +280,8 @@ namespace Qirtasiya.Data
             /* مصفوفة سجلات (كـ X3IsRecords): المعرّفات ومواضع السجلات، وإلا null */
             public List<string> Ids;
             public List<int> RStart, RLen;
+            /* المعرّف ← موضعه، يُبنى أول مرة يُحتاج (الحفظ بالفرق) */
+            public Dictionary<string, int> Map;
         }
 
         internal sealed class X3Doc
@@ -574,6 +576,321 @@ namespace Qirtasiya.Data
                 if (x.TryGetValue("no", out no) && JsonEqual(no, rn)) return X3Id(x) ?? "";
             }
             return "";
+        }
+
+        /* ---------- الحفظ بالفرق (X4) ----------
+           مع 61 ألف كتاب وسنة فواتير الملف 47 ميغا، وكل حفظ كان يرسله كله: ثانيتان ونصف حتى
+           «محفوظ». الآن ترسل الشاشة ما تغيّر وحده منذ النسخة التي رأتها (rev):
+             {"x3patch":1,"keys":[المفاتيح بترتيبها],"secs":{"قسم":{...}}}
+           لكل قسم تغيّر: نصه كله {"t":قيمة}، أو لمصفوفة سجلات كانت سجلات:
+             {"put":[السجلات التي تغيّر نصها أو جدّت],"order":[[من،كم] من ترتيب النسخة السابقة، أو معرّف سجل جديد]}
+           (order حين يتغيّر الترتيب وحده: سجل جديد، سجل حُذف، أو نُقل). القسم الذي لم يُذكر كما كان.
+           يُبنى منه النص كله ومواضع أقسامه وسجلاته، فلا يُفحص الملف من جديد، والحفظ بعده كما هو
+           (X3DiffText). ما لا يُفهم أو لا يستقيم: null والسبب، والشاشة ترسل الملف كله */
+        internal static X3Doc X3Patch(X3Doc b, string p, out string err, out string full)
+        {
+            err = null;
+            full = null;
+            try { return X3PatchCore(b, p, ref err, ref full); }
+            catch (FormatException ex) { err = ex.Message; }
+            catch (InvalidCastException ex) { err = ex.Message; }
+            catch (ArgumentException ex) { err = ex.Message; }
+            return null;
+        }
+
+        /* أعضاء الكائن الذي يبدأ عند i: المفتاح، وبداية قيمته ونهايتها، ونهاية المفتاح نصاً */
+        static List<KeyValuePair<string, int[]>> X3Members(string s, int i, out int end)
+        {
+            List<KeyValuePair<string, int[]>> list = new List<KeyValuePair<string, int[]>>();
+            if (i >= s.Length || s[i] != '{') throw new FormatException("كائن متوقع.");
+            i = SkipWs(s, i + 1);
+            if (i < s.Length && s[i] == '}') { end = i + 1; return list; }
+            while (true)
+            {
+                if (i >= s.Length || s[i] != '"') throw new FormatException("مفتاح متوقع.");
+                int ks = i, ke = SkipStr(s, i);
+                string key = (string)Json.Parse(s.Substring(ks, ke - ks));
+                i = SkipWs(s, ke);
+                if (i >= s.Length || s[i] != ':') throw new FormatException("«:» متوقعة.");
+                int vs = SkipWs(s, i + 1);
+                int ve = SkipVal(s, vs);
+                list.Add(new KeyValuePair<string, int[]>(key, new int[] { vs, ve, ks, ke }));
+                i = SkipWs(s, ve);
+                if (i < s.Length && s[i] == ',') { i = SkipWs(s, i + 1); continue; }
+                if (i < s.Length && s[i] == '}') { end = i + 1; return list; }
+                throw new FormatException("«,» أو «}» متوقعة.");
+            }
+        }
+
+        /* عناصر المصفوفة التي بين start وend (علامتاها): بداية كل عنصر ونهايته */
+        static List<int[]> X3Items(string s, int start, int end)
+        {
+            List<int[]> list = new List<int[]>();
+            if (s[start] != '[' || s[end - 1] != ']') throw new FormatException("مصفوفة متوقعة.");
+            int i = SkipWs(s, start + 1), last = end - 1;
+            if (i == last) return list;
+            while (true)
+            {
+                int e = SkipVal(s, i);
+                list.Add(new int[] { i, e });
+                i = SkipWs(s, e);
+                if (i == last) return list;
+                if (i < last && s[i] == ',') { i = SkipWs(s, i + 1); continue; }
+                throw new FormatException("«,» أو «]» متوقعة.");
+            }
+        }
+
+        static X3Doc X3PatchCore(X3Doc b, string p, ref string err, ref string full)
+        {
+            int pend;
+            List<KeyValuePair<string, int[]>> top = X3Members(p, SkipWs(p, 0), out pend);
+            if (SkipWs(p, pend) != p.Length) { err = "نص بعد آخر الفرق"; return null; }
+            int[] keysAt = null, secsAt = null;
+            bool v1 = false;
+            foreach (KeyValuePair<string, int[]> m in top)
+            {
+                int[] a = m.Value;
+                if (m.Key == "x3patch") v1 = string.CompareOrdinal(p, a[0], "1", 0, 1) == 0 && a[1] - a[0] == 1;
+                else if (m.Key == "keys") keysAt = a;
+                else if (m.Key == "secs") secsAt = a;
+                else if (m.Key == "full") full = p.Substring(a[0], a[1] - a[0]);
+            }
+            if (!v1 || keysAt == null || secsAt == null) { err = "ليس فرقاً مفهوماً"; return null; }
+
+            List<int[]> keyAt = X3Items(p, keysAt[0], keysAt[1]);
+            List<string> keys = new List<string>();
+            HashSet<string> kset = new HashSet<string>(StringComparer.Ordinal);
+            foreach (int[] k in keyAt)
+            {
+                string name = p[k[0]] == '"' ? Json.Parse(p.Substring(k[0], k[1] - k[0])) as string : null;
+                if (name == null || !kset.Add(name)) { err = "مفاتيح غير مفهومة"; return null; }
+                keys.Add(name);
+            }
+            int send;
+            Dictionary<string, int[]> secs = new Dictionary<string, int[]>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, int[]> m in X3Members(p, secsAt[0], out send))
+            {
+                if (!kset.Contains(m.Key) || secs.ContainsKey(m.Key)) { err = "قسم ليس في المفاتيح: " + m.Key; return null; }
+                secs[m.Key] = m.Value;
+            }
+
+            X3Doc n = new X3Doc();
+            List<X3Sec> scanLater = new List<X3Sec>();
+            StringBuilder sb = new StringBuilder(b.Src.Length + p.Length + 64);
+            sb.Append('{');
+            for (int ki = 0; ki < keys.Count; ki++)
+            {
+                string key = keys[ki];
+                if (ki > 0) sb.Append(',');
+                sb.Append(p, keyAt[ki][0], keyAt[ki][1] - keyAt[ki][0]);
+                sb.Append(':');
+                X3Sec bs, ns = new X3Sec();
+                bool had = b.Secs.TryGetValue(key, out bs);
+                ns.Start = sb.Length;
+                int[] ps;
+                if (!secs.TryGetValue(key, out ps))
+                {
+                    if (!had) { err = "قسم جديد بلا نص: " + key; return null; }
+                    sb.Append(b.Src, bs.Start, bs.Len);
+                    if (bs.Ids != null)
+                    {
+                        int shift = ns.Start - bs.Start;
+                        ns.Ids = bs.Ids;
+                        ns.Map = bs.Map;
+                        ns.RLen = bs.RLen;
+                        ns.RStart = new List<int>(bs.RStart.Count);
+                        foreach (int r in bs.RStart) ns.RStart.Add(r + shift);
+                    }
+                }
+                else
+                {
+                    int[] t = null, put = null, order = null;
+                    int pe;
+                    foreach (KeyValuePair<string, int[]> m in X3Members(p, ps[0], out pe))
+                    {
+                        if (m.Key == "t" && t == null) t = m.Value;
+                        else if (m.Key == "put" && put == null) put = m.Value;
+                        else if (m.Key == "order" && order == null) order = m.Value;
+                        else { err = "قسم غير مفهوم: " + key; return null; }
+                    }
+                    if (t != null)
+                    {
+                        if (put != null || order != null) { err = "قسم غير مفهوم: " + key; return null; }
+                        Json.Parse(p.Substring(t[0], t[1] - t[0]));         // قيمة سليمة كلها، لا أقواسها فقط
+                        sb.Append(p, t[0], t[1] - t[0]);
+                        if (p[t[0]] == '[') scanLater.Add(ns);
+                    }
+                    else
+                    {
+                        if (!had || bs.Ids == null) { err = "سجلات بلا أصل: " + key; return null; }
+                        if (!X3PatchRecords(b, bs, p, put, order, sb, ns, ref err)) { err = key + ": " + err; return null; }
+                    }
+                }
+                ns.Len = sb.Length - ns.Start;
+                n.Keys.Add(key);
+                n.Secs[key] = ns;
+            }
+            sb.Append('}');
+            n.Src = sb.ToString();
+            foreach (X3Sec s in scanLater) X3ScanRecords(n.Src, s);
+            return n;
+        }
+
+        /* سجلات قسم من سجلات النسخة السابقة وما أُرسل: put بمعرّفاتها، والترتيب من order أو كما كان */
+        static bool X3PatchRecords(X3Doc b, X3Sec bs, string p, int[] put, int[] order, StringBuilder sb, X3Sec ns, ref string err)
+        {
+            Dictionary<string, int> bm = bs.Map;
+            if (bm == null)
+            {
+                bm = new Dictionary<string, int>(bs.Ids.Count, StringComparer.Ordinal);
+                for (int i = 0; i < bs.Ids.Count; i++) bm[bs.Ids[i]] = i;
+                bs.Map = bm;
+            }
+            X3Sec ps = null;
+            Dictionary<string, int> pm = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (put != null)
+            {
+                ps = new X3Sec();
+                ps.Start = put[0];
+                ps.Len = put[1] - put[0];
+                if (p[put[0]] != '[') { err = "put ليست مصفوفة"; return false; }
+                X3ScanRecords(p, ps);
+                if (ps.Ids == null) { err = "سجلات put غير مفهومة"; return false; }
+                for (int i = 0; i < ps.Ids.Count; i++) pm[ps.Ids[i]] = i;
+            }
+
+            /* الترتيب الجديد: موضع السجل في النسخة السابقة، أو ‎-1-i للسجل الجديد رقم i في put */
+            List<int> seq = new List<int>(bs.Ids.Count + pm.Count);
+            List<string> ids = new List<string>(bs.Ids.Count + pm.Count);
+            bool[] usedB = new bool[bs.Ids.Count];
+            bool[] usedP = new bool[ps == null ? 0 : ps.Ids.Count];
+            if (order == null)
+            {
+                foreach (string id in pm.Keys) if (!bm.ContainsKey(id)) { err = "سجل جديد بلا مكان"; return false; }
+                for (int i = 0; i < bs.Ids.Count; i++) { seq.Add(i); ids.Add(bs.Ids[i]); }
+            }
+            else
+            {
+                foreach (int[] it in X3Items(p, order[0], order[1]))
+                {
+                    object v = Json.Parse(p.Substring(it[0], it[1] - it[0]));
+                    string nid = v as string;
+                    if (nid != null)
+                    {
+                        int pi;
+                        if (bm.ContainsKey(nid) || !pm.TryGetValue(nid, out pi) || usedP[pi]) { err = "سجل جديد غير مفهوم"; return false; }
+                        usedP[pi] = true;
+                        seq.Add(-1 - pi);
+                        ids.Add(nid);
+                        continue;
+                    }
+                    List<object> run = v as List<object>;
+                    if (run == null || run.Count != 2 || !(run[0] is long) || !(run[1] is long)) { err = "ترتيب غير مفهوم"; return false; }
+                    long from = (long)run[0], cnt = (long)run[1];
+                    if (from < 0 || cnt < 1 || from + cnt > bs.Ids.Count) { err = "ترتيب خارج النسخة السابقة"; return false; }
+                    for (int i = (int)from; i < from + cnt; i++)
+                    {
+                        if (usedB[i]) { err = "سجل مكرر في الترتيب"; return false; }
+                        usedB[i] = true;
+                        seq.Add(i);
+                        ids.Add(bs.Ids[i]);
+                    }
+                }
+                foreach (KeyValuePair<string, int> e in pm)
+                {
+                    int bi;
+                    if (bm.TryGetValue(e.Key, out bi) ? !usedB[bi] : !usedP[e.Value]) { err = "سجل أُرسل وليس في الترتيب"; return false; }
+                }
+            }
+            if (ids.Count == 0) { err = "قائمة فارغة"; return false; }
+
+            ns.Ids = ids;
+            ns.RStart = new List<int>(ids.Count);
+            ns.RLen = new List<int>(ids.Count);
+            sb.Append('[');
+            for (int i = 0; i < seq.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                int at = sb.Length, k = seq[i], pi;
+                if (k < 0) pi = -1 - k;
+                else if (!pm.TryGetValue(ids[i], out pi)) pi = -1;
+                if (pi >= 0) sb.Append(p, ps.RStart[pi], ps.RLen[pi]);
+                else sb.Append(b.Src, bs.RStart[k], bs.RLen[k]);
+                ns.RStart.Add(at);
+                ns.RLen.Add(sb.Length - at);
+            }
+            sb.Append(']');
+            /* الترتيب نفسه والمعرّفات نفسها: الفهرس كما هو للحفظ القادم */
+            if (order == null) ns.Map = bm;
+            return true;
+        }
+
+        /* الاتجاه الآخر: ما تغيّر من b (ما رأته الشاشة) إلى n (ما في القاعدة الآن) بالشكل نفسه، تطبّقه
+           الشاشة بدل تحميل الملف كله حين يغيّر جهاز آخر شيئاً (core.js: x3Apply). X3Patch(b، هذا)
+           يعطي n نفسه (X3Tests) */
+        internal static string X3PatchFrom(X3Doc b, X3Doc n)
+        {
+            StringBuilder sb = new StringBuilder("{\"x3patch\":1,\"keys\":[");
+            for (int i = 0; i < n.Keys.Count; i++) { if (i > 0) sb.Append(','); sb.Append(Json.Write(n.Keys[i])); }
+            sb.Append("],\"secs\":{");
+            bool first = true;
+            foreach (string key in n.Keys)
+            {
+                X3Sec ns = n.Secs[key], bs;
+                bool had = b.Secs.TryGetValue(key, out bs);
+                if (had && SameText(b.Src, bs.Start, bs.Len, n.Src, ns.Start, ns.Len)) continue;
+                int mark = sb.Length;
+                sb.Append(first ? "" : ",").Append(Json.Write(key)).Append(':');
+                if (ns.Ids == null || !had || bs.Ids == null)
+                {
+                    sb.Append("{\"t\":").Append(n.Src, ns.Start, ns.Len).Append('}');
+                    first = false;
+                    continue;
+                }
+                Dictionary<string, int> bm = bs.Map;
+                if (bm == null)
+                {
+                    bm = new Dictionary<string, int>(bs.Ids.Count, StringComparer.Ordinal);
+                    for (int i = 0; i < bs.Ids.Count; i++) bm[bs.Ids[i]] = i;
+                    bs.Map = bm;
+                }
+                bool same = ns.Ids.Count == bs.Ids.Count;
+                List<int> put = new List<int>();
+                for (int i = 0; i < ns.Ids.Count; i++)
+                {
+                    int bi;
+                    if (!bm.TryGetValue(ns.Ids[i], out bi)) { put.Add(i); same = false; continue; }
+                    if (bi != i) same = false;
+                    if (!SameText(b.Src, bs.RStart[bi], bs.RLen[bi], n.Src, ns.RStart[i], ns.RLen[i])) put.Add(i);
+                }
+                if (same && put.Count == 0) { sb.Length = mark; continue; }
+                sb.Append('{');
+                if (put.Count > 0)
+                {
+                    sb.Append("\"put\":[");
+                    for (int j = 0; j < put.Count; j++) { if (j > 0) sb.Append(','); sb.Append(n.Src, ns.RStart[put[j]], ns.RLen[put[j]]); }
+                    sb.Append(']');
+                }
+                if (!same)
+                {
+                    sb.Append(put.Count > 0 ? "," : "").Append("\"order\":[");
+                    int rs = -1, rl = 0, items = 0;
+                    for (int i = 0; i < ns.Ids.Count; i++)
+                    {
+                        int bi;
+                        bool inB = bm.TryGetValue(ns.Ids[i], out bi);
+                        if (inB && rl > 0 && bi == rs + rl) { rl++; continue; }
+                        if (rl > 0) { sb.Append(items++ > 0 ? "," : "").Append('[').Append(rs).Append(',').Append(rl).Append(']'); rl = 0; }
+                        if (!inB) sb.Append(items++ > 0 ? "," : "").Append(Json.Write(ns.Ids[i]));
+                        else { rs = bi; rl = 1; }
+                    }
+                    if (rl > 0) sb.Append(items++ > 0 ? "," : "").Append('[').Append(rs).Append(',').Append(rl).Append(']');
+                    sb.Append(']');
+                }
+                sb.Append('}');
+                first = false;
+            }
+            return sb.Append("}}").ToString();
         }
 
         /* ---------- المساواة والدمج ---------- */

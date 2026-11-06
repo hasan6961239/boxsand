@@ -315,6 +315,39 @@ function device(tmp, name) {
     const logA = fs.readFileSync(A.data('log.txt'), 'utf8');
     ok(!/X3CHECK/.test(logA), 'وكل حفظ: ما في القاعدة بعده = ما أرسلته الشاشة');
 
+    console.log('\n== الحفظ بالفرق من الشاشة (X4) ==');
+    ok(await pA.evaluate(() => { const n = App.__snap; return n.text(n.of(App.S)) === JSON.stringify(App.S); }),
+      'الملف من قطعه = JSON.stringify حرفياً');
+    ok(await pA.evaluate(() => App.__snap.ready()), 'والشاشة تعرف ما رآه البرنامج (تحفظ بالفرق)');
+    const sent = [], gotB = [];
+    const onReq = q => { if (/\/api\/(save|x3\/patch)$/.test(q.url())) sent.push({ url: q.url().replace(/.*\/api\//, ''), len: (q.postData() || '').length }); };
+    const onReqB = q => { if (/\/api\/(load|x3\/since)$/.test(q.url())) gotB.push(q.url().replace(/.*\/api\//, '')); };
+    pA.on('request', onReq);
+    pB.on('request', onReqB);
+    await sellCash(pA, '111');
+    await pA.evaluate(() => { const b = App.S.books.find(x => x.id === 'b2'); b.price = 31; b.updated = App.nowStamp(); App.save(); });
+    await until(pA, () => !/جارٍ/.test(document.getElementById('saveState').textContent));
+    await sleep(600);
+    pA.off('request', onReq);
+    const full = await pA.evaluate(() => JSON.stringify(App.S).length);
+    ok(sent.length >= 2 && sent.every(x => x.url === 'x3/patch'), 'بيعة وتعديل سعر: كل حفظ بالفرق، لا الملف كله', sent);
+    /* في الاختبار يُرسل الملف كله مع الفرق للمقارنة (X-X3-Patch: 2)، فالحجم بدونه */
+    const plain = await pA.evaluate(() => { const n = App.__snap; return n.patch(n.of(App.S), n.of(App.S), false).length; });
+    ok(plain < 400, 'وفرق بلا تغيير صغير (' + plain + ' حرفاً، والملف ' + full + ')', plain);
+    const loadA = JSON.parse(await pA.evaluate(() => App.api('/api/load').then(r => r.text())));
+    ok(JSON.stringify(loadA) === JSON.stringify(await S(pA)), 'وما في القاعدة = ما في الشاشة');
+    await sleep(1500);
+    ok(JSON.stringify(A.store()) === JSON.stringify(loadA), 'وstore.json يلحقه بعد لحظة');
+    ok(await until(pB, () => (App.S.books.find(x => x.id === 'b2') || {}).price === 31), 'واللابتوب يرى السعر الجديد');
+    await sleep(800);
+    pB.off('request', onReqB);
+    ok(gotB.length > 0 && gotB.every(u => u === 'x3/since'), 'وشاشته أخذت ما تغيّر وحده، لا الملف كله', gotB);
+    await link(pB, 'now'); await link(pA, 'now'); await sleep(4000);
+    ok(JSON.stringify(await S(pB)) === JSON.stringify(JSON.parse(await pB.evaluate(() => App.api('/api/load').then(r => r.text())))),
+      'وما في شاشته بعدها = ما في قاعدته حرفياً');
+    ok(await pB.evaluate(() => { const n = App.__snap; return App.__snap.ready() && n.text(n.of(App.S)).length > 0; }), 'وما زالت تحفظ بالفرق');
+    ok(!/X3CHECK|لم يُفهم/.test(fs.readFileSync(A.data('log.txt'), 'utf8')), 'والبرنامج بنى من كل فرق ما في الشاشة نفسه');
+
     console.log('\n== المحل يُغلق ويُفتح، وملف عُدّل من خارج البرنامج ==');
     await pA.close({ runBeforeUnload: true }); await sleep(500);
     A.stop(); await sleep(500);
@@ -324,7 +357,8 @@ function device(tmp, name) {
     await A.start();
     pA = await open(A);
     s = await S(pA);
-    ok(s.books.some(b => b.id === 'out1') && s.invoices.length === 3, 'بعد الفتح: البيانات كما هي، ومعها ما عُدّل في الملف');
+    /* 4 فواتير: الثالثة من قسم الحفظ بالفرق */
+    ok(s.books.some(b => b.id === 'out1') && s.invoices.length === 4, 'بعد الفتح: البيانات كما هي، ومعها ما عُدّل في الملف', s.invoices.length);
     ok(fs.readdirSync(A.data('backups')).some(f => /^qirtasiya-before-outside-/.test(f)), 'وقبل أخذه نسخة من القاعدة');
     await link(pA, 'now'); await link(pB, 'now');
     ok(await until(pB, () => App.S.books.some(b => b.id === 'out1')), 'ووصل اللابتوب');
@@ -334,8 +368,8 @@ function device(tmp, name) {
     const kv = JSON.parse(cloud.env.SHOP.map.get('branch:misrata') || 'null');
     s = await S(pA);
     const nItems = s.books.length + s.stationery.length;
-    ok(kv && !kv.v4 && kv.items.length === nItems && kv.items.find(i => i.k === 'K0001').q === 17,
-      'شاشات المحل ترفع لقطتها كما كانت (' + nItems + ' أصناف، الكمية 17)', kv && kv.items.length);
+    ok(kv && !kv.v4 && kv.items.length === nItems && kv.items.find(i => i.k === 'K0001').q === 16,
+      'شاشات المحل ترفع لقطتها كما كانت (' + nItems + ' أصناف، الكمية 16)', kv && kv.items.length);
 
     ok(errs.length === 0, 'بلا أخطاء في الصفحات', errs.slice(0, 5));
     if (SHOTS) {
@@ -445,11 +479,44 @@ async function power() {
     n.books.push({ id: 'nb-' + tag, code: 'K' + String(n.counters.book).padStart(4, '0'), title: 'كتاب ' + tag, price: 7, qty: 1 });
     return n;
   };
-  /* حفظ من الشاشة، والكهرباء تنقطع بعد ms (قتل فوري للبرنامج)، ثم يُفتح من جديد */
+  /* الحفظ بالفرق كما تبنيه الشاشة (core.js: snapPatch): ما تغيّر من a إلى n */
+  const patchOf = (a, n) => {
+    const recs = v => Array.isArray(v) && v.length > 0 && v.every(x => x && typeof x === 'object' && typeof x.id === 'string' && x.id) &&
+      new Set(v.map(x => x.id)).size === v.length;
+    const secs = [];
+    for (const k of Object.keys(n)) {
+      const av = a[k], nv = n[k];
+      if (JSON.stringify(av) === JSON.stringify(nv)) continue;
+      if (!recs(av) || !recs(nv)) { secs.push(JSON.stringify(k) + ':{"t":' + JSON.stringify(nv) + '}'); continue; }
+      const am = new Map(av.map((x, i) => [x.id, i]));
+      const put = nv.filter(x => !am.has(x.id) || JSON.stringify(av[am.get(x.id)]) !== JSON.stringify(x)).map(x => JSON.stringify(x));
+      const order = [];
+      let rs = -1, rl = 0;
+      for (const x of nv) {
+        const bi = am.get(x.id);
+        if (bi !== undefined && rl && bi === rs + rl) { rl++; continue; }
+        if (rl) { order.push([rs, rl]); rl = 0; }
+        if (bi === undefined) order.push(x.id); else { rs = bi; rl = 1; }
+      }
+      if (rl) order.push([rs, rl]);
+      secs.push(JSON.stringify(k) + ':{' + (put.length ? '"put":[' + put.join(',') + '],' : '') + '"order":' + JSON.stringify(order) + '}');
+    }
+    return '{"x3patch":1,"keys":' + JSON.stringify(Object.keys(n)) + ',"secs":{' + secs.join(',') + '}}';
+  };
+  const sendPatch = async (d, text, h) => {
+    const r = await fetch(d.url() + 'api/x3/patch', { method: 'POST', body: text,
+      headers: Object.assign({ 'X-Qirtasiya': '1', 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:' + d.port }, h) });
+    let j = null;
+    try { j = await r.json(); } catch (e) { }
+    return { status: r.status, body: j };
+  };
+  /* حفظ من الشاشة، والكهرباء تنقطع بعد ms (قتل فوري للبرنامج)، ثم يُفتح من جديد. byPatch: بالفرق */
+  let byPatch = false;
   const cut = async (d, ow, tag, ms) => {
     const a = await load(d);
     const next = sale(a.s, tag);
-    const p = d.raw('/api/save', next, { 'X-Owner': ow, 'X-X3-Rev': a.rev }).catch(() => null);
+    const p = (byPatch ? sendPatch(d, patchOf(a.s, next), { 'X-Owner': ow, 'X-X3-Rev': a.rev })
+      : d.raw('/api/save', next, { 'X-Owner': ow, 'X-X3-Rev': a.rev })).catch(() => null);
     await sleep(ms);
     d.stop();
     const res = await p;
@@ -491,6 +558,25 @@ async function power() {
     let r = await link(K, owK, { action: 'main', url: cloud.url, key: KEY, name: 'محل' });
     ok(r.body && r.body.ok && r.body.data.x3, 'جهاز المحل على القاعدة بشاشات 3.x', r.body);
     owK = await cuts(K, owK, 'المحل', delays);
+
+    console.log('\n== انقطاع الكهرباء وسط الحفظ بالفرق (X4): جهاز المحل ==');
+    /* الفرق يُقبل فعلاً (لا يرجع للحفظ الكامل)، وstore.json يُكتب بعد الرد بلحظة */
+    let a0 = await load(K);
+    const pn = sale(a0.s, 'p-first');
+    r = await sendPatch(K, patchOf(a0.s, pn), { 'X-Owner': owK, 'X-X3-Rev': a0.rev });
+    ok(r.body && r.body.ok && !r.body.full && !r.body.reload, 'حفظ بالفرق: يُقبل كما هو', r.body);
+    ok(same((await load(K)).s, pn), 'وما في القاعدة بعده = ما في الشاشة');
+    await sleep(1200);
+    ok(same(K.store(), pn), 'وstore.json يلحقه بعد لحظة');
+    r = await sendPatch(K, patchOf(a0.s, sale(a0.s, 'p-old')), { 'X-Owner': owK, 'X-X3-Rev': 'nope' });
+    ok(r.body && r.body.ok === false && r.body.full, 'فرق على نسخة لا يعرفها البرنامج: يطلب الملف كله', r.body);
+    r = await sendPatch(K, '{"x3patch":1,"keys":["books"],"secs":{"books":{"order":[[0,999]]}}}', { 'X-Owner': owK, 'X-X3-Rev': (await load(K)).rev });
+    ok(r.body && r.body.ok === false && r.body.full && same((await load(K)).s, pn), 'وفرق لا يستقيم: يطلب الملف كله، ولا يُكتب شيء', r.body);
+    r = await sendPatch(K, patchOf(a0.s, pn), { 'X-X3-Rev': a0.rev });
+    ok(r.status === 409 && r.body && r.body.notOwner, 'وبلا ملكية النافذة يُرفض كالحفظ الكامل', r);
+    byPatch = true;
+    owK = await cuts(K, owK, 'المحل بالفرق', delays);
+    byPatch = false;
     const sK = (await load(K)).s;
     const nos = sK.invoices.map(v => v.no);
     ok(new Set(nos).size === nos.length && sK.counters.invoice === Math.max(...nos), 'وأرقام الفواتير بلا تكرار والعدّاد عند آخرها', nos);

@@ -1114,6 +1114,7 @@ namespace Qirtasiya
         {
             lock (IoLock)
             {
+                X3PendDrop();
                 string json = d.Replica ? d.X3ExportWithPending() : d.X3Export();
                 if (json == "null") return;
                 byte[] b = Encoding.UTF8.GetBytes(json);
@@ -1132,6 +1133,7 @@ namespace Qirtasiya
         {
             lock (IoLock)
             {
+                X3PendDrop();
                 X3TakeOutside(d);
                 if (d.X3Gen != gen) { X3WriteMirror(d); return; }     // أُخذ ملف من خارج: القاعدة تغيّرت
                 string h = Md5Hex(body);
@@ -1141,6 +1143,64 @@ namespace Qirtasiya
                 X3Mark(h);
                 X3NoteFile();
             }
+        }
+
+        /* بعد حفظ بالفرق: store.json في الخلفية بعد لحظة، والحفظات المتتابعة تُكتب مرة. text: ما
+           حفظته الشاشة وهو ما في القاعدة عند gen، أو null: من القاعدة. الانقطاع قبل الكتابة لا يضيّع
+           شيئاً: القاعدة فيها كل شيء، وعند التشغيل تُكتب المرآة منها (X3Startup). النسخة الاحتياطية،
+           وإغلاق النافذة، والخروج تكتبها أولاً (X3FlushMirror) */
+        static readonly object X3PendLock = new object();
+        static bool X3Pend;
+        static string X3PendText;
+        static long X3PendGen;
+        static DateTime X3PendSince;
+        static System.Threading.Timer X3PendTimer;
+
+        static void X3MirrorLater(string text, long gen)
+        {
+            lock (X3PendLock)
+            {
+                DateTime now = DateTime.UtcNow;
+                if (!X3Pend) X3PendSince = now;
+                X3Pend = true;
+                X3PendText = text;
+                X3PendGen = gen;
+                /* 300 ms بعد آخر حفظ، ولا تتأخر أكثر من 3 ثوانٍ مهما تتابع البيع */
+                int wait = Math.Max(0, Math.Min(300, 3000 - (int)(now - X3PendSince).TotalMilliseconds));
+                if (X3PendTimer == null) X3PendTimer = new System.Threading.Timer(delegate { X3FlushMirror(); }, null, wait, Timeout.Infinite);
+                else X3PendTimer.Change(wait, Timeout.Infinite);
+            }
+        }
+
+        static void X3FlushMirror()
+        {
+            lock (IoLock)
+            {
+                string text;
+                long gen;
+                lock (X3PendLock)
+                {
+                    if (!X3Pend) return;
+                    X3Pend = false;
+                    text = X3PendText;
+                    gen = X3PendGen;
+                    X3PendText = null;
+                }
+                ShopDb d = Db;
+                if (d == null || !X3On) return;
+                try
+                {
+                    if (text != null && !d.Replica) X3MirrorUi(d, Encoding.UTF8.GetBytes(text), gen);
+                    else X3MirrorNow();
+                }
+                catch (Exception ex) { Log("مرآة store.json: " + ex.Message); }
+            }
+        }
+
+        /* كُتبت المرآة الآن (أحدث ما في القاعدة): المؤجلة لا حاجة لها */
+        static void X3PendDrop()
+        {
+            lock (X3PendLock) { X3Pend = false; X3PendText = null; }
         }
 
         /* تغيّرت بيانات 3.x من غير الشاشة (جهاز ثانٍ، السجل): المرآة في الخلفية */
@@ -1239,13 +1299,55 @@ namespace Qirtasiya
             }
         }
 
+        /* /api/x3/since: جهاز آخر غيّر شيئاً، والشاشة تطلب ما تغيّر وحده منذ ما رأته (rev) بدل الملف
+           كله (47 ميغا مع 61 ألف كتاب وسنة فواتير، ثانية ونصف). ما في القاعدة الآن: نسخة يذكرها البرنامج
+           بالرقم نفسه (حفظ الشاشة، تحميل)، وإلا تصدير. null: نسخة لا يعرفها، فتحمّل الملف كله */
+        static string X3Since(string rev, out string nrev, out long gen)
+        {
+            ShopDb d = Db;
+            nrev = "";
+            gen = 0;
+            try { X3TakeOutside(d); }
+            catch (Exception ex) { Log("store.json من خارج البرنامج: " + ex.Message); }
+            lock (X3Gate)
+            {
+                X3Seen seen = X3Find(rev);
+                if (seen == null) return null;
+                seen.Used = DateTime.UtcNow;
+                ShopDb.X3Doc bd = seen.Doc ?? (seen.Doc = ShopDb.X3ScanOrNull(seen.Json));
+                if (bd == null) return null;
+                gen = d.X3Gen;
+                X3Seen cur = null;
+                if (!d.Replica) foreach (X3Seen x in X3Revs) if (x.Gen == gen) { cur = x; break; }
+                ShopDb.X3Doc nd;
+                if (cur != null)
+                {
+                    nd = cur.Doc ?? (cur.Doc = ShopDb.X3ScanOrNull(cur.Json));
+                    if (nd == null) return null;
+                    cur.Used = DateTime.UtcNow;
+                    nrev = cur.Rev;
+                }
+                else
+                {
+                    string json = d.Replica ? d.X3ExportWithPending() : d.X3Export();
+                    nd = ShopDb.X3ScanOrNull(json);
+                    if (nd == null) return null;
+                    nrev = X3Remember(json, gen, true, nd);
+                }
+                return ShopDb.X3PatchFrom(bd, nd);
+            }
+        }
+
         /* /api/save: ما غيّرته الشاشة منذ ما رأته (rev) فوق ما في القاعدة. reload: تغيّر
            ما لم ترسله (جهاز ثانٍ، رقم فاتورة أُخذ) فتعيد التحميل */
-        static string X3SaveUi(byte[] body, string rev)
+        /* patch: ما أرسلته الشاشة فرقٌ عن النسخة rev (/api/x3/patch، ShopDb.X3Patch): يُبنى منه
+           الملف كله ثم يُحفظ كأنها أرسلته كله. نسخة لا يعرفها البرنامج، أو فرق لا يُفهم:
+           {"full":true} فترسل الملف كله */
+        static string X3SaveUi(byte[] body, string rev, bool patch)
         {
             ShopDb d = Db;
             Stopwatch sw = Stopwatch.StartNew();
-            StringBuilder lap = X3Timing ? new StringBuilder("حفظ 3.x (" + (body.Length / 1000) + " ك.ب):") : null;
+            StringBuilder lap = X3Timing ? new StringBuilder((patch ? "حفظ 3.x بالفرق (" : "حفظ 3.x (") + (body.Length / 1000) + " ك.ب):") : null;
             string now;
             try { now = new UTF8Encoding(false, true).GetString(body); }
             catch (ArgumentException) { throw new Exception("محتوى غير صالح — لم يُكتب شيء"); }
@@ -1259,17 +1361,39 @@ namespace Qirtasiya
                 catch (Exception ex) { Log("store.json من خارج البرنامج: " + ex.Message); }
                 X3Seen seen = X3Find(rev);
                 if (seen != null) seen.Used = DateTime.UtcNow;
+                ShopDb.X3Doc nowDoc = null, baseDoc = null;
+                string full = null;
+                if (patch)
+                {
+                    if (seen == null) return "{\"ok\":false,\"full\":true}";
+                    baseDoc = seen.Doc ?? (seen.Doc = ShopDb.X3ScanOrNull(seen.Json));
+                    if (baseDoc == null) return "{\"ok\":false,\"full\":true}";
+                    string why;
+                    nowDoc = ShopDb.X3Patch(baseDoc, now, out why, out full);
+                    if (nowDoc == null)
+                    {
+                        Log("حفظ بالفرق لم يُفهم (" + why + "): الشاشة ترسل الملف كله");
+                        return "{\"ok\":false,\"full\":true}";
+                    }
+                    now = nowDoc.Src;
+                    if (lap != null) lap.Append("، بناء ").Append(sw.ElapsedMilliseconds).Append(" (").Append(now.Length / 1000).Append(" ك)");
+                }
                 long gen0 = d.X3Gen;
                 bool reload = seen == null || seen.Gen != gen0;
                 string baseJson = seen != null ? seen.Json : (d.Replica ? d.X3ExportWithPending() : d.X3Export());
                 /* الفرق من النص: ما رأته الشاشة مفحوص من حفظها السابق، وما أرسلته الآن يُفحص مرة
                    ويبقى للحفظ القادم (فحص 20 ميغا مرتين مع كل حفظ كان ربع ثانية) */
-                ShopDb.X3Doc nowDoc = ShopDb.X3ScanOrNull(now), baseDoc = null;
-                if (nowDoc != null)
+                if (!patch)
                 {
-                    if (seen == null) baseDoc = ShopDb.X3ScanOrNull(baseJson);
-                    else baseDoc = seen.Doc ?? (seen.Doc = ShopDb.X3ScanOrNull(seen.Json));
+                    nowDoc = ShopDb.X3ScanOrNull(now);
+                    if (nowDoc != null)
+                    {
+                        if (seen == null) baseDoc = ShopDb.X3ScanOrNull(baseJson);
+                        else baseDoc = seen.Doc ?? (seen.Doc = ShopDb.X3ScanOrNull(seen.Json));
+                    }
                 }
+                if (X3Check && full != null && !ShopDb.JsonEqual(Json.Parse(full), Json.Parse(now)))
+                    Log("X3CHECK: الملف المبني من الفرق لا يطابق ما في الشاشة");
                 if (lap != null) lap.Append("، فحص ").Append(sw.ElapsedMilliseconds);
                 List<X3Op> delta = nowDoc != null && baseDoc != null ? ShopDb.X3Diff(baseDoc, nowDoc) : ShopDb.X3Diff(baseJson, now);
                 if (lap != null) lap.Append("، فرق ").Append(sw.ElapsedMilliseconds).Append(" (").Append(delta.Count).Append(" تغيير)");
@@ -1321,7 +1445,9 @@ namespace Qirtasiya
                 }
                 if (lap != null) lap.Append("، قاعدة ").Append(sw.ElapsedMilliseconds);
                 long gen1 = d.X3Gen;
-                if (!reload && !d.Replica) X3MirrorUi(d, body, gen1);
+                /* بالفرق: store.json بعد الرد بلحظة (X3MirrorLater)، فلا تنتظر البيعة كتابة 47 ميغا */
+                if (patch) X3MirrorLater(!reload && !d.Replica ? now : null, gen1);
+                else if (!reload && !d.Replica) X3MirrorUi(d, body, gen1);
                 else X3MirrorNow();
                 if (lap != null) { lap.Append("، مرآة ").Append(sw.ElapsedMilliseconds).Append(" ms"); Log(lap.ToString()); }
                 long gen = d.X3Gen;
@@ -1731,6 +1857,7 @@ namespace Qirtasiya
             }
             try
             {
+                if (X3On) X3FlushMirror();
                 if (!File.Exists(StoreFile)) return;
                 if (!FileLooksValid(StoreFile)) { Log("ملف البيانات تالف — لم تُؤخذ نسخة اليوم منه"); return; }
                 string name = "backup-" + DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".json";
@@ -1834,6 +1961,7 @@ namespace Qirtasiya
         {
             lock (IoLock)
             {
+                if (X3On) X3FlushMirror();
                 if (!File.Exists(StoreFile)) return "";
                 string name = "backup-" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + ".json";
                 File.Copy(StoreFile, Path.Combine(BackupDir, name), true);
@@ -2164,6 +2292,8 @@ namespace Qirtasiya
                     {
                         OwnerToken = ""; OwnerSeen = DateTime.MinValue;
                         Log("حُرّرت ملكية النافذة");
+                        /* النافذة أُغلقت: store.json الآن لا بعد لحظة */
+                        if (X3On) ThreadPool.QueueUserWorkItem(delegate { X3FlushMirror(); });
                     }
                 }
                 SendJson(s, "{\"ok\":true}");
@@ -2181,7 +2311,7 @@ namespace Qirtasiya
                 }
 
                 // نداءات الكتابة تحتاج ملكية النافذة
-                bool needOwner = path == "/api/save" || path == "/api/restore" ||
+                bool needOwner = path == "/api/save" || path == "/api/x3/patch" || path == "/api/restore" ||
                                  path == "/api/backup" || path == "/api/backup-dir" ||
                                  path == "/api/uninstall" || path == "/api/profit-code" ||
                                  path == "/api/archive";
@@ -2498,6 +2628,18 @@ namespace Qirtasiya
                 return;
             }
 
+            if (path == "/api/x3/since")
+            {
+                string srev, sbody = null;
+                long sgen = 0;
+                if (X3On && Db != null) sbody = X3Since(GetHeader(lines, "X-X3-Rev"), out srev, out sgen);
+                else srev = "";
+                if (sbody == null) { SendJson(s, "{\"full\":true}"); return; }
+                Send(s, 200, "OK", "application/json; charset=utf-8", Encoding.UTF8.GetBytes(sbody),
+                    "X-X3-Rev: " + srev + "\r\nX-X3-Gen: " + sgen.ToString(CultureInfo.InvariantCulture) + "\r\n");
+                return;
+            }
+
             if (path == "/api/load")
             {
                 if (X3On)
@@ -2505,8 +2647,9 @@ namespace Qirtasiya
                     string rev;
                     long gen;
                     byte[] x = Encoding.UTF8.GetBytes(X3Load(IsOwner(lines), out rev, out gen));
+                    /* X-X3-Patch: هذا البرنامج يفهم الحفظ بالفرق (2: ومعه الملف كله للمقارنة، في الاختبار) */
                     Send(s, 200, "OK", "application/json; charset=utf-8", x,
-                        "X-X3-Rev: " + rev + "\r\nX-X3-Gen: " + gen.ToString(CultureInfo.InvariantCulture) + "\r\n");
+                        "X-X3-Rev: " + rev + "\r\nX-X3-Gen: " + gen.ToString(CultureInfo.InvariantCulture) + "\r\nX-X3-Patch: " + (X3Check ? "2" : "1") + "\r\n");
                     return;
                 }
                 byte[] data;
@@ -2534,6 +2677,21 @@ namespace Qirtasiya
                 return;
             }
 
+            /* الحفظ بالفرق من شاشات 3.x (X4): لا يُفهم إلا على القاعدة، وإلا يرسل الملف كله */
+            if (path == "/api/x3/patch" && method == "POST")
+            {
+                try
+                {
+                    if (!X3On || Db == null) { SendJson(s, "{\"ok\":false,\"full\":true}"); return; }
+                    SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), true));
+                }
+                catch (Exception ex)
+                {
+                    SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}");
+                }
+                return;
+            }
+
             if (path == "/api/save" && method == "POST")
             {
                 try
@@ -2541,7 +2699,7 @@ namespace Qirtasiya
                     /* بواجهة 3.x الفحص من الحفظ نفسه: نص UTF-8 سليم وملف 3.x مفهوم، وإلا لا يُكتب شيء */
                     if (X3On)
                     {
-                        SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev")));
+                        SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), false));
                         return;
                     }
                     if (!LooksLikeJsonObject(body))

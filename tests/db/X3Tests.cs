@@ -173,6 +173,7 @@ static class X3Tests
         Second(dir);
         Empty(dir);
         SameDiff();
+        PatchSame();
         Codes(dir);
         try { Directory.Delete(dir, true); } catch { }
     }
@@ -309,6 +310,201 @@ static class X3Tests
         try { ShopDb.X3Diff(plain, "[1,2]"); }
         catch (ShopException) { bad = true; }
         ok(bad, "وما ليس ملف 3.x يُرفض كما كان");
+    }
+
+    /* ---------- الحفظ بالفرق (X4) ----------
+       ما يبنيه X3Patch من النسخة السابقة وفرق الشاشة = ما كانت الشاشة سترسله كله: القيم نفسها،
+       والفرق منه نفسه، ومواضعه كما يفحصها X3Scan، وحفظات متتالية كل واحد على ما بناه السابق.
+       الفرق هنا يُبنى كما تبنيه الشاشة (core.js: snapOf وpatchText) */
+    static string SnapId(object o)
+    {
+        Dictionary<string, object> d = o as Dictionary<string, object>;
+        object v;
+        if (d == null || !d.TryGetValue("id", out v)) return null;
+        string s = v as string;
+        if (s != null) return s.Length > 0 ? s : null;
+        if (v is long) return ((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return null;
+    }
+
+    sealed class SnapSec { public string T; public List<string> Ids, Txt; public Dictionary<string, int> Map; }
+    sealed class Snap { public List<string> Keys = new List<string>(); public Dictionary<string, SnapSec> Secs = new Dictionary<string, SnapSec>(); }
+
+    static Snap SnapOf(Dictionary<string, object> s)
+    {
+        Snap sn = new Snap();
+        foreach (KeyValuePair<string, object> e in s)
+        {
+            sn.Keys.Add(e.Key);
+            SnapSec sec = new SnapSec();
+            List<object> l = e.Value as List<object>;
+            if (l != null && l.Count > 0)
+            {
+                sec.Ids = new List<string>(); sec.Txt = new List<string>(); sec.Map = new Dictionary<string, int>();
+                foreach (object o in l)
+                {
+                    string id = SnapId(o);
+                    if (id == null || sec.Map.ContainsKey(id)) { sec.Ids = null; break; }
+                    sec.Map[id] = sec.Ids.Count; sec.Ids.Add(id); sec.Txt.Add(Json.Write(o));
+                }
+            }
+            if (sec.Ids == null) { sec.Txt = null; sec.Map = null; sec.T = Json.Write(e.Value); }
+            sn.Secs[e.Key] = sec;
+        }
+        return sn;
+    }
+
+    static string PatchOf(Snap b, Snap n)
+    {
+        List<string> parts = new List<string>();
+        List<object> keys = new List<object>();
+        foreach (string k in n.Keys)
+        {
+            keys.Add(k);
+            SnapSec ns = n.Secs[k], bs;
+            b.Secs.TryGetValue(k, out bs);
+            string part = null;
+            if (ns.T != null) { if (bs == null || bs.T != ns.T) part = "{\"t\":" + ns.T + "}"; }
+            else if (bs == null || bs.Ids == null) part = "{\"t\":[" + string.Join(",", ns.Txt.ToArray()) + "]}";
+            else
+            {
+                List<string> put = new List<string>();
+                bool same = ns.Ids.Count == bs.Ids.Count;
+                for (int i = 0; i < ns.Ids.Count; i++)
+                {
+                    int bi;
+                    if (!bs.Map.TryGetValue(ns.Ids[i], out bi)) { put.Add(ns.Txt[i]); same = false; continue; }
+                    if (bi != i) same = false;
+                    if (bs.Txt[bi] != ns.Txt[i]) put.Add(ns.Txt[i]);
+                }
+                if (!same || put.Count > 0)
+                {
+                    List<string> p = new List<string>();
+                    if (put.Count > 0) p.Add("\"put\":[" + string.Join(",", put.ToArray()) + "]");
+                    if (!same)
+                    {
+                        List<object> runs = new List<object>();
+                        int rs = -1, rl = 0;
+                        foreach (string id in ns.Ids)
+                        {
+                            int bi;
+                            bool inB = bs.Map.TryGetValue(id, out bi);
+                            if (inB && rl > 0 && bi == rs + rl) { rl++; continue; }
+                            if (rl > 0) { runs.Add(new List<object> { (long)rs, (long)rl }); rl = 0; }
+                            if (!inB) runs.Add(id); else { rs = bi; rl = 1; }
+                        }
+                        if (rl > 0) runs.Add(new List<object> { (long)rs, (long)rl });
+                        p.Add("\"order\":" + Json.Write(runs));
+                    }
+                    part = "{" + string.Join(",", p.ToArray()) + "}";
+                }
+            }
+            if (part != null) parts.Add(Json.Write(k) + ":" + part);
+        }
+        return "{\"x3patch\":1,\"keys\":" + Json.Write(keys) + ",\"secs\":{" + string.Join(",", parts.ToArray()) + "}}";
+    }
+
+    /* المواضع كما يفحصها X3Scan من النص نفسه */
+    static string SamePlaces(ShopDb.X3Doc a, ShopDb.X3Doc b)
+    {
+        if (a == null || b == null) return "لا يُفحص";
+        if (string.Join("|", a.Keys.ToArray()) != string.Join("|", b.Keys.ToArray())) return "المفاتيح";
+        foreach (string k in a.Keys)
+        {
+            ShopDb.X3Sec x = a.Secs[k], y = b.Secs[k];
+            if (x.Start != y.Start || x.Len != y.Len) return k + ": موضع القسم";
+            if ((x.Ids == null) != (y.Ids == null)) return k + ": سجلات أم لا";
+            if (x.Ids == null) continue;
+            if (x.Ids.Count != y.Ids.Count) return k + ": العدد";
+            for (int i = 0; i < x.Ids.Count; i++)
+                if (x.Ids[i] != y.Ids[i] || x.RStart[i] != y.RStart[i] || x.RLen[i] != y.RLen[i]) return k + ": السجل " + i;
+            if (x.Map != null) foreach (KeyValuePair<string, int> e in x.Map) if (x.Ids[e.Value] != e.Key) return k + ": الفهرس";
+        }
+        return null;
+    }
+
+    static void PatchSame()
+    {
+        Random r = new Random(20261106);
+        int rounds = 0, good = 0, small = 0, backSmall = 0;
+        string first = null;
+        for (int chain = 0; chain < 200; chain++)
+        {
+            Dictionary<string, object> b = Big(r);
+            for (int i = r.Next(3); i > 0; i--) Mutate(r, b);
+            string bt = Json.Write(b);
+            if (r.Next(5) == 0) bt = Reformat(r, bt);          // ما في البرنامج مكتوب بطريقة أخرى
+            ShopDb.X3Doc bd = ShopDb.X3ScanOrNull(bt);
+            Snap sb = SnapOf(P(bt));                            // ما رأته الشاشة بعد التحميل
+            Dictionary<string, object> n = P(bt);
+            for (int step = 0; step < 4; step++)
+            {
+                for (int i = r.Next(0, 5); i > 0; i--) Mutate(r, n);
+                string nt = Json.Write(n);
+                Snap sn = SnapOf(n);
+                string patch = PatchOf(sb, sn), err, full;
+                ShopDb.X3Doc pd = ShopDb.X3Patch(bd, patch, out err, out full);
+                rounds++;
+                string why = pd == null ? "رُفض: " + err
+                    : !ShopDb.JsonEqual(Json.Parse(pd.Src), Json.Parse(nt)) ? "القيم"
+                    : ShopDb.X3OpsJson(ShopDb.X3Diff(bd, pd)) != ShopDb.X3OpsJson(ShopDb.X3Diff(bt, nt)) ? "الفرق"
+                    : SamePlaces(pd, ShopDb.X3ScanOrNull(pd.Src));
+                /* والعكس: ما يرسله البرنامج للشاشة (X3PatchFrom) يعطي الملف نفسه */
+                if (why == null)
+                {
+                    string back = ShopDb.X3PatchFrom(bd, pd), e2, f2;
+                    ShopDb.X3Doc bk = ShopDb.X3Patch(bd, back, out e2, out f2);
+                    if (bk == null) why = "العكس رُفض: " + e2;
+                    else if (!ShopDb.JsonEqual(Json.Parse(bk.Src), Json.Parse(pd.Src)) || SamePlaces(bk, ShopDb.X3ScanOrNull(bk.Src)) != null) why = "العكس لا يطابق";
+                    else if (!(Json.Parse(back) is Dictionary<string, object>)) why = "العكس ليس JSON";
+                    else if (back.Length * 4 < nt.Length) backSmall++;
+                }
+                if (why == null) good++;
+                else if (first == null) first = "سلسلة " + chain + " خطوة " + step + ": " + why + " — " + (patch.Length > 400 ? patch.Substring(0, 400) : patch);
+                if (patch.Length * 4 < nt.Length) small++;
+                if (pd == null) break;
+                bd = pd; bt = pd.Src; sb = sn;                  // الحفظ القادم على ما بناه هذا
+            }
+        }
+        ok(good == rounds && small > rounds / 2, "الحفظ بالفرق = الملف كله في " + rounds + " حفظاً متتالياً عشوائياً (" + small + " منها أصغر من ربع الملف)", first);
+        ok(backSmall > rounds / 2, "وما يرسله البرنامج للشاشة بعد تغيير من جهاز آخر يعطي الملف نفسه (" + backSmall + " منها أصغر من ربع الملف)", backSmall);
+
+        /* فرق لا يستقيم يُرفض (والشاشة ترسل الملف كله) */
+        string bt0 = Json.Write(Big(new Random(3)));
+        ShopDb.X3Doc b0 = ShopDb.X3ScanOrNull(bt0);
+        string keys0 = Json.Write(new List<object>(b0.Keys.ToArray()));
+        int nb = b0.Secs["books"].Ids.Count;
+        string[] bad = {
+            "{\"keys\":" + keys0 + ",\"secs\":{}}",                                                            // بلا x3patch
+            "{\"x3patch\":2,\"keys\":" + keys0 + ",\"secs\":{}}",
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"nope\":{\"t\":1}}}",                            // قسم ليس في المفاتيح
+            "{\"x3patch\":1,\"keys\":" + keys0.Replace("]", ",\"new\"]") + ",\"secs\":{}}",                    // مفتاح جديد بلا نص
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"order\":[[0," + (nb + 1) + "]]}}}",  // خارج النسخة
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"order\":[[0,2],[1,1]]}}}",           // مكرر
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"order\":[]}}}",                       // فارغة
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"put\":[{\"id\":\"zz\",\"qty\":1}]}}}", // جديد بلا مكان
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"put\":[{\"id\":\"zz\"}],\"order\":[[0," + nb + "]]}}}", // أُرسل وليس في الترتيب
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"order\":[\"zz\",[0," + nb + "]]}}}",    // معرّف جديد بلا سجل
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"t\":[],\"put\":[]}}}",
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"meta\":{\"put\":[{\"id\":\"m\"}]}}}",            // ليس سجلات في الأصل
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"books\":{\"put\":[{\"id\":\"b3\"},{\"id\":\"b3\"}]}}}", // مكرر في put
+            "{\"x3patch\":1,\"keys\":[\"meta\",\"meta\"],\"secs\":{}}",
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{\"meta\":{\"t\":{\"a\":}}}}",
+            "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{}} x",
+        };
+        int refused = 0;
+        string took = null;
+        foreach (string p in bad)
+        {
+            string err, full;
+            if (ShopDb.X3Patch(b0, p, out err, out full) == null) refused++;
+            else if (took == null) took = p;
+        }
+        ok(refused == bad.Length, "وفرق لا يستقيم يُرفض (" + refused + " من " + bad.Length + ")", took);
+        string e0, f0;
+        ShopDb.X3Doc same0 = ShopDb.X3Patch(b0, "{\"x3patch\":1,\"keys\":" + keys0 + ",\"secs\":{},\"full\":" + bt0 + "}", out e0, out f0);
+        ok(same0 != null && same0.Src == bt0 && f0 == bt0 && ShopDb.X3Diff(b0, same0).Count == 0,
+            "وفرق بلا تغيير: الملف نفسه حرفياً، ومعه الملف كله للمقارنة في الاختبار", e0);
     }
 
     /* ---------- رموز الأصناف ----------

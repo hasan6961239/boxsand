@@ -55,6 +55,16 @@ function stores(tmp, books) {
   const g = path.join(tmp, 'gen-tripoli');
   generate({ profile: 'tripoli', books: books, stationery: 2000, years: 1, store3: 1, out: g });
   const full = JSON.parse(fs.readFileSync(path.join(g, 'store3.json'), 'utf8'));
+  /* QI_REAL_BOOKS=ملف.json: نصوص كتب حقيقية (العنوان، المؤلف، الناشر، التخصص، الباركود) فوق كتب المولّد
+     بنفس معرّفاتها، فتبقى الفواتير والمخزون كما ولّدها. الملف لا يدخل المستودع (بيانات المكتبة). */
+  if (process.env.QI_REAL_BOOKS) {
+    const real = JSON.parse(fs.readFileSync(process.env.QI_REAL_BOOKS, 'utf8'));
+    full.books.forEach((b, i) => {
+      const r = real[i % real.length];
+      b.title = r.title; b.author = r.author || ''; b.publisher = r.publisher || ''; b.cat = r.cat || '';
+      b.barcode = r.barcode || '';
+    });
+  }
   full.branch = { id: 'tripoli', name: 'دار الحكمة — طرابلس', city: 'طرابلس', phone: '', label: '', no: 2 };
   full.meta.shopName = 'دار الحكمة — طرابلس';
   const clone = o => JSON.parse(JSON.stringify(o));
@@ -152,7 +162,8 @@ async function openPage(browser, d, errs) {
     const f0 = window.fetch;
     window.__saveEnd = []; window.__inflight = 0;
     window.fetch = function (u) {
-      if (String(u).indexOf('/api/save') < 0) return f0.apply(this, arguments);
+      /* الحفظ كله أو بالفرق (X4) */
+      if (!/\/api\/(save|x3\/patch)/.test(String(u))) return f0.apply(this, arguments);
       window.__inflight++;
       return f0.apply(this, arguments).finally(() => { window.__inflight--; window.__saveEnd.push(performance.now()); });
     };
@@ -221,7 +232,10 @@ async function measureUi(browser, d, errs) {
     t1 = performance.now();
     const txt = await (await App.api('/api/load')).text();
     out.reload_fetch = Math.round(performance.now() - t1);
-    out.reload_parse = t(() => JSON.parse(txt));
+    let parsed;
+    out.reload_parse = t(() => { parsed = JSON.parse(txt); });
+    /* بالفرق: الشاشة تقطّع ما حمّلته لتعرف ما رآه البرنامج (core.js: x3Snap) */
+    out.reload_snap = App.__snap && App.__snap.ready() ? t(() => App.__snap.of(parsed)) : 0;
     out.reload_render = t(() => App.rerender());
     out.heap_mb = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : -1;
     return out;
@@ -470,7 +484,7 @@ function markdown(res, books) {
       ['فلترة جدول الكتب', c => s(c.books_filter)],
       ['فتح جدول الكتب', c => s(c.books_table)],
       ['صفحة التنبيهات / الراكد / الفواتير', c => s(c.page_alerts) + ' / ' + s(c.page_stale) + ' / ' + s(c.page_invoices)],
-      ['إعادة التحميل حين يغيّر جهاز آخر شيئاً', c => c.mode === 'new' ? s(c.reload_fetch + c.reload_parse + c.reload_render) : '—'],
+      ['إعادة التحميل حين يغيّر جهاز آخر شيئاً', c => c.mode === 'new' ? s(c.reload_fetch + c.reload_parse + (c.reload_snap || 0) + c.reload_render) : '—'],
       ['ذاكرة الشاشة / البرنامج', c => c.heap_mb + ' / ' + c.rss_mb + ' ميغا'],
       ['القاعدة على القرص', c => c.db_mb ? c.db_mb + ' ميغا' : '—']
     ];

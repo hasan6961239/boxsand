@@ -1499,6 +1499,9 @@ var Inv = (function () {
         }
       }
     ], rows, {
+      /* طرابلس: 56 ألف صنف كميته صفر أو أقل من الإكسل — رسمها كلها مرة واحدة كان 3 ثوانٍ.
+         أول 100 تظهر فوراً والباقي يُلحق وأنت تنزل (القائمة القصيرة كما كانت) */
+      lazy: 100,
       rowClass: function (x) { return App.stockState(x.it) === "out" ? "out" : "low"; },
       emptyIcon: "check",
       emptyTitle: "كل شيء متوفر",
