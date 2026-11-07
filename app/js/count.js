@@ -472,7 +472,7 @@ var Count = (function () {
       '<label class="fld" style="margin:0;flex:1;min-width:200px"><span>تخصص هذا الرف (اختياري)</span><input class="inp" list="fcCats" value="' + App.esc(fc.cat) + '" onchange="Count.fcSet(\'cat\',this.value)" placeholder="يأخذه الكتاب الذي بلا تخصص">' +
       '<datalist id="fcCats">' + Object.keys(p.byCat).filter(function (c) { return c !== "بلا تخصص"; }).sort().map(function (c) { return '<option value="' + App.esc(c) + '">'; }).join("") + "</datalist></label></div>" +
       '<div class="search-wrap" style="max-width:none"><span class="mag">⌕</span><input class="inp lg" id="fcScan" placeholder="امسح باركود الكتاب، أو اكتب اسمه…" autocomplete="off" onkeydown="Count.fcKey(event)" oninput="Count.fcSuggest(this.value)"></div>' +
-      '<div id="fcSug"></div></div>';
+      '<div id="fcSug" style="position:relative"></div></div>';
 
     var rows = fc.order.map(function (id) { return App.findItem("book", id); }).filter(Boolean);
     h += '<div class="grid g2"><div class="card"><div class="card-head"><h3>ما جُرد على هذا الرف</h3></div>' +

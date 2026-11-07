@@ -702,7 +702,7 @@ const check = (name, ok, got) => {
     await pg.evaluate(() => { location.hash = '#/stocktake'; App.route(); }); await sleep(300);
     check('مصراتة: لا «الجرد الأول»', (await S(pg, () => document.getElementById('view').textContent)).indexOf('الجرد الأول') < 0);
     await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); Rep.setStk('hub', 'first'); }); await sleep(400);
-    check('طرابلس: «الجرد الأول — رف رف» و3 لم تُجرد', (await S(pg, () => document.getElementById('view').textContent)).indexOf('لم يُجرد بعد') >= 0 && !!(await pg.$('#fcScan')));
+    check('طرابلس: «الجرد الأول» و3 لم تُجرد', (await S(pg, () => document.getElementById('view').textContent)).indexOf('لم يُجرد بعد') >= 0 && !!(await pg.$('#fcScan')));
     await pg.evaluate(() => { Count.fcSet('lib', 'A'); Count.fcSet('shelf', '2'); Count.fcSet('cat', 'تاريخ'); }); await sleep(300);
     const scan = async v => { await pg.fill('#fcScan', v); await pg.press('#fcScan', 'Enter'); await sleep(350); };
     await scan('5001'); await scan('5001'); await scan('5003');
