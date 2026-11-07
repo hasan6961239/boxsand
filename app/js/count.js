@@ -423,7 +423,191 @@ var Count = (function () {
     if (session()) { paint(); focusScan(); }
   }
 
+  /* ============================================================
+     X4: الجرد الأول رفاً رفاً (طرابلس)
+     ------------------------------------------------------------
+     كتب المنظومة القديمة دخلت «لم يُجرد» بكمية صفر. يُختار رف، ويُمسح كل كتاب عليه:
+     أول مسحة لكتاب لم يُجرد تجعل كميته 1 وتخرجه من «لم يُجرد»، وكل مسحة بعدها نسخة أخرى
+     (على هذا الرف أو غيره). الكتاب يأخذ مكان الرف، وتخصص الرف إن لم يكن له تخصص.
+     الكتاب غير المسجّل يُضاف من نافذة صغيرة دون مغادرة الجرد. البيع مستمر: ما يُباع بعد
+     جرده ينقص من كميته المعدودة كأي بيع
+     ============================================================ */
+  var fc = { lib: "", shelf: "1", cat: "", lines: {}, order: [] };
+
+  function fcProgress() {
+    var tot = 0, unc = 0, byCat = {}, byLib = {};
+    S().books.forEach(function (b) {
+      if (!b.uncounted && !b.counted) return;           // ما دخل الجرد الأول أصلاً (كتب قبله)
+      tot++;
+      var c = b.cat || "بلا تخصص", l = b.uncounted ? "—" : (b.lib || "—");
+      var x = byCat[c] || (byCat[c] = { t: 0, d: 0 }); x.t++;
+      if (b.uncounted) unc++; else { x.d++; byLib[l] = (byLib[l] || 0) + 1; }
+    });
+    return { tot: tot, done: tot - unc, left: unc, byCat: byCat, byLib: byLib };
+  }
+
+  function firstPage() {
+    if (!App.can("count")) return '<div class="card"><p style="margin:0">الجرد يحتاج صلاحية «جرد المخزون».</p></div>';
+    var libs = S().meta.libraries || [];
+    if (!fc.lib) fc.lib = libs[0] || "A";
+    var p = fcProgress(), pct = p.tot ? Math.round(100 * p.done / p.tot) : 0;
+    var cats = Object.keys(p.byCat).sort(function (a, b) { return p.byCat[b].t - p.byCat[a].t; }).slice(0, 8);
+    var shelves = +(S().meta.shelves || 6);
+    var h = '<div class="grid g3" style="margin-bottom:16px">' +
+      '<div class="card stat accent"><div class="lbl">جُرد</div><div class="val num">' + p.done.toLocaleString("en") + "</div>" +
+      '<div class="foot">من ' + p.tot.toLocaleString("en") + " كتاب · " + pct + "%</div></div>" +
+      '<div class="card stat warn"><div class="lbl">لم يُجرد بعد</div><div class="val num">' + p.left.toLocaleString("en") + "</div>" +
+      '<div class="foot">كميته غير معروفة حتى يُجرد</div></div>' +
+      '<div class="card stat"><div class="lbl">على هذا الرف</div><div class="val num">' + fc.order.reduce(function (a, id) { return a + (fc.lines[id] || 0); }, 0) + "</div>" +
+      '<div class="foot">' + fc.order.length + " عنوان · خزانة " + App.esc(fc.lib) + " · رف " + App.esc(fc.shelf) + "</div></div></div>";
+
+    h += '<div class="card" style="margin-bottom:16px"><div class="card-head"><h3>الرف الحالي</h3><div class="spacer"></div>' +
+      '<button class="btn sm" onclick="Count.fcNextShelf()">انتهى هذا الرف ← الرف التالي</button></div>' +
+      '<div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">' +
+      '<label class="fld" style="margin:0"><span>الخزانة</span><select class="inp" style="width:auto" onchange="Count.fcSet(\'lib\',this.value)">' +
+      libs.map(function (l) { return '<option' + (l === fc.lib ? " selected" : "") + ">" + App.esc(l) + "</option>"; }).join("") + "</select></label>" +
+      '<label class="fld" style="margin:0"><span>الرف</span><select class="inp" style="width:auto" onchange="Count.fcSet(\'shelf\',this.value)">' +
+      Array.apply(null, Array(Math.max(shelves, +fc.shelf || 1))).map(function (_, i) { var n = String(i + 1); return '<option' + (n === String(fc.shelf) ? " selected" : "") + ">" + n + "</option>"; }).join("") +
+      "</select></label>" +
+      '<label class="fld" style="margin:0;flex:1;min-width:200px"><span>تخصص هذا الرف (اختياري)</span><input class="inp" list="fcCats" value="' + App.esc(fc.cat) + '" onchange="Count.fcSet(\'cat\',this.value)" placeholder="يأخذه الكتاب الذي بلا تخصص">' +
+      '<datalist id="fcCats">' + Object.keys(p.byCat).filter(function (c) { return c !== "بلا تخصص"; }).sort().map(function (c) { return '<option value="' + App.esc(c) + '">'; }).join("") + "</datalist></label></div>" +
+      '<div class="search-wrap" style="max-width:none"><span class="mag">⌕</span><input class="inp lg" id="fcScan" placeholder="امسح باركود الكتاب، أو اكتب اسمه…" autocomplete="off" onkeydown="Count.fcKey(event)" oninput="Count.fcSuggest(this.value)"></div>' +
+      '<div id="fcSug"></div></div>';
+
+    var rows = fc.order.map(function (id) { return App.findItem("book", id); }).filter(Boolean);
+    h += '<div class="grid g2"><div class="card"><div class="card-head"><h3>ما جُرد على هذا الرف</h3></div>' +
+      App.table([
+        { h: "الكتاب", c: function (b) { return '<div class="name">' + App.esc(b.title) + '</div><div class="sub">' + App.esc(b.cat || "بلا تخصص") + (b.barcode ? "" : ' · <span class="q-bad">بلا باركود — في «طباعة اللاصقات»</span>') + "</div>"; } },
+        { h: "هنا", cls: "num", c: function (b) { return "<b>" + (fc.lines[b.id] || 0) + "</b>"; } },
+        { h: "كل نسخه", cls: "num", c: function (b) { return App.num(b.qty); } },
+        { h: "", cls: "act", c: function (b) { return '<button class="btn sm" onclick="Count.fcBump(\'' + b.id + '\',-1)">−</button> <button class="btn sm" onclick="Count.fcBump(\'' + b.id + '\',1)">+</button>'; } }
+      ], rows.slice().reverse(), { emptyIcon: "books", emptyTitle: "ابدأ بالمسح", emptyText: "كل كتاب تمسحه يظهر هنا بعدده على هذا الرف." }) + "</div>" +
+      '<div class="card"><div class="card-head"><h3>التقدم حسب التخصص</h3></div>' +
+      App.table([
+        { h: "التخصص", c: function (c) { return App.esc(c); } },
+        { h: "جُرد", cls: "num", c: function (c) { return p.byCat[c].d.toLocaleString("en") + " / " + p.byCat[c].t.toLocaleString("en"); } },
+        { h: "", c: function (c) { var w = p.byCat[c].t ? Math.round(100 * p.byCat[c].d / p.byCat[c].t) : 0; return '<div style="background:var(--line-soft);border-radius:4px;height:8px;min-width:80px"><div style="width:' + w + '%;background:var(--accent);height:8px;border-radius:4px"></div></div>'; } }
+      ], cats) + "</div></div>";
+    return h;
+  }
+
+  function fcSet(k, v) {
+    if ((k === "lib" || k === "shelf") && fc.order.length && String(fc[k]) !== String(v)) fcLogShelf();
+    fc[k] = String(v || "").trim();
+    if (k === "lib" || k === "shelf") { fc.lines = {}; fc.order = []; }
+    App.rerender(); fcFocus();
+  }
+
+  function fcLogShelf() {
+    var n = fc.order.reduce(function (a, id) { return a + (fc.lines[id] || 0); }, 0);
+    if (n) App.log("جرد أول", "خزانة " + fc.lib + " · رف " + fc.shelf + ": " + fc.order.length + " عنوان، " + n + " نسخة");
+  }
+
+  function fcNextShelf() {
+    fcLogShelf();
+    fc.shelf = String((+fc.shelf || 0) + 1);
+    fc.lines = {}; fc.order = [];
+    App.save(); App.rerender(); fcFocus();
+    App.toast("الرف " + fc.shelf + " في خزانة " + fc.lib + ".");
+  }
+
+  function fcFocus() { setTimeout(function () { var e = document.getElementById("fcScan"); if (e) e.focus(); }, 30); }
+
+  /* مسحة واحدة = نسخة واحدة */
+  function fcCount(b, n) {
+    n = n || 1;
+    if (b.uncounted) { b.qty = 0; delete b.uncounted; b.counted = App.today(); }
+    b.qty = Math.max(App.num(b.qty) + n, 0);
+    if (n > 0) {
+      b.lib = fc.lib; b.shelf = fc.shelf;
+      if (fc.cat && !b.cat) b.cat = fc.cat;
+    }
+    b.updated = App.nowStamp();
+    if (!fc.lines[b.id]) fc.order.push(b.id);
+    fc.lines[b.id] = Math.max((fc.lines[b.id] || 0) + n, 0);
+    App.save();
+  }
+
+  function fcHit(b) {
+    fcCount(b, 1);
+    var e = document.getElementById("fcScan");
+    App.rerender();
+    App.toast("✓ " + b.title + " — هنا " + fc.lines[b.id], "ok");
+    fcFocus();
+    if (e) e.value = "";
+  }
+
+  function fcKey(e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    var v = String(e.target.value || "").trim();
+    if (!v) return;
+    var hit = Inv.byBarcode(v);
+    if (hit && hit.type === "book") { fcHit(hit.it); return; }
+    var res = Inv.searchItems(v, 9).filter(function (x) { return x.type === "book"; });
+    if (/^\d{4,}$/.test(v) || !res.length) { fcNew(v); return; }
+    if (res.length === 1 && App.norm(res[0].it.title) === App.norm(v)) { fcHit(res[0].it); return; }
+    fcSuggest(v);
+  }
+
+  function fcSuggest(v) {
+    var host = document.getElementById("fcSug");
+    if (!host) return;
+    v = String(v || "").trim();
+    if (v.length < 2 || /^\d+$/.test(v)) { host.innerHTML = ""; return; }
+    var res = Inv.searchItems(v, 8).filter(function (x) { return x.type === "book"; });
+    host.innerHTML = res.length ? '<div class="suggest">' + res.map(function (x) {
+      var b = x.it;
+      return '<button class="s-item rich" onclick="Count.fcPick(\'' + b.id + '\')"><span class="t"><b>' + App.esc(b.title) + "</b>" +
+        '<span class="meta2">' + App.esc(b.author || "") + (b.barcode ? ' · <span class="num">' + App.esc(b.barcode) + "</span>" : " · بلا باركود") + "</span></span>" +
+        '<span class="sp">' + (b.uncounted ? '<span class="badge">لم يُجرد</span>' : '<span class="badge ok">جُرد · ' + App.num(b.qty) + "</span>") + "</span></button>";
+    }).join("") + '<button class="s-item" onclick="Count.fcNew(document.getElementById(\'fcScan\').value)">+ كتاب غير مسجّل</button></div>' : "";
+  }
+
+  function fcPick(id) {
+    var b = App.findItem("book", id);
+    var host = document.getElementById("fcSug");
+    if (host) host.innerHTML = "";
+    if (b) fcHit(b);
+  }
+
+  function fcBump(id, n) {
+    var b = App.findItem("book", id);
+    if (!b) return;
+    if (n < 0 && !(fc.lines[id] > 0)) return;
+    fcCount(b, n);
+    App.rerender(); fcFocus();
+  }
+
+  /* كتاب غير مسجّل: يُضاف في مكان الرف ويُعدّ نسخة */
+  function fcNew(v) {
+    v = String(v || "").trim();
+    var isCode = /^\d{4,}$/.test(v);
+    App.form({
+      title: "كتاب غير مسجّل",
+      topHtml: '<p class="muted" style="margin:0 0 10px">يُسجَّل في خزانة ' + App.esc(fc.lib) + " · رف " + App.esc(fc.shelf) + "، ويُعدّ نسخة واحدة.</p>",
+      fields: [
+        { k: "title", label: "العنوان", required: true },
+        { k: "author", label: "المؤلف" },
+        { k: "barcode", label: "الباركود" },
+        { k: "cat", label: "التخصص" },
+        { k: "price", label: "سعر البيع", type: "money", min: 0 }
+      ],
+      values: { title: isCode ? "" : v, barcode: isCode ? v : "", cat: fc.cat },
+      saveLabel: "سجّله وعدّه",
+      onSave: function (f) {
+        var b = { id: App.uid(), code: App.nextCode("book"), title: f.title, author: f.author || "", publisher: "", cat: f.cat || "",
+          lib: fc.lib, shelf: fc.shelf, barcode: f.barcode || "", cost: 0, price: App.num(f.price), priceW: 0, qty: 0, min: 0,
+          counted: App.today(), created: App.nowStamp() };
+        S().books.push(b);
+        App.log("كتاب جديد (جرد أول)", b.title);
+        fcHit(b);
+      }
+    });
+  }
+
   return {
+    firstPage: firstPage, fcSet: fcSet, fcNextShelf: fcNextShelf, fcKey: fcKey, fcSuggest: fcSuggest, fcPick: fcPick, fcBump: fcBump, fcNew: fcNew,
     page: page, afterRender: afterRender, start: start, cancel: cancel,
     scanKey: scanKey, bump: bump, setCount: setCount, setV: setV,
     apply: apply, countAllAsRecorded: countAllAsRecorded, showPast: showPast

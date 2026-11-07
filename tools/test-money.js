@@ -691,6 +691,43 @@ const check = (name, ok, got) => {
     await pg.close();
   }
 
+  /* ------ X4: الجرد الأول رفاً رفاً ------ */
+  console.log('\n[س] X4: الجرد الأول رفاً رفاً');
+  {
+    const pg = await fresh(d => {
+      d.books.push({ id: 'u1', code: 'K71', title: 'كتاب لم يُجرد أ', barcode: '5001', cat: 'أدب', price: 10, qty: 0, uncounted: true });
+      d.books.push({ id: 'u2', code: 'K72', title: 'كتاب بلا باركود للجرد', barcode: '', cat: 'أدب', price: 10, qty: -2, uncounted: true });
+      d.books.push({ id: 'u3', code: 'K73', title: 'كتاب لم يُجرد ج', barcode: '5003', cat: '', price: 10, qty: 0, uncounted: true });
+    });
+    await pg.evaluate(() => { location.hash = '#/stocktake'; App.route(); }); await sleep(300);
+    check('مصراتة: لا «الجرد الأول»', (await S(pg, () => document.getElementById('view').textContent)).indexOf('الجرد الأول') < 0);
+    await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); Rep.setStk('hub', 'first'); }); await sleep(400);
+    check('طرابلس: «الجرد الأول — رف رف» و3 لم تُجرد', (await S(pg, () => document.getElementById('view').textContent)).indexOf('لم يُجرد بعد') >= 0 && !!(await pg.$('#fcScan')));
+    await pg.evaluate(() => { Count.fcSet('lib', 'A'); Count.fcSet('shelf', '2'); Count.fcSet('cat', 'تاريخ'); }); await sleep(300);
+    const scan = async v => { await pg.fill('#fcScan', v); await pg.press('#fcScan', 'Enter'); await sleep(350); };
+    await scan('5001'); await scan('5001'); await scan('5003');
+    let u = await S(pg, () => ({ u1: App.S.books.find(b => b.id === 'u1'), u3: App.S.books.find(b => b.id === 'u3') }));
+    check('مسحتان = نسختان، ويخرج من «لم يُجرد» ويأخذ مكان الرف', u.u1.qty === 2 && !u.u1.uncounted && u.u1.lib === 'A' && u.u1.shelf === '2', JSON.stringify(u.u1));
+    check('الكتاب الذي بلا تخصص يأخذ تخصص الرف، وصاحب التخصص يبقى عليه', u.u3.cat === 'تاريخ' && u.u1.cat === 'أدب', JSON.stringify([u.u1.cat, u.u3.cat]));
+    await pg.fill('#fcScan', 'بلا باركود'); await pg.press('#fcScan', 'Enter'); await sleep(400);
+    check('بالاسم: قائمة اقتراحات', await S(pg, () => document.querySelectorAll('#fcSug .s-item').length) >= 2);
+    await pg.evaluate(() => Count.fcPick('u2')); await sleep(300);
+    check('كتاب كميته سالبة من بيع قبل الجرد: يصير بعدد ما على الرف', await S(pg, () => App.S.books.find(b => b.id === 'u2').qty) === 1);
+    await pg.evaluate(() => Count.fcBump('u1', -1)); await sleep(300);
+    check('«−» ينقص نسخة', await S(pg, () => App.S.books.find(b => b.id === 'u1').qty) === 1);
+    await scan('7777777'); await sleep(200);
+    check('باركود غير مسجّل: نافذة «كتاب غير مسجّل» والباركود فيها', (await S(pg, () => (document.getElementById('f_barcode') || {}).value)) === '7777777');
+    await pg.fill('#f_title', 'كتاب جديد من الرف'); await clickModal(pg, 'سجّله وعدّه'); await sleep(400);
+    const nb = await S(pg, () => App.S.books.find(b => b.title === 'كتاب جديد من الرف'));
+    check('يُسجَّل في مكان الرف ويُعدّ نسخة', nb && nb.qty === 1 && nb.lib === 'A' && nb.shelf === '2' && nb.barcode === '7777777' && nb.cat === 'تاريخ', JSON.stringify(nb));
+    const txt = await S(pg, () => document.getElementById('view').textContent);
+    check('التقدم: جُرد 4 من 4', /جُرد\s*4\s*من 4/.test(txt.replace(/\s+/g, ' ')) || txt.indexOf('من 4 كتاب') >= 0, txt.slice(0, 200));
+    await pg.evaluate(() => Count.fcNextShelf()); await sleep(300);
+    check('«انتهى هذا الرف»: الرف التالي، وملخص الرف في السجل', await S(pg, () => App.S.log.some(l => l.action === 'جرد أول' && l.detail.indexOf('رف 2') >= 0)) &&
+      (await S(pg, () => document.getElementById('view').textContent)).indexOf('رف 3') >= 0);
+    await pg.close();
+  }
+
   console.log('\nأخطاء JavaScript:', errs.length ? [...new Set(errs)] : 'لا شيء');
   if (errs.length) fail++;
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));

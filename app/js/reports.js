@@ -480,10 +480,12 @@ var Rep = (function () {
 
   /* تبويب الجرد: جرد المبيعات · جرد المخزون الفعلي */
   function stockHub() {
-    var h = '<div class="row" style="margin-bottom:16px"><div class="seg" style="max-width:440px">' +
+    var h = '<div class="row" style="margin-bottom:16px"><div class="seg" style="max-width:' + (App.isX4 && App.isX4() ? 640 : 440) + 'px">' +
       '<button class="' + (stk.hub === "sales" ? "on" : "") + '" onclick="Rep.setStk(\'hub\',\'sales\')">جرد المبيعات</button>' +
       '<button class="' + (stk.hub === "phys" ? "on" : "") + '" onclick="Rep.setStk(\'hub\',\'phys\')">جرد المخزون الفعلي</button>' +
+      (App.isX4 && App.isX4() ? '<button class="' + (stk.hub === "first" ? "on" : "") + '" onclick="Rep.setStk(\'hub\',\'first\')">الجرد الأول — رف رف</button>' : "") +
       "</div></div>";
+    if (stk.hub === "first" && App.isX4 && App.isX4()) return h + Count.firstPage();
     if (stk.hub === "phys") return h + (typeof Count !== "undefined" ? Count.page() : "");
     return h + stocktake();
   }
