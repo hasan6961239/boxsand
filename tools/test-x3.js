@@ -750,7 +750,8 @@ async function branches() {
     /* «هذا جهاز المحل» من الشاشة (على خادم آخر: tripoli لـ T هنا تحت): «إعداد الربط» في 3.x
        يأخذ العنوان وكلمة السر نفسيهما، فلا تبقى «الربط غير مفعّل» ولا تقف طلبات التحويل */
     const cloudN = await C.start({ secret: KEY });
-    await pN.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(1200);
+    /* طرابلس: «ربط الأجهزة» في تبويب «الأجهزة والفروع» بالإعدادات */
+    await pN.evaluate(() => { location.hash = '#/settings?tab=devices'; App.route(); }); await sleep(1200);
     await pN.click('#lnkBody button:has-text("هذا جهاز المحل")'); await sleep(600);
     await pN.fill('#f_url', cloudN.url); await pN.fill('#f_key', KEY); await pN.fill('#f_name', 'كمبيوتر طرابلس');
     await Promise.all([pN.waitForNavigation({ timeout: 30000 }).catch(() => null), pN.click('.modal button:text-is("اربط")')]);

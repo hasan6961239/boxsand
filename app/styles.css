@@ -1873,3 +1873,18 @@ tr.near td:first-child { box-shadow: inset -3px 0 0 var(--accent-wash); }
 .staff-tile b { font-size: 15px; }
 .who-chip { display: inline-flex; align-items: center; gap: 6px; }
 .who-chip .muted { font-size: 11px; }
+/* ---------- X4: التخصصات ---------- */
+.sj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.sj-card { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: start; padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-1); cursor: pointer; font: inherit; color: inherit; }
+.sj-card:hover { border-color: var(--accent); box-shadow: var(--shadow-2); }
+.sj-card b { font-size: 15px; line-height: 1.5; }
+.sj-card .sj-n { font-size: 26px; font-weight: 700; color: var(--accent); line-height: 1.3; }
+.sj-card.none { background: var(--surface-2); }
+
+/* ---------- إعدادات طرابلس (X4): التبويبات ---------- */
+.set-seg { flex-wrap: wrap; max-width: 1040px; }
+.set-seg button { white-space: nowrap; padding: 8px 14px; }
+.set-logo { height: 64px; max-width: 160px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 4px; }
+.set-kv td { padding: 7px 4px; border-bottom: 1px solid var(--line); }
+.set-kv td:last-child { text-align: end; }

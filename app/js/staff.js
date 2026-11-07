@@ -348,11 +348,11 @@ var Staff = (function () {
 
   function page() {
     if (!on()) {
-      return '<div class="card" style="max-width:760px"><div class="card-head"><h3>الموظفون والصلاحيات</h3></div>' +
+      return '<div class="card" style="max-width:760px"><div class="card-head"><h3>الموظفون والصلاحيات</h3></div><div class="card-body">' +
         '<p style="line-height:2;margin:0 0 10px">لكل موظف اسم وكلمة سر، ولكل دور صلاحيات: الكاشير يبيع، وأمين المخزن يُدخل البضاعة ويجرد، ' +
         "والمدير يرى كل شيء. كل فاتورة وكل حركة تُسجَّل باسم من قام بها ومن أي جهاز.</p>" +
         '<p class="muted" style="line-height:1.9;margin:0 0 14px">ابدأ بحساب المدير. بعده تُسأل كلمة السر عند فتح البرنامج على كل الأجهزة.</p>' +
-        '<button class="btn primary" onclick="Staff.setup()">فعّل الموظفين — أنشئ حساب المدير</button></div>';
+        '<button class="btn primary" onclick="Staff.setup()">فعّل الموظفين — أنشئ حساب المدير</button></div></div>';
     }
     var people = list();
     var h = '<div class="card" style="margin-bottom:16px"><div class="card-head"><h3>الموظفون</h3><div class="spacer"></div>' +
@@ -386,7 +386,7 @@ var Staff = (function () {
 
     var lm = +(S().meta.lockMin || 0);
     h += '<div class="card"><div class="card-head"><h3>القفل التلقائي</h3></div>' +
-      '<div class="row" style="align-items:center;gap:10px"><span>اقفل الجهاز بعد غياب</span>' +
+      '<div class="card-body row" style="align-items:center;gap:10px"><span>اقفل الجهاز بعد غياب</span>' +
       '<select class="inp" style="width:auto" onchange="Staff.setLock(this.value)">' +
       [[0, "لا تقفل"], [5, "5 دقائق"], [10, "10 دقائق"], [15, "15 دقيقة"], [30, "30 دقيقة"], [60, "ساعة"]].map(function (o) {
         return '<option value="' + o[0] + '"' + (lm === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
@@ -604,7 +604,7 @@ var Staff = (function () {
   function devicesPage() {
     if (!linkAsked) {
       linkAsked = true;
-      App.apiJson("/api/link").then(function (r) { link = r && r.ok ? r.data : null; if (location.hash === "#/devices") App.rerender(); }).catch(function () { });
+      App.apiJson("/api/link").then(function (r) { link = r && r.ok ? r.data : null; if (/^#\/(devices|settings)/.test(location.hash)) App.rerender(); }).catch(function () { });
     }
     var today = App.today(), by = {};
     (S().log || []).concat((S().invoices || []).slice(0, 2000)).forEach(function (x) {
@@ -619,16 +619,16 @@ var Staff = (function () {
 
     var lk = link && link.linked ? (link.role === "main" ? "جهاز المحل" : "جهاز ثانٍ") : "غير مربوط";
     var h = '<div class="grid g2" style="margin-bottom:16px">' +
-      '<div class="card"><div class="card-head"><h3>هذا الجهاز</h3></div>' +
+      '<div class="card"><div class="card-head"><h3>هذا الجهاز</h3></div><div class="card-body">' +
       '<div class="row" style="gap:8px;align-items:center;margin-bottom:10px"><input class="inp" id="dvName" value="' + App.esc(devName() === "هذا الجهاز" ? "" : devName()) + '" placeholder="مثلاً: كاشير الدور الأرضي">' +
       '<button class="btn primary" onclick="Staff.saveDevName()">حفظ الاسم</button></div>' +
       '<p class="muted small" style="margin:0;line-height:1.9">يظهر الاسم في الفواتير والسجلات. ' +
       "الربط: <b>" + App.esc(lk) + "</b>" + (link && link.waiting ? " · ينتظر الإرسال: " + link.waiting : "") +
       (link && link.lastOk ? " · آخر تبادل: " + App.esc(link.lastOk) : "") +
-      (me ? " · يعمل الآن: <b>" + App.esc(me.name) + "</b>" : "") + "</p></div>" +
-      '<div class="card"><div class="card-head"><h3>ما يعنيه</h3></div><p class="muted small" style="margin:0;line-height:1.9">' +
+      (me ? " · يعمل الآن: <b>" + App.esc(me.name) + "</b>" : "") + "</p></div></div>" +
+      '<div class="card"><div class="card-head"><h3>ما يعنيه</h3></div><div class="card-body"><p class="muted small" style="margin:0;line-height:1.9">' +
       "كل جهاز يحمل اسماً تختاره، وكل فاتورة وحركة تُسجَّل باسم الجهاز والموظف. " +
-      "الجدول أدناه من السجل نفسه: آخر نشاط لكل جهاز ومن عمل عليه.</p></div></div>";
+      "الجدول أدناه من السجل نفسه: آخر نشاط لكل جهاز ومن عمل عليه.</p></div></div></div>";
     h += '<div class="card"><div class="card-head"><h3>الأجهزة</h3></div>' +
       App.table([
         { h: "الجهاز", c: function (r) { return "<b>" + App.esc(r.name) + "</b>" + (r.name === devName() ? ' <span class="badge ok">هذا</span>' : ""); } },

@@ -725,6 +725,7 @@ var Rep = (function () {
      ============================================================ */
 
   function settings() {
+    if (App.isX4 && App.isX4()) return settingsX4();
     var m = S().meta;
     var h = '<div class="grid g2">';
 
@@ -734,7 +735,28 @@ var Rep = (function () {
       inp("phone", "رقم الهاتف", m.phone) +
       inp("address", "العنوان", m.address, true) +
       inp("currency", "رمز العملة", m.currency) +
-      '<div class="field"><label>مقاس الإيصال</label><select class="inp" onchange="Rep.setMeta(\'receiptWidth\',this.value)">' +
+      receiptFields(m) +
+      inp("footer", "عبارة أسفل الإيصال", m.footer, true) +
+      inp("cardName", "اسم البطاقة على التقارير", m.cardName) +
+      lookFields(m) +
+      "</div></div></div>";
+
+    h += libsCard();
+    h += backupCard();
+
+    /* ربط الأجهزة (قرار 0025): جهاز المحل الأساسي، وجهاز ثانٍ يتزامن معه */
+    h += linkCard();
+    h += dangerCard();
+    h += logCard();
+
+    h += "</div>";
+
+    setTimeout(function () { loadBackups(); loadInfo(); loadLink(); }, 0);
+    return h;
+  }
+
+  function receiptFields(m) {
+    return '<div class="field"><label>مقاس الإيصال</label><select class="inp" onchange="Rep.setMeta(\'receiptWidth\',this.value)">' +
       '<option value="80"' + (m.receiptWidth === "80" ? " selected" : "") + ">طابعة حرارية 80mm</option>" +
       '<option value="58"' + (m.receiptWidth === "58" ? " selected" : "") + ">طابعة حرارية 58mm</option>" +
       '<option value="a4"' + (m.receiptWidth === "a4" ? " selected" : "") + ">ورق A4 عادي</option></select></div>" +
@@ -743,10 +765,11 @@ var Rep = (function () {
       '<option value="image"' + (m.printMode !== "text" ? " selected" : "") + ">صورة — تدعم العربية على كل الطابعات</option>" +
       '<option value="text"' + (m.printMode === "text" ? " selected" : "") + ">نص — أسرع لكن قد يفسد العربي</option></select>" +
       '<div class="hint">إن ظهرت رموز غريبة بدل العربية على الطابعة الحرارية، اترك الخيار على «صورة».</div>' +
-      '<button class="btn" style="margin-top:8px" onclick="Rep.testReceipt()">معاينة وطباعة إيصال تجريبي</button></div>' +
-      inp("footer", "عبارة أسفل الإيصال", m.footer, true) +
-      inp("cardName", "اسم البطاقة على التقارير", m.cardName) +
-      '<div class="field full"><label>لون المنظومة</label><div class="theme-row">' +
+      '<button class="btn" style="margin-top:8px" onclick="Rep.testReceipt()">معاينة وطباعة إيصال تجريبي</button></div>';
+  }
+
+  function lookFields(m) {
+    return '<div class="field full"><label>لون المنظومة</label><div class="theme-row">' +
       App.THEMES.map(function (t2) {
         return '<button class="theme-dot' + (m.theme === t2.k ? " on" : "") + '" title="' + App.esc(t2.t) +
           '" style="background:' + t2.c + '" onclick="Rep.setTheme(\'' + t2.k + '\')"></button>';
@@ -759,19 +782,22 @@ var Rep = (function () {
       '<button class="' + (m.uiSize === "lg" ? "on" : "") + '" onclick="Rep.setSize(\'lg\')">كبير</button>' +
       '<button class="' + (m.uiSize === "xl" ? "on" : "") + '" onclick="Rep.setSize(\'xl\')">كبير جداً</button>' +
       '</div><div class="hint">يكبّر الخط والأزرار وصفوف الجداول أو يصغّرها — ' +
-      'الصغير يعرض صفوفاً أكثر في الشاشة الواحدة.</div></div>' +
-      "</div></div></div>";
+      'الصغير يعرض صفوفاً أكثر في الشاشة الواحدة.</div></div>';
+  }
 
-    h += '<div class="card"><div class="card-head"><h3>المكتبات والرفوف</h3></div><div class="card-body">' +
+  function libsCard(title) {
+    return '<div class="card"><div class="card-head"><h3>' + (title || "المكتبات والرفوف") + '</h3></div><div class="card-body">' +
       chips("libraries", "حروف المكتبات (الخزانات)", "مثال: A أو D", true) +
       '<div class="field" style="margin:14px 0"><label>عدد الرفوف في كل مكتبة</label>' +
-      '<input class="inp num" type="number" min="1" max="40" value="' + App.num(m.shelves) + '" onchange="Rep.setMeta(\'shelves\',this.value)"></div>' +
+      '<input class="inp num" type="number" min="1" max="40" value="' + App.num(S().meta.shelves) + '" onchange="Rep.setMeta(\'shelves\',this.value)"></div>' +
       chips("bookCats", "تصنيفات الكتب", "مثال: تاريخ") +
       chips("statCats", "تصنيفات القرطاسية", "مثال: مساطر") +
       chips("units", "وحدات البيع", "مثال: كرتونة") +
       "</div></div>";
+  }
 
-    h += '<div class="card full" style="grid-column:1/-1"><div class="card-head"><h3>النسخ الاحتياطي وحماية البيانات</h3>' +
+  function backupCard() {
+    return '<div class="card full" style="grid-column:1/-1"><div class="card-head"><h3>النسخ الاحتياطي وحماية البيانات</h3>' +
       '<div class="spacer"></div><span class="muted small" id="dataPath"></span></div><div class="card-body">' +
       '<p class="muted small" style="margin-top:0;line-height:1.8">بياناتك محفوظة في ملف على هذا الجهاز فقط. يأخذ البرنامج نسخة احتياطية تلقائية أول تشغيل كل يوم، ويحتفظ بنسخة سابقة عند كل حفظ. يُنصح بنسخ مجلد البيانات على فلاشة مرة كل أسبوع.</p>' +
       '<div class="row" style="margin-bottom:14px">' +
@@ -782,13 +808,16 @@ var Rep = (function () {
       '<button class="btn" onclick="Rep.importAll()">استعادة من ملف</button>' +
       '</div><div id="bkList"></div></div></div>' +
       archivePage();
+  }
 
-    /* ربط الأجهزة (قرار 0025): جهاز المحل الأساسي، وجهاز ثانٍ يتزامن معه */
-    h += '<div class="card" style="grid-column:1/-1;border-inline-start:3px solid var(--accent)">' +
+  function linkCard() {
+    return '<div class="card" style="grid-column:1/-1;border-inline-start:3px solid var(--accent)">' +
       '<div class="card-head"><h3>ربط الأجهزة</h3><div class="spacer"></div><span class="muted small" id="lnkState"></span></div>' +
       '<div class="card-body" id="lnkBody"><span class="muted small">…</span></div></div>';
+  }
 
-    h += '<div class="card" style="grid-column:1/-1;border-inline-start:3px solid var(--stamp)">' +
+  function dangerCard() {
+    return '<div class="card" style="grid-column:1/-1;border-inline-start:3px solid var(--stamp)">' +
       '<div class="card-head"><h3 style="color:var(--stamp)">منطقة الخطر</h3><div class="spacer"></div>' +
       '<span class="muted small">لا رجعة بعد التنفيذ</span></div><div class="card-body">' +
       '<div class="grid g2">' +
@@ -801,19 +830,149 @@ var Rep = (function () {
       "لن يبقى شيء.</p>" +
       '<button class="btn danger" onclick="Rep.uninstall()">إلغاء التثبيت ومسح كل شيء</button></div>' +
       "</div></div></div>";
+  }
 
-    h += '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>سجل الحركات</h3><div class="spacer"></div>' +
+  function logCard() {
+    return '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>سجل الحركات</h3><div class="spacer"></div>' +
       '<span class="muted small">آخر 40 عملية</span></div>' +
       App.table([
         { h: "الوقت", c: function (l) { return '<span class="num small">' + App.esc(l.at) + "</span>"; } },
         { h: "العملية", c: function (l) { return App.esc(l.action); } },
         { h: "التفاصيل", c: function (l) { return '<span class="muted">' + App.esc(l.detail) + "</span>"; } }
       ], S().log.slice(0, 40), { emptyIcon: "books", emptyTitle: "لا حركات بعد", emptyText: "" }) + "</div>";
+  }
 
-    h += "</div>";
+  /* ---------- إعدادات طرابلس (X4): تبويبات ----------
+     كل إعداد في مكانه: ربط الفروع (كان في «المخزون والفروع») والإشعارات
+     والموظفون والأجهزة (كانت صفحات في الشريط) صارت تبويبات هنا.
+     «السجلات» تبقى صفحة في الشريط. مصراتة على الصفحة الواحدة كما كانت */
+  var setTab = "general";
+  var SET_TABS = [
+    { k: "general", t: "عام", perm: "settings" },
+    { k: "print", t: "الطباعة واللاصقات", perm: "settings" },
+    { k: "staff", t: "الموظفون والصلاحيات", perm: "staff" },
+    { k: "devices", t: "الأجهزة والفروع", perm: ["settings", "devices"] },
+    { k: "notify", t: "الإشعارات", perm: "settings" },
+    { k: "data", t: "النسخ الاحتياطي والبيانات", perm: "settings" }
+  ];
 
-    setTimeout(function () { loadBackups(); loadInfo(); loadLink(); }, 0);
+  function setTabs() { return SET_TABS.filter(function (t) { return App.can(t.perm); }); }
+
+  function goSetTab(k) { setTab = k; App.rerender(); }
+
+  function settingsX4() {
+    /* #/settings?tab=devices: من زر في صفحة أخرى، أو من رابط صفحة قديمة (#/notify) */
+    var q = /[?&]tab=([a-z]+)/.exec(location.hash || "");
+    if (q) {
+      setTab = q[1];
+      try { history.replaceState(null, "", "#/settings"); } catch (e) { }
+    }
+    var tabs = setTabs(), ok = false;
+    tabs.forEach(function (t) { if (t.k === setTab) ok = true; });
+    if (!ok && tabs.length) setTab = tabs[0].k;
+    var h = '<div class="row" style="margin-bottom:16px"><div class="seg set-seg">' +
+      tabs.map(function (t) {
+        return '<button class="' + (t.k === setTab ? "on" : "") + '" data-tab="' + t.k + '" onclick="Rep.setTab(\'' + t.k + '\')">' + App.esc(t.t) + "</button>";
+      }).join("") + "</div></div>";
+    if (setTab === "print") return h + setPrint();
+    if (setTab === "staff") return h + Staff.page();
+    if (setTab === "devices") return h + setDevices();
+    if (setTab === "notify") return h + Notify.page();
+    if (setTab === "data") return h + setData();
+    return h + setGeneral();
+  }
+
+  function setGeneral() {
+    var m = S().meta;
+    var h = '<div class="grid g2">';
+    h += '<div class="card"><div class="card-head"><h3>بيانات المكتبة</h3></div><div class="card-body"><div class="form-grid">' +
+      inp("shopName", "اسم المكتبة", m.shopName, true) +
+      inp("phone", "رقم الهاتف", m.phone) +
+      inp("currency", "رمز العملة", m.currency) +
+      inp("address", "العنوان", m.address, true) +
+      inp("cardName", "اسم البطاقة على التقارير", m.cardName, true) +
+      '<div class="field full"><label>شعار المكتبة</label><div class="row" style="gap:12px;align-items:center">' +
+      (m.logo ? '<img class="set-logo" src="' + m.logo + '" alt="الشعار">' : '<span class="muted small">لا شعار بعد</span>') +
+      '<button class="btn" onclick="Rep.pickLogo()">' + (m.logo ? "تغيير الشعار" : "رفع الشعار") + "</button>" +
+      (m.logo ? '<button class="btn ghost" onclick="Rep.dropLogo()">إزالة</button>' : "") +
+      '</div><div class="hint">يظهر أعلى أوراق «تصدير الكتب» في Excel و PDF.</div></div>' +
+      "</div></div></div>";
+    h += '<div class="card"><div class="card-head"><h3>المظهر</h3></div><div class="card-body"><div class="form-grid">' +
+      lookFields(m) + "</div></div></div>";
+    h += '<div style="grid-column:1/-1">' + libsCard("الخزائن والرفوف والتصنيفات") + "</div>";
+    return h + "</div>";
+  }
+
+  function setPrint() {
+    var m = S().meta, L = Labels.cfg();
+    function row(k, v) { return "<tr><td>" + k + '</td><td class="num"><b>' + v + "</b></td></tr>"; }
+    return '<div class="grid g2">' +
+      '<div class="card"><div class="card-head"><h3>إيصال البيع</h3></div><div class="card-body"><div class="form-grid">' +
+      receiptFields(m) + inp("footer", "عبارة أسفل الإيصال", m.footer, true) +
+      "</div></div></div>" +
+      '<div class="card"><div class="card-head"><h3>لاصقات الباركود</h3><div class="spacer"></div>' +
+      '<button class="btn sm" onclick="Labels.settings()">تعديل المقاس</button></div><div class="card-body">' +
+      '<table class="tbl set-kv"><tbody>' +
+      row("مقاس اللاصقة", App.num(L.w) + " × " + App.num(L.h) + " مم") +
+      row("دقة طابعة اللاصقات", App.num(L.dpi) + " نقطة/إنش") +
+      row("السعر على اللاصقة", L.showPrice ? "يُطبع" : "لا يُطبع") +
+      row("المكان (المكتبة والرف)", L.showLoc ? "يُطبع" : "لا يُطبع") +
+      row("أقصى حروف للاسم", App.num(L.maxChars)) +
+      "</tbody></table>" +
+      '<p class="muted small" style="line-height:1.9;margin:12px 0">اللاصقات تُطبع على طابعة لاصقات حرارية، مثل <bdi dir="ltr">Xprinter XP-365B</bdi>. ' +
+      "الكتاب الذي ليس عليه باركود يُولَّد له رمز ويُطبع على لاصقة تُلصق عليه، ثم يُباع بالقارئ مثل غيره.</p>" +
+      '<button class="btn" onclick="location.hash=\'#/labels\'">فتح «طباعة اللاصقات»</button>' +
+      "</div></div></div>";
+  }
+
+  function setDevices() {
+    var h = "";
+    if (App.can("settings")) {
+      h += '<div class="grid g2" style="margin-bottom:16px">' + linkCard() +
+        '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>ربط الفروع والمشاهدة من التلفون</h3>' +
+        '<div class="spacer"></div><span id="syncState"></span></div><div class="card-body">' + Stock.linkBlock() + "</div></div></div>";
+      setTimeout(function () { loadLink(); if (Stock.afterRender) Stock.afterRender(); }, 0);
+    }
+    if (App.can("devices")) h += Staff.devicesPage();
     return h;
+  }
+
+  function setData() {
+    var h = '<div class="grid" style="grid-template-columns:1fr">' + backupCard() + dangerCard() + "</div>";
+    setTimeout(function () { loadBackups(); loadInfo(); }, 0);
+    return h;
+  }
+
+  /* الشعار صورة صغيرة داخل الإعدادات (S.meta.logo): يُصغَّر إلى 320 نقطة على خلفية بيضاء،
+     JPEG — بضع عشرات من الكيلوبايت بدل صورة الهاتف كاملة */
+  function pickLogo() {
+    App.pickBinary("image/png,image/jpeg,image/webp", function (buf) {
+      var url = URL.createObjectURL(new Blob([buf]));
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth, hh = img.naturalHeight, k = Math.min(1, 320 / Math.max(w, hh, 1));
+        var c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(hh * k));
+        var g = c.getContext("2d");
+        g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        S().meta.logo = c.toDataURL("image/jpeg", 0.9);
+        App.log("الإعدادات", "رُفع شعار المكتبة");
+        App.save(); App.rerender();
+        App.toast("حُفظ الشعار.");
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); App.toast("هذا الملف ليس صورة.", "bad"); };
+      img.src = url;
+    });
+  }
+
+  function dropLogo() {
+    App.confirm("إزالة الشعار؟ أوراق التصدير تخرج بلا صورة.", function () {
+      delete S().meta.logo;
+      App.log("الإعدادات", "أُزيل شعار المكتبة");
+      App.save(); App.rerender();
+    }, { danger: true, yes: "إزالة" });
   }
 
   /* محرر قائمة بأزرار: كل عنصر بطاقة عليها ✕، وحقل إضافة بجانبها */
@@ -1468,6 +1627,7 @@ var Rep = (function () {
   return {
     copyDir: copyDir, linkMain: linkMain, linkSecond: linkSecond, linkNow: linkNow, linkStop: linkStop,
     dashboard: dashboard, reports: reports, settings: settings, firstRun: firstRun,
+    setTab: goSetTab, pickLogo: pickLogo, dropLogo: dropLogo,
     setRange: setRange, quick: quick, printReport: printReport,
     setMeta: setMeta, setList: setList, letters: letters, allLetters: allLetters,
     stocktake: stocktake, stockHub: stockHub, setStk: setStk, closeDay: closeDay, printStocktake: printStocktake,

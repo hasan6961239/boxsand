@@ -107,6 +107,9 @@ var Stale = (function () {
   }
   function more() { view.shown += 100; App.rerender(); }
 
+  /* طرابلس: الصفحة بلا مبالغ — الترتيب الافتراضي بطول الركود لا بالمال */
+  function x4() { return !!(App.isX4 && App.isX4()); }
+
   function filtered() {
     var all = rows();
     var list = all.filter(function (r) {
@@ -116,6 +119,7 @@ var Stale = (function () {
       return true;
     });
     var by = view.sort;
+    if (by === "frozen" && x4()) by = "idle";
     list.sort(function (a, b) {
       if (by === "idle") return b.idle - a.idle;
       if (by === "qty") return b.qty - a.qty;
@@ -146,10 +150,12 @@ var Stale = (function () {
     var h = "";
 
     /* البطاقات: المال المجمّد أولاً — هو سبب وجود هذه الصفحة */
-    h += '<div class="grid g4" style="margin-bottom:18px">' +
-      '<div class="card stat bad" style="padding:20px"><div class="lbl">رأس مال مجمّد</div>' +
+    /* طرابلس: بلا قيمة البضاعة (الصفحة تُعرض للموظفين)؛ ثلاث بطاقات بالعدد */
+    var nv = x4();
+    h += '<div class="grid ' + (nv ? "g3" : "g4") + '" style="margin-bottom:18px">' +
+      (nv ? "" : '<div class="card stat bad" style="padding:20px"><div class="lbl">رأس مال مجمّد</div>' +
       '<div class="val num">' + App.money0(frozen) + '</div>' +
-      '<div class="foot">لو بِيع كله: ' + App.money0(retail) + "</div></div>" +
+      '<div class="foot">لو بِيع كله: ' + App.money0(retail) + "</div></div>") +
 
       '<div class="card stat" style="padding:20px"><div class="lbl">أصناف راكدة</div>' +
       '<div class="val num">' + all.length + '</div>' +
@@ -157,7 +163,7 @@ var Stale = (function () {
 
       '<div class="card stat warn" style="padding:20px"><div class="lbl">لم يُبَع منها شيء قط</div>' +
       '<div class="val num">' + never.length + '</div>' +
-      '<div class="foot">' + App.money0(never.reduce(function (s, r) { return s + r.frozen; }, 0)) + " مجمّدة</div></div>" +
+      '<div class="foot">' + (nv ? "صنف من يوم دخوله" : App.money0(never.reduce(function (s, r) { return s + r.frozen; }, 0)) + " مجمّدة") + "</div></div>" +
 
       '<div class="card stat" style="padding:20px"><div class="lbl">حد الركود</div>' +
       '<div class="val num" style="font-size:22px">' + App.num(c.bookDays) + " / " + App.num(c.statDays) + '</div>' +
@@ -178,8 +184,8 @@ var Stale = (function () {
       '<div class="spacer"></div>' +
       '<div class="field"><label class="small">الترتيب</label>' +
       '<select class="inp" onchange="Stale.setV(\'sort\',this.value)">' +
-      '<option value="frozen"' + (view.sort === "frozen" ? " selected" : "") + '>المال المجمّد</option>' +
-      '<option value="idle"' + (view.sort === "idle" ? " selected" : "") + '>الأطول ركوداً</option>' +
+      (nv ? "" : '<option value="frozen"' + (view.sort === "frozen" ? " selected" : "") + '>المال المجمّد</option>') +
+      '<option value="idle"' + (view.sort === "idle" || (nv && view.sort === "frozen") ? " selected" : "") + '>الأطول ركوداً</option>' +
       '<option value="qty"' + (view.sort === "qty" ? " selected" : "") + '>الأكثر كمية</option>' +
       '<option value="name"' + (view.sort === "name" ? " selected" : "") + '>الاسم</option>' +
       "</select></div>" +
@@ -195,7 +201,7 @@ var Stale = (function () {
       return h;
     }
 
-    h += '<div class="card">' + App.table([
+    var cols = [
       {
         h: "الصنف", c: function (r) {
           return "<b>" + App.esc(r.name) + "</b>" +
@@ -212,7 +218,7 @@ var Stale = (function () {
           return '<span class="badge ' + cls + '">' + r.idle + " يوم</span>";
         }
       },
-      {
+      nv ? null : {
         h: "مال مجمّد", cls: "num", c: function (r) {
           return "<b>" + App.money0(r.frozen) + "</b>";
         }
@@ -223,7 +229,8 @@ var Stale = (function () {
             ' <button class="btn sm ghost" onclick="Stale.ignore(\'' + r.it.id + '\')">تجاهل</button>';
         }
       }
-    ], list, {
+    ].filter(Boolean);
+    h += '<div class="card">' + App.table(cols, list, {
       limit: view.shown,
       moreAction: "Stale.more()",
       rowClass: function (r) { return r.never ? "out" : ""; },
@@ -326,7 +333,8 @@ var Stale = (function () {
     App.modal({
       title: App.itemName(it),
       body: '<div class="grid g3" style="margin-bottom:16px">' +
-        '<div class="card stat bad"><div class="lbl">مال مجمّد</div><div class="val num">' + App.money0(r.frozen) + "</div></div>" +
+        (x4() ? '<div class="card stat"><div class="lbl">بِيع منه إجمالاً</div><div class="val num">' + r.soldTotal + "</div></div>" :
+          '<div class="card stat bad"><div class="lbl">مال مجمّد</div><div class="val num">' + App.money0(r.frozen) + "</div></div>") +
         '<div class="card stat"><div class="lbl">الكمية</div><div class="val num">' + r.qty + "</div></div>" +
         '<div class="card stat warn"><div class="lbl">راكد منذ</div><div class="val num">' + r.idle + "</div></div>" +
         "</div>" +
@@ -352,16 +360,18 @@ var Stale = (function () {
   function exportXls() {
     var list = filtered();
     if (!list.length) { App.toast("لا شيء للتصدير.", "warn"); return; }
-    App.xls("البضاعة-الراكدة-" + App.today(), "البضاعة الراكدة", [
-      ["الصنف", "النوع", "المؤلف", "التصنيف", "المكان", "الباركود",
-        "الكمية", "سعر الشراء", "سعر البيع", "مال مجمّد", "راكد منذ (يوم)", "بِيع إجمالاً", "آخر بيع"]
-    ].concat(list.map(function (r) {
-      return [
+    var noMoney = x4();
+    var head = ["الصنف", "النوع", "المؤلف", "التصنيف", "المكان", "الباركود",
+      "الكمية", "سعر الشراء", "سعر البيع", "مال مجمّد", "راكد منذ (يوم)", "بِيع إجمالاً", "آخر بيع"];
+    /* طرابلس: بلا سعر الشراء ولا المال المجمّد */
+    var keep = function (row) { return noMoney ? row.filter(function (x, i) { return i !== 7 && i !== 9; }) : row; };
+    App.xls("البضاعة-الراكدة-" + App.today(), "البضاعة الراكدة", [keep(head)].concat(list.map(function (r) {
+      return keep([
         r.name, r.type === "book" ? "كتاب" : "قرطاسية", r.it.author || "", r.it.cat || "",
         (r.it.lib ? r.it.lib + " رف " + (r.it.shelf || "") : (r.it.loc || "")),
         r.it.barcode || "", r.qty, App.num(r.it.cost), App.num(r.it.price),
         r.frozen, r.idle, r.soldTotal, r.never ? "لم يُبَع قط" : (r.it.lastSold || "")
-      ];
+      ]);
     })));
   }
 
@@ -373,18 +383,18 @@ var Stale = (function () {
       '<h2 style="margin:0 0 4px">البضاعة الراكدة</h2>' +
       '<div style="color:#666;font-size:12px;margin-bottom:12px">' +
       App.esc(S().meta.shopName || "") + " · " + App.dateAr(App.today()) +
-      " · " + list.length + " صنف · مال مجمّد " + App.money0(frozen) + "</div>" +
+      " · " + list.length + " صنف" + (x4() ? "" : " · مال مجمّد " + App.money0(frozen)) + "</div>" +
       '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
       '<thead><tr style="background:#eee">' +
-      ["#", "الصنف", "المكان", "الكمية", "راكد منذ", "مال مجمّد"].map(function (x) {
+      ["#", "الصنف", "المكان", "الكمية", "راكد منذ"].concat(x4() ? [] : ["مال مجمّد"]).map(function (x) {
         return '<th style="border:1px solid #ccc;padding:5px;text-align:right">' + x + "</th>";
       }).join("") + "</tr></thead><tbody>";
     list.forEach(function (r, i) {
       h += "<tr>" + [
         i + 1, App.esc(r.name),
         App.esc(r.it.lib ? r.it.lib + "/" + (r.it.shelf || "") : (r.it.loc || "")),
-        r.qty, r.idle + " يوم", App.money0(r.frozen)
-      ].map(function (x) {
+        r.qty, r.idle + " يوم"
+      ].concat(x4() ? [] : [App.money0(r.frozen)]).map(function (x) {
         return '<td style="border:1px solid #ccc;padding:5px">' + x + "</td>";
       }).join("") + "</tr>";
     });

@@ -863,7 +863,7 @@ var Labels = (function () {
   }
 
   return {
-    page: page, setV: setV, more: more, settings: settings,
+    page: page, setV: setV, more: more, settings: settings, cfg: cfg,
     toggle: toggle, setCount: setCount, selectAll: selectAll, clearSel: clearSel,
     preview: preview, shortenCodes: shortenCodes, tooLong: tooLong,
     /* للاختبار: قياس الهندسة الفعلية */

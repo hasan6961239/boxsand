@@ -543,8 +543,8 @@ const check = (name, ok, got) => {
     check('مصراتة: لا صفحات موظفين في الشريط', !(await navKeys()).includes('staff'));
     await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); App.rebuildNav(); });
     const nk0 = await navKeys();
-    check('طرابلس: «الموظفون» و«السجلات» و«الأجهزة» في الشريط، وقبل التفعيل كل شيء كما كان',
-      ['staff', 'logs', 'devices', 'settings', 'profits'].every(k => nk0.includes(k)), nk0.join(','));
+    check('طرابلس: «السجلات» في الشريط، و«الموظفون» و«الأجهزة» و«الإشعارات» تبويبات في الإعدادات، وقبل التفعيل كل شيء كما كان',
+      ['logs', 'settings', 'profits'].every(k => nk0.includes(k)) && !['staff', 'devices', 'notify'].some(k => nk0.includes(k)), nk0.join(','));
     await pg.evaluate(() => { location.hash = '#/staff'; App.route(); }); await sleep(300);
     await pg.evaluate(() => Staff.setup()); await sleep(300);
     await pg.fill('#f_name', 'المدير حسن'); await pg.fill('#f_pw', '9876'); await pg.fill('#f_pw2', '9876');
@@ -600,7 +600,7 @@ const check = (name, ok, got) => {
     await pg.evaluate(id => Staff.pick(id), admin); await sleep(200);
     await pg.fill('#stPw', '9876'); await pg.keyboard.press('Enter'); await sleep(800);
     const nk2 = await navKeys();
-    check('المدير يرى كل الصفحات', ['settings', 'profits', 'staff', 'logs', 'devices'].every(k => nk2.includes(k)), nk2.join(','));
+    check('المدير يرى كل الصفحات', ['settings', 'profits', 'logs'].every(k => nk2.includes(k)), nk2.join(','));
     await pg.evaluate(() => { location.hash = '#/logs'; App.route(); }); await sleep(400);
     await pg.evaluate(() => Staff.setLF('who', 'سالم الكاشير')); await sleep(300);
     const who = await S(pg, () => [...document.querySelectorAll('#lgList tbody tr')].map(tr => tr.children[3].textContent.trim()));
@@ -725,6 +725,118 @@ const check = (name, ok, got) => {
     await pg.evaluate(() => Count.fcNextShelf()); await sleep(300);
     check('«انتهى هذا الرف»: الرف التالي، وملخص الرف في السجل', await S(pg, () => App.S.log.some(l => l.action === 'جرد أول' && l.detail.indexOf('رف 2') >= 0)) &&
       (await S(pg, () => document.getElementById('view').textContent)).indexOf('رف 3') >= 0);
+    await pg.close();
+  }
+
+  /* ------ X4: التخصصات وتصدير الكتب ------ */
+  console.log('\n[ع] X4: التخصصات وتصدير الكتب');
+  {
+    const pg = await fresh(d => {
+      d.books = [
+        { id: 'l1', code: 'K11', title: 'القانون الدولي العام', author: 'محمد', cat: 'القانون', barcode: '2001', price: 40, qty: 3 },
+        { id: 'l2', code: 'K12', title: 'القانون المدني', author: 'علي', cat: 'القانون', barcode: '2002', price: 35, qty: 1 },
+        { id: 'l3', code: 'K13', title: 'شرح قانون العقوبات', author: 'سالم', cat: 'القانون', barcode: '', price: 0, qty: 0, uncounted: true },
+        { id: 'e1', code: 'K14', title: 'علم النفس التربوي', author: 'هدى', cat: 'التربية', barcode: '2004', price: 25, qty: 5 },
+        { id: 'e2', code: 'K15', title: 'طرق التدريس', author: 'نور', cat: 'التربية', barcode: '2005', price: 20, qty: 2 },
+        { id: 'n1', code: 'K16', title: 'كتاب بلا تخصص', author: '', cat: '', barcode: '2006', price: 10, qty: 1 }
+      ];
+      d.counters.book = 6;
+    });
+    const navKeys = () => pg.evaluate(() => [...document.querySelectorAll('#nav .nav-item')].map(b => b.dataset.k));
+    check('مصراتة: لا «التخصصات» ولا «تصدير الكتب»', !(await navKeys()).some(k => k === 'subjects' || k === 'export'));
+    await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); App.rebuildNav(); });
+    const nkT = await navKeys();
+    check('طرابلس: «التخصصات» و«تصدير الكتب» في الشريط', nkT.includes('subjects') && nkT.includes('export'), nkT.join(','));
+    await pg.evaluate(() => { location.hash = '#/subjects'; App.route(); }); await sleep(400);
+    const cards = await S(pg, () => [...document.querySelectorAll('.sj-card b')].map(b => b.textContent));
+    check('بطاقة لكل تخصص، الأكثر كتباً أولاً، و«بلا تخصص» آخراً', JSON.stringify(cards) === '["القانون","التربية","بلا تخصص"]', JSON.stringify(cards));
+    const st = await S(pg, () => Inv.subjectStats().find(x => x.name === 'القانون'));
+    check('عدد الكتب والنسخ و«لم يُجرد» في التخصص', st.n === 3 && st.copies === 4 && st.unc === 1, JSON.stringify(st));
+    await pg.evaluate(() => Inv.sjFind('تربيه')); await sleep(200);
+    check('البحث عن تخصص (بلا همزات وتاء مربوطة)', await S(pg, () => [...document.querySelectorAll('#sjGrid .sj-card')].length) === 1);
+    await pg.evaluate(() => { Inv.sjFind(''); Inv.sjOpen(0); }); await sleep(400);
+    check('فتح التخصص: كتبه فقط', await S(pg, () => document.querySelectorAll('#sjBody tbody tr').length) === 3);
+    await pg.evaluate(() => Inv.sjSearch('الدولي')); await sleep(300);
+    check('البحث داخل التخصص', await S(pg, () => document.querySelectorAll('#sjBody tbody tr').length) === 1);
+
+    await pg.evaluate(() => Exp.open('القانون')); await sleep(500);
+    check('«تصدير كتب هذا التخصص»: صفحة التصدير على التخصص', await S(pg, () => location.hash) === '#/export' && await S(pg, () => Exp.__picked().length) === 3);
+    await pg.evaluate(() => Exp.set('avail', true)); await sleep(300);
+    check('«المتوفر فقط» يُخرج ما لم يُجرد وما نفد', await S(pg, () => Exp.__picked().map(b => b.id).join(',')) === 'l1,l2', await S(pg, () => Exp.__picked().map(b => b.id).join(',')));
+    await pg.evaluate(() => { Exp.set('avail', false); Exp.pick('l1', true); Exp.pick('l3', true); Exp.col('price', true); Exp.col('author', false); }); await sleep(300);
+    check('اختيار كتب بعينها', await S(pg, () => Exp.__picked().map(b => b.id).join(',')) === 'l1,l3');
+    await pg.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 40; c.height = 40;
+      const g = c.getContext('2d'); g.fillStyle = '#1a4f9c'; g.fillRect(0, 0, 40, 40);
+      App.S.meta.logo = c.toDataURL('image/png');
+    });
+    const xl = await pg.evaluate(async () => {
+      const u = new Uint8Array(await Exp.__blob().arrayBuffer());
+      const txt = new TextDecoder().decode(u);
+      return { pk: u[0] === 0x50 && u[1] === 0x4b, sheet: /xl\/worksheets\/sheet1\.xml/.test(txt), img: /xl\/media\/image1\.png/.test(txt) && /<xdr:pic>/.test(txt),
+        title: txt.indexOf('كتب القانون المتوفرة لدينا') >= 0, branch: txt.indexOf('فرع مصراتة') >= 0,
+        price: txt.indexOf('>السعر<') >= 0, author: txt.indexOf('>المؤلف<') >= 0, rows: (txt.match(/القانون الدولي العام|شرح قانون العقوبات|القانون المدني/g) || []).length };
+    });
+    check('Excel: ملف xlsx فيه الشعار صورة، والعنوان والفرع، والأعمدة المختارة والكتب المختارة فقط',
+      xl.pk && xl.sheet && xl.img && xl.title && xl.branch && xl.price && !xl.author && xl.rows === 2, JSON.stringify(xl));
+    await pg.evaluate(() => Exp.pdf()); await sleep(300);
+    const pr = await S(pg, () => { const a = document.getElementById('printArea'); return { rows: a.querySelectorAll('tbody tr').length, img: !!a.querySelector('img'), t: a.textContent }; });
+    check('PDF: ورقة الطباعة بالشعار وصف لكل كتاب', pr.rows === 2 && pr.img && pr.t.indexOf('كتب القانون المتوفرة لدينا') >= 0, JSON.stringify({ r: pr.rows, i: pr.img }));
+
+    await pg.evaluate(() => { location.hash = '#/subjects'; App.route(); }); await sleep(300);
+    await pg.evaluate(() => { Inv.sjBack(); }); await sleep(200);
+    await pg.evaluate(() => Inv.sjOpen(1)); await sleep(300);
+    await pg.evaluate(() => Inv.sjRename()); await sleep(300);
+    await pg.fill('#f_name', 'القانون'); await clickModal(pg, 'حفظ'); await sleep(400);
+    const cats = await S(pg, () => App.S.books.map(b => b.cat).join(','));
+    check('تعديل اسم التخصص إلى تخصص موجود: يُدمجان ويُسجَّل', cats === 'القانون,القانون,القانون,القانون,القانون,' && await S(pg, () => App.S.log.some(l => l.action === 'دمج تخصص')), cats);
+    await pg.close();
+  }
+
+  /* ------ X4: الإعدادات بتبويبات، وبلا قيمة البضاعة ------ */
+  console.log('\n[ف] X4: الإعدادات بتبويبات، والمخزون والراكد بلا مبالغ');
+  {
+    const pg = await fresh(d => {
+      d.books.push({ id: 's1', code: 'K31', title: 'كتاب راكد', barcode: '3101', cost: 12, price: 20, qty: 4, created: '2023-01-01 10:00' });
+    });
+    await pg.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(500);
+    let tx = await S(pg, () => document.getElementById('view').textContent);
+    check('مصراتة: «قيمة الجملة» و«اربط فرعك» في المخزون كما كانا', tx.indexOf('قيمة الجملة') >= 0 && tx.indexOf('اربط فرعك') >= 0);
+    await pg.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(400);
+    check('مصراتة: الإعدادات صفحة واحدة بلا تبويبات، وفيها «ربط الأجهزة»', !(await pg.$('.set-seg')) && !!(await pg.$('#lnkBody')));
+
+    await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); App.rebuildNav(); location.hash = '#/settings'; App.route(); }); await sleep(500);
+    const tabs = await S(pg, () => [...document.querySelectorAll('.set-seg button')].map(b => b.textContent));
+    check('طرابلس: ستة تبويبات، و«عام» أولاً', tabs.join('|') === 'عام|الطباعة واللاصقات|الموظفون والصلاحيات|الأجهزة والفروع|الإشعارات|النسخ الاحتياطي والبيانات' &&
+      await S(pg, () => document.querySelector('.set-seg button.on').dataset.tab) === 'general', tabs.join('|'));
+    const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'qi-logo-'));
+    const logoFile = path.join(tmp, 'logo.png');
+    const png64 = await S(pg, () => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#1a4f9c'; g.beginPath(); g.arc(300, 200, 180, 0, 7); g.fill(); return c.toDataURL('image/png').split(',')[1]; });
+    fs.writeFileSync(logoFile, Buffer.from(png64, 'base64'));
+    const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.evaluate(() => Rep.pickLogo())]);
+    await fc.setFiles(logoFile); await sleep(800);
+    const lg = await S(pg, () => new Promise(r => { const u = App.S.meta.logo || ''; const i = new Image(); i.onload = () => r({ u: u.slice(0, 23), w: i.width, h: i.height }); i.onerror = () => r({ u: u.slice(0, 23) }); i.src = u; }));
+    check('«رفع الشعار»: صورة 600×400 تُحفظ مصغّرة 320×213 ويظهر في التبويب', lg.u === 'data:image/jpeg;base64,' && lg.w === 320 && lg.h === 213 && !!(await pg.$('img.set-logo')), JSON.stringify(lg));
+    await pg.evaluate(() => Rep.setTab('print')); await sleep(300);
+    tx = await S(pg, () => document.getElementById('view').textContent);
+    check('«الطباعة واللاصقات»: الإيصال ومقاس اللاصقة', tx.indexOf('مقاس الإيصال') >= 0 && tx.indexOf('مقاس اللاصقة') >= 0 && tx.indexOf('XP-365B') >= 0);
+    await pg.evaluate(() => Rep.setTab('devices')); await sleep(400);
+    tx = await S(pg, () => document.getElementById('view').textContent);
+    check('«الأجهزة والفروع»: ربط الأجهزة، و«اربط فرعك» (انتقل من المخزون)، واسم الجهاز', !!(await pg.$('#lnkBody')) && tx.indexOf('اربط فرعك') >= 0 && !!(await pg.$('#dvName')));
+    await pg.evaluate(() => Rep.setTab('data')); await sleep(300);
+    check('«النسخ الاحتياطي والبيانات»: النسخ ومنطقة الخطر', !!(await pg.$('#bkList')) && (await S(pg, () => document.getElementById('view').textContent)).indexOf('منطقة الخطر') >= 0);
+    await pg.evaluate(() => { location.hash = '#/notify'; App.route(); }); await sleep(500);
+    check('رابط «الإشعارات» القديم يفتح تبويبها في الإعدادات', await S(pg, () => location.hash) === '#/settings' &&
+      await S(pg, () => document.querySelector('.set-seg button.on').dataset.tab) === 'notify' && (await S(pg, () => document.getElementById('view').textContent)).indexOf('إعداد الإشعارات') >= 0);
+
+    await pg.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(500);
+    tx = await S(pg, () => document.getElementById('view').textContent);
+    check('طرابلس: المخزون بلا «قيمة الجملة»، و«اربط فرعك» سطر يدلّ على الإعدادات', tx.indexOf('قيمة الجملة') < 0 && tx.indexOf('اربط فرعك') < 0 && tx.indexOf('الأجهزة والفروع') >= 0);
+    await pg.evaluate(() => { location.hash = '#/stale'; App.route(); }); await sleep(500);
+    tx = await S(pg, () => document.getElementById('view').textContent);
+    check('طرابلس: الراكد بلا «رأس مال مجمّد» ولا عمود «مال مجمّد»، والكتاب الراكد ظاهر', tx.indexOf('مجمّد') < 0 && tx.indexOf('كتاب راكد') >= 0, tx.slice(0, 160));
+    await pg.evaluate(() => Stale.act('book', 's1')); await sleep(300);
+    check('و«ماذا أفعل؟» بلا مبلغ مجمّد', (await S(pg, () => document.getElementById('modalHost').textContent)).indexOf('مال مجمّد') < 0);
     await pg.close();
   }
 

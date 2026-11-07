@@ -1993,6 +1993,8 @@ var App = (function () {
     { k: "stocktake", perm: ["sell", "count"], t: "الجرد", ic: "stocktake", f: function () { return Rep.stockHub(); } },
     { g: "المخزون" },
     { k: "stock", perm: "stock", t: "المخزون والفروع", ic: "boxes", f: function () { return Stock.page(); }, badge2: true },
+    { k: "subjects", perm: ["sell", "items", "goods", "stock"], x4: true, t: "التخصصات", ic: "books", f: function () { return Inv.subjectsPage(); } },
+    { k: "export", perm: ["sell", "items", "goods", "stock"], x4: true, t: "تصدير الكتب", ic: "outward", f: function () { return Exp.page(); }, after: function () { Exp.afterRender(); } },
     { k: "purchases", perm: ["items", "goods"], t: "إدخال بضاعة", ic: "goods", f: function () { return Inv.goods(); } },
     { k: "alerts", perm: ["goods", "items"], t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true, badge6: true },
     { k: "stale", perm: "stale", t: "البضاعة الراكدة", ic: "stale", f: function () { return Stale.page(); }, badge4: true },
@@ -2003,12 +2005,13 @@ var App = (function () {
     { k: "suppliers", perm: "debts", t: "الموردون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
     { g: "أخرى" },
     { k: "profits", perm: "profits", t: "الأرباح والتقارير", ic: "chart", f: function () { return Rep.profits(); } },
-    { k: "notify", perm: "settings", t: "الإشعارات", ic: "signal", f: function () { return Notify.page(); } },
-    { k: "settings", perm: "settings", t: "الإعدادات", ic: "gear", f: function () { return Rep.settings(); } },
+    /* inSet: في طرابلس صارت تبويباً داخل الإعدادات (الرابط القديم يفتح التبويب) */
+    { k: "notify", perm: "settings", inSet: "notify", t: "الإشعارات", ic: "signal", f: function () { return Notify.page(); } },
+    { k: "settings", perm: ["settings", "staff", "devices"], t: "الإعدادات", ic: "gear", f: function () { return Rep.settings(); } },
     /* X4 (طرابلس) */
-    { k: "staff", perm: "staff", x4: true, t: "الموظفون والصلاحيات", ic: "shield", f: function () { return Staff.page(); } },
+    { k: "staff", perm: "staff", x4: true, inSet: "staff", t: "الموظفون والصلاحيات", ic: "shield", f: function () { return Staff.page(); } },
     { k: "logs", perm: "logs", x4: true, t: "السجلات", ic: "logs", f: function () { return Staff.logsPage(); } },
-    { k: "devices", perm: "devices", x4: true, t: "الأجهزة", ic: "device", f: function () { return Staff.devicesPage(); } }
+    { k: "devices", perm: "devices", x4: true, inSet: "devices", t: "الأجهزة", ic: "device", f: function () { return Staff.devicesPage(); } }
   ];
 
   function buildNav() {
@@ -2018,11 +2021,11 @@ var App = (function () {
       if (p.g) {
         /* عنوان مجموعة لا صفحة مسموحة تحته لا يظهر */
         var any = false;
-        for (var j = i + 1; j < PAGES.length && !PAGES[j].g; j++) if (pageOk(PAGES[j])) any = true;
+        for (var j = i + 1; j < PAGES.length && !PAGES[j].g; j++) if (pageOk(PAGES[j]) && !(PAGES[j].inSet && isX4())) any = true;
         if (any) h += '<div class="group-label">' + esc(p.g) + "</div>";
         return;
       }
-      if (!pageOk(p)) return;
+      if (!pageOk(p) || (p.inSet && isX4())) return;
       h += '<button class="nav-item" data-k="' + p.k + '" onclick="location.hash=\'#/' + p.k + '\'">' +
         icon(p.ic, 19) + "<span>" + esc(p.t) + "</span>" +
         (p.badge ? '<span class="count" data-lowcount hidden></span>' : "") +
@@ -2395,6 +2398,7 @@ var App = (function () {
     var page = null;
     PAGES.forEach(function (p) { if (p.k === k) page = p; });
     if (!page) { location.hash = "#/dash"; return; }
+    if (page.inSet && isX4()) { location.replace("#/settings?tab=" + page.inSet); return; }
     if (!pageOk(page)) {
       var first = null;
       PAGES.forEach(function (p) { if (!first && !p.g && pageOk(p)) first = p; });

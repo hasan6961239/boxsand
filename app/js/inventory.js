@@ -52,6 +52,9 @@ var Inv = (function () {
       '<select class="inp" style="width:auto" onchange="Inv.setF(\'shelf\',this.value)"><option value="">كل الرفوف</option>' +
       shelfOptions().map(function (n) { return '<option value="' + n + '"' + (String(f.shelf) === String(n) ? " selected" : "") + ">رف " + n + "</option>"; }).join("") + "</select>" +
 
+      (App.isX4 && App.isX4() ? '<select class="inp" style="width:auto;max-width:200px" onchange="Inv.setF(\'cat\',this.value)"><option value="">كل التخصصات</option>' +
+        catOptions("book").filter(Boolean).map(function (c) { return '<option value="' + App.esc(c) + '"' + (f.cat === c ? " selected" : "") + ">" + App.esc(c) + "</option>"; }).join("") +
+        '<option value="__none"' + (f.cat === "__none" ? " selected" : "") + ">بلا تخصص</option></select>" : "") +
       '<select class="inp" style="width:auto" onchange="Inv.setF(\'st\',this.value)">' +
       '<option value="">كل الحالات</option>' +
       '<option value="low"' + (f.st === "low" ? " selected" : "") + ">قاربت على النفاد</option>" +
@@ -110,10 +113,120 @@ var Inv = (function () {
       if (f.lib && b.lib !== f.lib) return false;
       if (f.shelf && String(b.shelf) !== String(f.shelf)) return false;
       if (f.st && App.stockState(b) !== f.st) return false;
+      if (f.cat && (f.cat === "__none" ? String(b.cat || "").trim() !== "" : String(b.cat || "").trim() !== f.cat)) return false;
       return true;
     });
     return App.rank(rows, f.q, function (b) {
       return [b.title, b.code, b.barcode, b.author, b.publisher, b.cat, b.catFull];
+    });
+  }
+
+  /* ============================================================
+     X4: التخصصات (طرابلس)
+     ------------------------------------------------------------
+     كل تخصص (التربية، القانون، الفيزياء...) بعدد كتبه ونسخه، والضغط عليه يعرض كتبه مع
+     بحث داخلها فقط. ومن هنا يُعاد تسمية التخصص على كل كتبه دفعة واحدة، وإن كان الاسم الجديد
+     تخصصاً موجوداً دُمجا. «بلا تخصص» آخر القائمة.
+     ============================================================ */
+  var sj = { cat: null, q: "", fq: "", list: [] };      // cat: null = القائمة، "" = بلا تخصص
+
+  function subjectStats() {
+    var by = {};
+    S().books.forEach(function (b) {
+      var c = String(b.cat || "").trim();
+      var x = by[c] || (by[c] = { name: c, n: 0, copies: 0, unc: 0 });
+      x.n++;
+      if (b.uncounted) x.unc++;
+      else if (App.num(b.qty) > 0) x.copies += App.num(b.qty);
+    });
+    return Object.keys(by).map(function (k) { return by[k]; })
+      .sort(function (a, b) { return (a.name === "" ? 1 : 0) - (b.name === "" ? 1 : 0) || b.n - a.n || (a.name < b.name ? -1 : 1); });
+  }
+
+  function subjectsPage() {
+    if (sj.cat !== null) return subjectBooks();
+    sj.list = subjectStats();
+    var tot = S().books.length;
+    return '<div class="row" style="margin-bottom:14px">' +
+      '<div class="search-wrap"><span class="mag">⌕</span><input class="inp" id="sjq" placeholder="ابحث عن تخصص…" value="' + App.esc(sj.fq) + '" oninput="Inv.sjFind(this.value)"></div>' +
+      '<div class="spacer"></div><span class="muted small">' + sj.list.filter(function (x) { return x.name; }).length.toLocaleString("en") + " تخصص · " + tot.toLocaleString("en") + " كتاب</span></div>" +
+      '<div id="sjGrid" class="sj-grid">' + subjectCards() + "</div>";
+  }
+
+  function subjectCards() {
+    var q = App.norm(sj.fq);
+    var html = sj.list.map(function (x, i) {
+      var nm = x.name || "بلا تخصص";
+      if (q && App.norm(nm).indexOf(q) < 0) return "";
+      return '<button class="sj-card' + (x.name ? "" : " none") + '" onclick="Inv.sjOpen(' + i + ')"><b>' + App.esc(nm) + "</b>" +
+        '<span class="sj-n num">' + x.n.toLocaleString("en") + '</span><span class="muted small">كتاب · ' + x.copies.toLocaleString("en") + " نسخة على الرفوف" +
+        (x.unc ? " · " + x.unc.toLocaleString("en") + " لم يُجرد" : "") + "</span></button>";
+    }).join("");
+    return html || '<div class="empty"><p>لا تخصص بهذا الاسم</p></div>';
+  }
+
+  function sjFind(v) { sj.fq = v; var g = document.getElementById("sjGrid"); if (g) g.innerHTML = subjectCards(); }
+  function sjOpen(i) { var x = sj.list[i]; if (!x) return; sj.cat = x.name; sj.q = ""; App.rerender(); }
+  function sjBack() { sj.cat = null; App.rerender(); }
+
+  function subjectRows() {
+    var rows = S().books.filter(function (b) { return String(b.cat || "").trim() === sj.cat; });
+    return App.rank(rows, sj.q, function (b) { return [b.title, b.code, b.barcode, b.author, b.publisher]; });
+  }
+
+  function subjectBooks() {
+    var nm = sj.cat || "بلا تخصص", all = S().books.filter(function (b) { return String(b.cat || "").trim() === sj.cat; }).length;
+    return '<div class="row" style="margin-bottom:14px;gap:10px;align-items:center">' +
+      '<button class="btn ghost" onclick="Inv.sjBack()">→ كل التخصصات</button>' +
+      '<h2 style="margin:0;font-family:var(--font-head);font-size:24px">' + App.esc(nm) + "</h2>" +
+      '<span class="badge">' + all.toLocaleString("en") + " كتاب</span>" +
+      '<div class="spacer"></div>' +
+      '<button class="btn" onclick="Exp.open(\'' + App.esc(String(sj.cat).replace(/\\/g, "\\\\").replace(/'/g, "\\'")) + '\')">تصدير كتب هذا التخصص</button>' +
+      (sj.cat ? '<button class="btn" onclick="Inv.sjRename()">تعديل اسم التخصص</button>' : "") + "</div>" +
+      '<div class="row" style="margin-bottom:14px"><div class="search-wrap" style="max-width:none;flex:1"><span class="mag">⌕</span>' +
+      '<input class="inp" id="sjbq" placeholder="ابحث في كتب ' + App.esc(nm) + '… (العنوان، المؤلف، دار النشر، الباركود)" value="' + App.esc(sj.q) + '" oninput="Inv.sjSearch(this.value)"></div></div>' +
+      '<div class="card" id="sjBody">' + subjectTable() + "</div>";
+  }
+
+  function subjectTable() {
+    var rows = subjectRows();
+    return App.table([
+      { h: "الكتاب", c: function (b) { return '<div class="name">' + App.esc(b.title) + '</div><div class="sub">' + App.esc(b.author || "بدون مؤلف") + (b.publisher ? " · " + App.esc(b.publisher) : "") + "</div>"; } },
+      { h: "الموقع", c: function (b) { return App.locChip(b); } },
+      { h: "الرمز", c: function (b) { return '<span class="num small">' + App.esc(b.barcode || b.code || "") + "</span>"; } },
+      { h: "السعر", cls: "num", c: function (b) { return App.num(b.price) > 0 ? "<b>" + App.money0(b.price) + "</b>" : '<span class="muted">بلا سعر</span>'; } },
+      { h: "الكمية", cls: "num", c: function (b) { return b.uncounted ? '<span class="badge">لم يُجرد</span>' : "<b>" + App.num(b.qty) + "</b>"; } },
+      { h: "", cls: "act", c: function (b) {
+        return '<button class="btn sm" onclick="Inv.addStock(\'book\',\'' + b.id + '\')">+ كمية</button> ' +
+          '<button class="btn sm" onclick="Inv.editBook(\'' + b.id + '\')">تعديل</button>';
+      } }
+    ], rows, { lazy: 80, emptyIcon: "books", emptyTitle: "لا نتيجة", emptyText: "جرّب كلمة أخرى." });
+  }
+
+  function sjSearch(v) { sj.q = v; var h = document.getElementById("sjBody"); if (h) h.innerHTML = subjectTable(); }
+
+  function sjRename() {
+    if (!App.allow("items", sjRename)) return;
+    var old = sj.cat;
+    if (!old) return;
+    var n = S().books.filter(function (b) { return String(b.cat || "").trim() === old; }).length;
+    App.form({
+      title: "تعديل اسم التخصص",
+      topHtml: '<p class="muted" style="margin:0 0 10px;line-height:1.8">يتغيّر على ' + n.toLocaleString("en") + " كتاب. إن كتبت اسم تخصص موجود يُدمج التخصصان.</p>",
+      fields: [{ k: "name", label: "الاسم الجديد", required: true, list: catOptions("book").filter(Boolean) }],
+      values: { name: old },
+      onSave: function (v) {
+        var nn = String(v.name || "").replace(/\s+/g, " ").trim();
+        if (!nn || nn === old) return;
+        var merged = S().books.some(function (b) { return String(b.cat || "").trim() === nn; });
+        S().books.forEach(function (b) { if (String(b.cat || "").trim() === old) { b.cat = nn; b.updated = App.nowStamp(); } });
+        var cats = S().meta.bookCats;
+        if (Array.isArray(cats)) { var i = cats.indexOf(old); if (i >= 0) { if (cats.indexOf(nn) >= 0) cats.splice(i, 1); else cats[i] = nn; } }
+        App.log(merged ? "دمج تخصص" : "تعديل تخصص", old + " ← " + nn + " (" + n + " كتاب)");
+        sj.cat = nn;
+        App.save(); App.rerender();
+        App.toast((merged ? "دُمج «" + old + "» في «" : "صار اسم التخصص «") + nn + "».", "ok");
+      }
     });
   }
 
@@ -2725,6 +2838,7 @@ var Inv = (function () {
     purPay: purPay, purPast: purPast, pastImport: pastImport, __pastPlan: pastPlan, __pastApply: pastApply,
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
     oldImport: oldImport, __oldPlan: oldPlan, __oldApply: oldApply,
+    subjectsPage: subjectsPage, sjFind: sjFind, sjOpen: sjOpen, sjBack: sjBack, sjSearch: sjSearch, sjRename: sjRename, subjectStats: subjectStats,
     pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint, normRate: normRate,
     newPublisher: newPublisher, newSupplier: newSupplier,
     smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes,
@@ -2732,4 +2846,292 @@ var Inv = (function () {
     bulkSet: bulkSet, bulkDel: bulkDel, bulkAll: bulkAll,
     bulkQtyKey: bulkQtyKey, bulkFocusQty: bulkFocusQty
   };
+})();
+
+/* ============================================================
+   X4: تصدير الكتب (طرابلس)
+   ------------------------------------------------------------
+   قائمة كتب تُعرض على جهة تطلب كتباً (كلية التربية مثلاً): تختار التخصص أو تبحث،
+   وتختار الكتب (أو كل المعروض)، والأعمدة (العنوان، المؤلف، الكمية، السعر...)، فتخرج
+   ورقة بشعار المكتبة واسمها والفرع: ملف Excel ‏(xlsx حقيقي، الشعار فيه صورة) أو PDF
+   من نافذة الطباعة. الشعار من الإعدادات (S.meta.logo)، ولا شعار = بلا صورة
+   ============================================================ */
+var Exp = (function () {
+
+  function S() { return App.S; }
+
+  var COLS = [
+    ["title", "العنوان"], ["author", "المؤلف"], ["publisher", "دار النشر"], ["cat", "التخصص"],
+    ["qty", "الكمية"], ["price", "السعر"], ["priceW", "سعر الجملة"], ["barcode", "الباركود"], ["place", "المكان"]
+  ];
+  var ex = { cat: "", q: "", avail: false, sel: {}, nsel: 0, cols: { title: 1, author: 1, qty: 1 }, title: "" };
+
+  function open(cat) {
+    ex.cat = cat === undefined ? "" : String(cat);
+    ex.sel = {}; ex.nsel = 0; ex.title = "";
+    location.hash = "#/export";
+    App.route();
+  }
+
+  function rows() {
+    var r = S().books.filter(function (b) {
+      if (ex.cat === "__none") { if (String(b.cat || "").trim()) return false; }
+      else if (ex.cat && String(b.cat || "").trim() !== ex.cat) return false;
+      if (ex.avail && (b.uncounted || App.num(b.qty) <= 0)) return false;
+      return true;
+    });
+    return App.rank(r, ex.q, function (b) { return [b.title, b.code, b.barcode, b.author, b.publisher, b.cat]; });
+  }
+
+  function picked() {
+    var r = rows();
+    return ex.nsel ? r.filter(function (b) { return ex.sel[b.id]; }) : r;
+  }
+
+  function sheetTitle() {
+    if (ex.title) return ex.title;
+    var c = ex.cat === "__none" ? "" : ex.cat;
+    return c ? "كتب " + c + " المتوفرة لدينا" : "قائمة الكتب المتوفرة لدينا";
+  }
+
+  function page() {
+    var cats = Inv.subjectStats().filter(function (x) { return x.name; });
+    return '<div class="grid" style="grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start">' +
+      '<div class="card"><div class="card-head"><h3>اختر الكتب</h3><div class="spacer"></div><span class="muted small" id="exCount"></span></div>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">' +
+      '<select class="inp" style="width:auto;max-width:240px" onchange="Exp.set(\'cat\',this.value)"><option value="">كل التخصصات</option>' +
+      cats.map(function (x) { return '<option value="' + App.esc(x.name) + '"' + (ex.cat === x.name ? " selected" : "") + ">" + App.esc(x.name) + " (" + x.n + ")</option>"; }).join("") +
+      '<option value="__none"' + (ex.cat === "__none" ? " selected" : "") + ">بلا تخصص</option></select>" +
+      '<div class="search-wrap" style="flex:1;min-width:200px"><span class="mag">⌕</span><input class="inp" placeholder="ابحث بالعنوان أو المؤلف أو الباركود…" value="' + App.esc(ex.q) + '" oninput="Exp.set(\'q\',this.value)"></div>' +
+      '<label class="chk"><input type="checkbox"' + (ex.avail ? " checked" : "") + ' onchange="Exp.set(\'avail\',this.checked)"> المتوفر فقط</label></div>' +
+      '<div class="row" style="gap:8px;margin-bottom:10px"><button class="btn sm" onclick="Exp.all(true)">اختر كل المعروض</button>' +
+      '<button class="btn sm ghost" onclick="Exp.all(false)">إلغاء الاختيار</button></div>' +
+      '<div id="exList"></div></div>' +
+      '<div><div class="card" style="margin-bottom:16px"><div class="card-head"><h3>الأعمدة</h3></div>' +
+      COLS.map(function (c) {
+        return '<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" ' + (ex.cols[c[0]] ? "checked " : "") + (c[0] === "title" ? "disabled " : "") +
+          'onchange="Exp.col(\'' + c[0] + '\',this.checked)"> ' + c[1] + "</label>";
+      }).join("") +
+      '<label class="fld" style="margin-top:10px"><span>عنوان الورقة</span><input class="inp" value="' + App.esc(sheetTitle()) + '" oninput="Exp.set(\'title\',this.value)"></label></div>' +
+      '<div class="card"><div class="card-head"><h3>التصدير</h3></div>' +
+      (S().meta.logo ? '<div style="text-align:center;margin-bottom:8px"><img src="' + S().meta.logo + '" style="height:56px"></div>' :
+        '<p class="muted small" style="margin:0 0 8px">بلا شعار — أضفه من «الإعدادات ← عام».</p>') +
+      '<p class="muted small" style="margin:0 0 12px;line-height:1.8" id="exWhat"></p>' +
+      '<div class="row" style="gap:8px"><button class="btn primary" onclick="Exp.excel()">تصدير Excel</button>' +
+      '<button class="btn" onclick="Exp.pdf()">PDF / طباعة</button></div></div></div></div>';
+  }
+
+  function afterRender() { paintList(); }
+
+  function paintList() {
+    var host = document.getElementById("exList");
+    if (!host) return;
+    var r = rows();
+    host.innerHTML = App.table([
+      { h: "", c: function (b) { return '<input type="checkbox" ' + (ex.sel[b.id] ? "checked " : "") + 'onchange="Exp.pick(\'' + b.id + '\',this.checked)">'; } },
+      { h: "الكتاب", c: function (b) { return '<div class="name">' + App.esc(b.title) + '</div><div class="sub">' + App.esc(b.author || "") + (b.cat ? " · " + App.esc(b.cat) : "") + "</div>"; } },
+      { h: "الكمية", cls: "num", c: function (b) { return b.uncounted ? '<span class="badge">لم يُجرد</span>' : App.num(b.qty); } },
+      { h: "السعر", cls: "num", c: function (b) { return App.num(b.price) > 0 ? App.money0(b.price) : '<span class="muted">—</span>'; } }
+    ], r, { lazy: 100, emptyIcon: "books", emptyTitle: "لا كتب", emptyText: "غيّر التخصص أو البحث." });
+    paintCount(r.length);
+  }
+
+  function paintCount(n) {
+    var c = document.getElementById("exCount"), w = document.getElementById("exWhat");
+    if (c) c.textContent = (n == null ? rows().length : n).toLocaleString("en") + " كتاب معروض · مختار: " + ex.nsel;
+    if (w) w.textContent = ex.nsel ? "يُصدَّر " + ex.nsel + " كتاباً مختاراً." : "لم تختر كتباً: يُصدَّر كل المعروض (" + (n == null ? rows().length : n).toLocaleString("en") + ").";
+  }
+
+  function set(k, v) {
+    ex[k] = v;
+    if (k === "title") return;
+    if (k === "cat") { ex.sel = {}; ex.nsel = 0; ex.title = ""; App.rerender(); return; }
+    paintList();
+  }
+  function col(k, on) { if (k !== "title") ex.cols[k] = on ? 1 : 0; }
+  function pick(id, on) { if (on && !ex.sel[id]) { ex.sel[id] = 1; ex.nsel++; } else if (!on && ex.sel[id]) { delete ex.sel[id]; ex.nsel--; } paintCount(); }
+  function all(on) {
+    ex.sel = {}; ex.nsel = 0;
+    if (on) rows().forEach(function (b) { ex.sel[b.id] = 1; ex.nsel++; });
+    paintList();
+  }
+
+  function cols() { return COLS.filter(function (c) { return ex.cols[c[0]] || c[0] === "title"; }); }
+  function cell(b, k) {
+    if (k === "qty") return b.uncounted ? "" : App.num(b.qty);
+    if (k === "price" || k === "priceW") return App.num(b[k]) > 0 ? App.num(b[k]) : "";
+    if (k === "place") return b.lib || b.shelf ? (b.lib || "") + (b.shelf ? " / رف " + b.shelf : "") : "";
+    return String(b[k] == null ? "" : b[k]);
+  }
+  function shopLines() {
+    var br = S().branch || {}, m = S().meta || {};
+    return [br.name || m.shopName || "", br.city ? "فرع " + br.city : ""];
+  }
+
+  /* ---------- PDF: ورقة A4 من نافذة الطباعة («حفظ PDF») ---------- */
+  function pdf() {
+    var list = picked(), cs = cols(), sh = shopLines();
+    if (!list.length) { App.toast("لا كتب للتصدير.", "warn"); return; }
+    var h = '<style>@page{size:A4;margin:14mm 12mm}.exp{direction:rtl;font-family:Tahoma,Arial,sans-serif;color:#17222E}' +
+      ".exp .hd{text-align:center;margin-bottom:12px}.exp .hd img{height:70px}.exp h1{font-size:18px;margin:6px 0 0}.exp h2{font-size:14px;margin:2px 0;color:#444}" +
+      ".exp h3{font-size:15px;margin:10px 0 2px}.exp .d{font-size:11px;color:#6B7A87}.exp table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:10px}" +
+      ".exp th{background:#17222E;color:#fff;padding:6px;border:1px solid #17222E;text-align:right}.exp td{padding:5px 6px;border:1px solid #ccd3da}" +
+      ".exp tr:nth-child(even) td{background:#f4f6f8}.exp .n{text-align:center;white-space:nowrap}.exp .ft{margin-top:8px;font-size:11px;color:#6B7A87}</style>" +
+      '<div class="exp"><div class="hd">' + (S().meta.logo ? '<img src="' + S().meta.logo + '">' : "") +
+      "<h1>" + App.esc(sh[0]) + "</h1>" + (sh[1] ? "<h2>" + App.esc(sh[1]) + "</h2>" : "") +
+      "<h3>" + App.esc(sheetTitle()) + '</h3><div class="d">' + App.esc(App.dateAr(App.today())) + "</div></div>" +
+      '<table><thead><tr><th class="n">#</th>' + cs.map(function (c) { return "<th>" + c[1] + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      list.map(function (b, i) {
+        return '<tr><td class="n">' + (i + 1) + "</td>" + cs.map(function (c) {
+          var v = cell(b, c[0]);
+          return '<td class="' + (/qty|price/.test(c[0]) ? "n" : "") + '">' + App.esc(typeof v === "number" && /price/.test(c[0]) ? App.money0(v) : v) + "</td>";
+        }).join("") + "</tr>";
+      }).join("") + '</tbody></table><div class="ft">عدد الكتب: ' + list.length + "</div></div>";
+    App.log("تصدير كتب", sheetTitle() + " — PDF، " + list.length + " كتاب");
+    App.save();
+    App.printHtml(h);
+  }
+
+  /* ---------- Excel: xlsx حقيقي (zip بلا ضغط) والشعار صورة فيه ---------- */
+  var CRC = null;
+  function crc32(u8) {
+    if (!CRC) { CRC = new Uint32Array(256); for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC[n] = c >>> 0; } }
+    var x = 0xFFFFFFFF;
+    for (var i = 0; i < u8.length; i++) x = CRC[(x ^ u8[i]) & 0xFF] ^ (x >>> 8);
+    return (x ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zip(files) {
+    var enc = new TextEncoder(), parts = [], cen = [], off = 0;
+    files.forEach(function (f) {
+      var name = enc.encode(f[0]), data = typeof f[1] === "string" ? enc.encode(f[1]) : f[1], crc = crc32(data);
+      var h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true);
+      h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+      var c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+      c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+      parts.push(new Uint8Array(h.buffer), name, data); cen.push(new Uint8Array(c.buffer), name);
+      off += 30 + name.length + data.length;
+    });
+    var csize = cen.reduce(function (a, x) { return a + x.length; }, 0), e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+    return new Blob(parts.concat(cen, [new Uint8Array(e.buffer)]), { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+  function x(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function colName(i) { var s = ""; i++; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+
+  function logoBytes() {
+    var m = /^data:image\/(png|jpeg);base64,(.+)$/.exec(S().meta.logo || "");
+    if (!m) return null;
+    var bin = atob(m[2]), u = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return { ext: m[1] === "jpeg" ? "jpeg" : "png", data: u };
+  }
+
+  function xlsxBlob(list) {
+    var cs = cols(), sh = shopLines(), logo = logoBytes(), nc = cs.length + 1, last = colName(nc - 1);
+    var top = logo ? 7 : 1, rowsXml = [], merges = [];
+    function inl(r, c, v, st) { return '<c r="' + colName(c) + r + '" t="inlineStr" s="' + st + '"><is><t xml:space="preserve">' + x(v) + "</t></is></c>"; }
+    function num(r, c, v, st) { return '<c r="' + colName(c) + r + '" s="' + st + '"><v>' + v + "</v></c>"; }
+    var r = top;
+    [[sh[0], 1], [sh[1], 2], [sheetTitle(), 3], [App.dateAr(App.today()), 4]].forEach(function (t) {
+      if (!t[0]) return;
+      rowsXml.push('<row r="' + r + '">' + inl(r, 0, t[0], t[1]) + "</row>");
+      merges.push("A" + r + ":" + last + r);
+      r++;
+    });
+    r++;
+    rowsXml.push('<row r="' + r + '">' + inl(r, 0, "#", 5) + cs.map(function (c, i) { return inl(r, i + 1, c[1], 5); }).join("") + "</row>");
+    var head = r;
+    list.forEach(function (b, k) {
+      r++;
+      var cells = num(r, 0, k + 1, 7);
+      cs.forEach(function (c, i) {
+        var v = cell(b, c[0]);
+        cells += typeof v === "number" ? num(r, i + 1, v, /price/.test(c[0]) ? 8 : 7) : inl(r, i + 1, v, 6);
+      });
+      rowsXml.push('<row r="' + r + '">' + cells + "</row>");
+    });
+    var widths = [6].concat(cs.map(function (c) { return c[0] === "title" ? 44 : (/author|publisher|cat|place/.test(c[0]) ? 22 : 11); }));
+    var sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0" rightToLeft="1"><pane ySplit="' + head + '" topLeftCell="A' + (head + 1) + '" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+      "<cols>" + widths.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join("") + "</cols>" +
+      "<sheetData>" + rowsXml.join("") + "</sheetData>" +
+      (merges.length ? '<mergeCells count="' + merges.length + '">' + merges.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join("") + "</mergeCells>" : "") +
+      '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>' +
+      (logo ? '<drawing r:id="rId1"/>' : "") + "</worksheet>";
+    var styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.00"/></numFmts>' +
+      '<fonts count="5"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="16"/><name val="Calibri"/></font>' +
+      '<font><sz val="12"/><color rgb="FF444444"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
+      '<font><b/><sz val="13"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+      '<fill><patternFill patternType="solid"><fgColor rgb="FF17222E"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+      '<borders count="2"><border/><border><left style="thin"><color rgb="FFC9D3DA"/></left><right style="thin"><color rgb="FFC9D3DA"/></right>' +
+      '<top style="thin"><color rgb="FFC9D3DA"/></top><bottom style="thin"><color rgb="FFC9D3DA"/></bottom></border></borders>' +
+      '<cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="9"><xf/>' +
+      '<xf fontId="1" applyFont="1" applyAlignment="1"><alignment horizontal="center"/></xf>' +
+      '<xf fontId="2" applyFont="1" applyAlignment="1"><alignment horizontal="center"/></xf>' +
+      '<xf fontId="4" applyFont="1" applyAlignment="1"><alignment horizontal="center"/></xf>' +
+      '<xf fontId="2" applyFont="1" applyAlignment="1"><alignment horizontal="center"/></xf>' +
+      '<xf fontId="3" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+      '<xf borderId="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf>' +
+      '<xf borderId="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+      '<xf numFmtId="164" borderId="1" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+      "</cellXfs></styleSheet>";
+    var files = [
+      ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+        (logo ? '<Default Extension="' + logo.ext + '" ContentType="image/' + logo.ext + '"/>' : "") +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+        (logo ? '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>' : "") + "</Types>"],
+      ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+      ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews>' +
+        '<sheets><sheet name="الكتب" sheetId="1" r:id="rId1"/></sheets>' +
+        '<definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">\'الكتب\'!$' + head + ':$' + head + "</definedName></definedNames></workbook>"],
+      ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+      ["xl/styles.xml", styles],
+      ["xl/worksheets/sheet1.xml", sheet]
+    ];
+    if (logo) {
+      /* الشعار في وسط أعلى الورقة: عرض الأعمدة كلها تقريباً، والصورة 4 صفوف */
+      var mid = Math.max(0, Math.floor((nc - 1) / 2));
+      files.push(["xl/worksheets/_rels/sheet1.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>']);
+      files.push(["xl/drawings/drawing1.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" ' +
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<xdr:oneCellAnchor><xdr:from><xdr:col>' + mid + '</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>' +
+        '<xdr:ext cx="914400" cy="914400"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>' +
+        '<xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>' +
+        '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>' +
+        "<xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>"]);
+      files.push(["xl/drawings/_rels/drawing1.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.' + logo.ext + '"/></Relationships>']);
+      files.push(["xl/media/image1." + logo.ext, logo.data]);
+    }
+    return zip(files);
+  }
+
+  function excel() {
+    var list = picked();
+    if (!list.length) { App.toast("لا كتب للتصدير.", "warn"); return; }
+    var blob = xlsxBlob(list), a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = sheetTitle().replace(/[\\/:*?"<>|]/g, "-") + " — " + App.today() + ".xlsx";
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    App.log("تصدير كتب", sheetTitle() + " — Excel، " + list.length + " كتاب");
+    App.save();
+    App.toast("نُزّل ملف Excel: " + list.length + " كتاب.", "ok");
+  }
+
+  return { open: open, page: page, afterRender: afterRender, set: set, col: col, pick: pick, all: all, pdf: pdf, excel: excel,
+    __blob: function () { return xlsxBlob(picked()); }, __picked: picked };
 })();

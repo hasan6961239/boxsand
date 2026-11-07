@@ -538,7 +538,8 @@ var Stock = (function () {
   function hub() {
     var mineItems = App.allItems();
     var minePieces = mineItems.reduce(function (s, x) { return s + App.num(x.it.qty); }, 0);
-    var mineValue = mineItems.reduce(function (s, x) { return s + App.num(x.it.qty) * App.num(x.it.cost); }, 0);
+    var x4 = App.isX4 && App.isX4();
+    var mineValue = x4 ? 0 : mineItems.reduce(function (s, x) { return s + App.num(x.it.qty) * App.num(x.it.cost); }, 0);
     var pend = pendingCount();
 
     var h = (App.holdBanner ? App.holdBanner() : "") + '<div class="row" style="margin-bottom:16px">' +
@@ -564,7 +565,8 @@ var Stock = (function () {
       '<div class="bc-sub">' + App.esc(S().branch.city || "—") + (S().branch.phone ? " · " + App.esc(S().branch.phone) : "") + "</div>" +
       '<div class="bc-nums"><div><b class="num">' + mineItems.length + "</b><span>صنف</span></div>" +
       '<div><b class="num">' + minePieces + "</b><span>قطعة</span></div>" +
-      '<div><b class="num">' + App.money0(mineValue) + "</b><span>قيمة الجملة</span></div></div>" +
+      /* طرابلس: صفحة المخزون تُرى أمام الزبائن والموظفين — بلا قيمة البضاعة */
+      (x4 ? "" : '<div><b class="num">' + App.money0(mineValue) + "</b><span>قيمة الجملة</span></div>") + "</div>" +
       '<div class="bc-foot"><span class="badge ok">مباشر</span>' +
       '<span class="bc-edit" onclick="event.stopPropagation();Stock.setupLink()">تعديل البيانات</span>' +
       "</div></button>";
@@ -613,8 +615,24 @@ var Stock = (function () {
 
     h += "</div>";
 
+    /* طرابلس: الربط في «الإعدادات ← الأجهزة والفروع»، وهنا سطر يدلّ عليه */
+    if (!x4) h += linkBlock(true);
+    else if (!configured()) {
+      h += '<div class="row" style="margin-top:16px;gap:10px"><span class="badge">الربط غير مفعّل</span>' +
+        '<span class="muted small">ربط الفروع ومشاهدة المخزون من التلفون: من الإعدادات ← الأجهزة والفروع</span>' +
+        '<button class="btn sm ghost" onclick="location.hash=\'#/settings?tab=devices\'">فتح</button></div>';
+    }
+
+    setTimeout(function () { paintSyncState(); paintFind(); }, 0);
+    return h;
+  }
+
+  /* «اربط فرعك» أو أزرار الربط: تحت بطاقات المخزون (مصراتة)، أو داخل
+     «الإعدادات ← الأجهزة والفروع» (طرابلس، card = false: الإطار من الإعدادات) */
+  function linkBlock(card) {
+    var h = "";
     if (!configured()) {
-      h += '<div class="card" style="margin-top:18px;border-inline-start:3px solid var(--amber)"><div class="card-body">' +
+      h += (card ? '<div class="card" style="margin-top:18px;border-inline-start:3px solid var(--amber)"><div class="card-body">' : "<div>") +
         '<h3 style="margin:0 0 6px">اربط فرعك — ترى مخزونك من التلفون، وتربط فروعك</h3>' +
         '<p class="muted small" style="line-height:1.8;margin:0 0 12px">البيع والمخزون يعملان بدون هذا. الربط يضيف شيئين: ' +
         '<b>مشاهدة مخزونك من تلفونك</b> ولو كان محلك فرعاً واحداً، ورؤية مخزون الفروع الأخرى وطلب تحويل البضاعة. ' +
@@ -623,9 +641,9 @@ var Stock = (function () {
         '<button class="btn" onclick="Stock.setupLink()">عندي العنوان وكلمة السر</button> ' +
         '<button class="btn" onclick="Stock.manualExport()">تصدير لقطة مخزون</button> ' +
         '<button class="btn" onclick="Stock.manualImport()">استيراد لقطة فرع</button>' +
-        "</div></div>";
+        (card ? "</div></div>" : "</div>");
     } else {
-      h += '<div class="row" style="margin-top:16px">' +
+      h += '<div class="row" style="margin-top:' + (card ? 16 : 0) + 'px">' +
         '<button class="btn sm ghost" onclick="Stock.setupLink()">إعدادات الربط</button>' +
         '<button class="btn sm ghost" onclick="Stock.phoneView()">المشاهدة من التلفون</button>' +
         '<label class="btn sm ghost" style="gap:6px"><input type="checkbox" ' + (S().meta.phoneSales !== false ? "checked" : "") +
@@ -635,7 +653,6 @@ var Stock = (function () {
         '<button class="btn sm ghost" onclick="Stock.manualImport()">استيراد لقطة</button></div>';
     }
 
-    setTimeout(function () { paintSyncState(); paintFind(); }, 0);
     return h;
   }
 
@@ -1501,6 +1518,6 @@ var Stock = (function () {
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,
     workerSetup: workerSetup, copyWorker: copyWorker,
-    snapshot: snapshot
+    snapshot: snapshot, linkBlock: linkBlock
   };
 })();
