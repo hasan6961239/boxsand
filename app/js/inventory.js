@@ -455,6 +455,8 @@ var Inv = (function () {
         { k: "note", label: "ملاحظة", type: "textarea", full: true }
       ],
       onSave: function (v) {
+        /* X4: كمية كُتبت بيد = جُرد */
+        if (b && b.uncounted && App.num(v.qty) !== App.num(b.qty)) delete b.uncounted;
         /* X4: تعديل السعر لمن ليس من صلاحياته لا يُحفظ، والباقي يُحفظ */
         if (b && !App.can("price") && ["price", "priceW", "cost"].some(function (k) { return App.num(v[k]) !== App.num(b[k]); })) {
           ["price", "priceW", "cost"].forEach(function (k) { v[k] = b[k]; });
@@ -1773,6 +1775,7 @@ var Inv = (function () {
       (isB ? "كتاب جديد" : "صنف جديد") + "</button> " +
       (isB ? '<button class="btn" onclick="Inv.bulkPaste()">لصق دفعة كتب</button> ' : "") +
       '<button class="btn" onclick="Inv.importItems(\'' + (isB ? "book" : "stat") + '\')">استيراد من ملف</button> ' +
+      (isB && App.isX4 && App.isX4() ? '<button class="btn" onclick="Inv.oldImport()">استيراد من المنظومة القديمة</button> ' : "") +
       '<button class="btn" onclick="Inv.exportGoods()">تصدير جدول Excel</button>' +
       "</div></div>";
 
@@ -2497,6 +2500,187 @@ var Inv = (function () {
     });
   }
 
+  /* ---------- X4: الاستيراد من المنظومة القديمة (طرابلس) ----------
+     ملف Excel كما يخرج من منظومتهم القديمة (61 ألف سطر)، أو CSV منه. الأعمدة بأسمائها:
+     «رقم الصنف» ← الباركود، «اسم الصنف» ← العنوان، «الرقم التجاري» ← دار النشر،
+     «الوحدة» ← التخصص (ما عدا «قطعة» و0)، «التصنيف» ← المؤلف (ما عدا «عام» و0)،
+     «سعر البيع قطاعي / جملة» ← سعرا البيع، «التكلفة» ← سعر الشراء.
+     الكمية لا تُؤخذ (هي سالب «العدد الصادر»، لا جرد): الكتاب يدخل بصفر و«لم يُجرد» (uncounted)
+     حتى الجرد الأول. الكتابات المختلفة للدار والتخصص الواحد تُوحّد على أكثرها وروداً،
+     والرمز المكرر يبقى لأول كتاب والباقي بلا باركود مع ملاحظة. قبل أي تغيير: مراجعة،
+     وقائمة بالمتشابه والمكرر تُنزَّل للمكتبة. الكتاب الموجود (بالباركود) يُحدَّث ولا تُمس كميته،
+     ولا يُمسح سعره بصفر من الملف */
+  var OLD_HEAD = {
+    code: ["رقم الصنف"], title: ["اسم الصنف"], publisher: ["الرقم التجاري"], cat: ["الوحدة"],
+    author: ["التصنيف"], price: ["سعر البيع قطاعي"], priceW: ["سعر البيع جملة"], cost: ["التكلفة"]
+  };
+  var OLD_EMPTY = {
+    publisher: ["0", ".", "-", "..", "لا يوجد"], cat: ["قطعة", "0", ".", "-"], author: ["عام", "0", ".", "-", ".."]
+  };
+
+  function oldClean(k, v) {
+    v = String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+    if (OLD_EMPTY[k] && OLD_EMPTY[k].indexOf(v) >= 0) return "";
+    return v;
+  }
+  /* رقم كتبه Excel بصيغة علمية (9.78E+12) يرجع أرقاماً */
+  function oldCode(v) {
+    v = String(v == null ? "" : v).trim();
+    if (/^\d+(\.\d+)?e\+\d+$/i.test(v)) { var n = Number(v); if (isFinite(n)) v = n.toFixed(0); }
+    if (/^\d+\.0+$/.test(v)) v = v.replace(/\.0+$/, "");
+    return v === "0" ? "" : v;
+  }
+  function oldKey(v) { return App.norm(v).replace(/[\s\-_.،,]/g, ""); }
+
+  function oldPlan(rows) {
+    var hr = -1, M = {};
+    for (var r = 0; r < Math.min(rows.length, 6) && hr < 0; r++) {
+      var m = {};
+      (rows[r] || []).forEach(function (h, i) {
+        var n = App.norm(h);
+        Object.keys(OLD_HEAD).forEach(function (k) { if (m[k] === undefined && OLD_HEAD[k].some(function (x) { return App.norm(x) === n; })) m[k] = i; });
+      });
+      if (m.title !== undefined && m.code !== undefined) { hr = r; M = m; }
+    }
+    if (hr < 0) return null;
+    var plan = { ops: [], add: 0, upd: 0, rows: 0, zero: 0, dups: [], pub: [], cat: [], noTitle: 0 };
+    var raw = [];
+    rows.slice(hr + 1).forEach(function (row) {
+      var cell = function (k) { return M[k] === undefined ? "" : row[M[k]]; };
+      var title = String(cell("title") || "").replace(/\s+/g, " ").trim();
+      if (!title) { if (row.some(function (x) { return String(x || "").trim(); })) plan.noTitle++; return; }
+      raw.push({
+        code: oldCode(cell("code")), title: title,
+        publisher: oldClean("publisher", cell("publisher")), cat: oldClean("cat", cell("cat")), author: oldClean("author", cell("author")),
+        price: App.r3(App.num(App.digits(cell("price")))), priceW: App.r3(App.num(App.digits(cell("priceW")))), cost: App.r3(App.num(App.digits(cell("cost"))))
+      });
+    });
+    plan.rows = raw.length;
+
+    /* الكتابة الواحدة لكل دار وتخصص: أكثر صيغة وروداً */
+    function unify(field, out) {
+      var groups = {};
+      raw.forEach(function (x) {
+        var v = x[field];
+        if (!v) return;
+        var g = groups[oldKey(v)] || (groups[oldKey(v)] = { n: 0, forms: {} });
+        g.n++; g.forms[v] = (g.forms[v] || 0) + 1;
+      });
+      var canon = {};
+      Object.keys(groups).forEach(function (key) {
+        var g = groups[key], forms = Object.keys(g.forms).sort(function (a, b) { return g.forms[b] - g.forms[a] || b.length - a.length; });
+        forms.forEach(function (f) { canon[f] = forms[0]; });
+        if (forms.length > 1) out.push({ canon: forms[0], n: g.n, forms: forms.map(function (f) { return { v: f, n: g.forms[f] }; }) });
+      });
+      out.sort(function (a, b) { return b.n - a.n; });
+      raw.forEach(function (x) { if (x[field]) x[field] = canon[x[field]]; });
+      return Object.keys(groups).length;
+    }
+    plan.pubCount = unify("publisher", plan.pub);
+    plan.catCount = unify("cat", plan.cat);
+
+    var byBc = new Map();
+    S().books.forEach(function (b) { var bc = String(b.barcode || "").trim(); if (bc && !byBc.has(bc)) byBc.set(bc, b); });
+    var firstOf = new Map(), dupMap = new Map();
+    raw.forEach(function (x) {
+      var f = { title: x.title, author: x.author, publisher: x.publisher, cat: x.cat, price: x.price, priceW: x.priceW, cost: x.cost };
+      if (!(x.price > 0)) plan.zero++;
+      var ex = null;
+      if (x.code) {
+        if (firstOf.has(x.code)) {
+          var d = dupMap.get(x.code);
+          if (!d) { d = { code: x.code, titles: [firstOf.get(x.code)] }; dupMap.set(x.code, d); plan.dups.push(d); }
+          d.titles.push(x.title);
+          f.note = "رمز مكرر في المنظومة القديمة: " + x.code;
+        } else {
+          firstOf.set(x.code, x.title);
+          f.barcode = x.code;
+          ex = byBc.get(x.code) || null;
+        }
+      }
+      if (ex) plan.upd++; else plan.add++;
+      plan.ops.push({ ex: ex, f: f });
+    });
+    return plan;
+  }
+
+  function oldImport() {
+    App.modal({
+      title: "استيراد الكتب من المنظومة القديمة",
+      body: '<p style="line-height:1.9;margin-top:0">اختر ملف Excel كما يخرج من المنظومة القديمة (أو CSV منه). ' +
+        "تُعرف الأعمدة بأسمائها: رقم الصنف، اسم الصنف، الرقم التجاري، الوحدة، التصنيف، سعر البيع قطاعي وجملة.</p>" +
+        '<p class="muted small" style="line-height:1.8;margin:0">الكميات القديمة لا تُؤخذ: كل كتاب يدخل «لم يُجرد» بكمية صفر حتى الجرد الأول. ' +
+        "قبل أي تغيير تظهر مراجعة بما سيُضاف، والمتشابه من دور النشر والتخصصات، والرموز المكررة.</p>",
+      actions: [{ label: "اختيار الملف", kind: "primary", click: function (close) {
+        App.pickBinary(".xlsx,.csv,text/csv", function (buf, name) {
+          var go = function (rows) {
+            var plan = oldPlan(rows);
+            if (!plan) { App.toast("ما لقيتش عمودي «رقم الصنف» و«اسم الصنف» في الملف.", "bad"); return; }
+            if (!plan.ops.length) { App.toast("ما في الملف حتى كتاب.", "warn"); return; }
+            close();
+            oldReview(plan);
+          };
+          if (/\.xlsx$/i.test(name)) App.readXlsx(buf).then(go, function (e) { App.toast(e.message || "تعذّرت قراءة الملف.", "bad"); });
+          else go(App.parseCsv(new TextDecoder("utf-8").decode(buf)));
+        });
+      } }]
+    });
+  }
+
+  function oldReview(plan) {
+    var row = function (l, v) { return '<tr><td>' + l + '</td><td class="num" style="text-align:end"><b>' + v + "</b></td></tr>"; };
+    var pubMerged = plan.pub.reduce(function (a, g) { return a + g.forms.length - 1; }, 0);
+    var catMerged = plan.cat.reduce(function (a, g) { return a + g.forms.length - 1; }, 0);
+    App.modal({
+      title: "قبل الاستيراد — المراجعة",
+      body: '<table class="tbl" style="width:100%"><tbody>' +
+        row("كتب في الملف", plan.rows.toLocaleString("en")) +
+        row("تُضاف جديدة", plan.add.toLocaleString("en")) +
+        row("موجودة تُحدَّث (بلا مساس بكمياتها)", plan.upd.toLocaleString("en")) +
+        row("بلا سعر بيع (تُسعَّر عند البيع)", plan.zero.toLocaleString("en")) +
+        row("دور النشر بعد التوحيد", plan.pubCount.toLocaleString("en") + (pubMerged ? ' <span class="muted small">(وُحّدت ' + pubMerged + " كتابة)</span>" : "")) +
+        row("التخصصات بعد التوحيد", plan.catCount.toLocaleString("en") + (catMerged ? ' <span class="muted small">(وُحّدت ' + catMerged + " كتابة)</span>" : "")) +
+        row("رموز مكررة", plan.dups.length.toLocaleString("en") + (plan.dups.length ? ' <span class="muted small">(الرمز لأول كتاب، والباقي بلا باركود)</span>' : "")) +
+        "</tbody></table>" +
+        '<p class="muted small" style="line-height:1.8">كل الكتب تدخل «لم يُجرد» بكمية صفر. نزّل قائمة المراجعة (المتشابه والمكرر) وراجعها مع المكتبة قبل الاستيراد.</p>',
+      cancelLabel: "إلغاء",
+      actions: [
+        { label: "نزّل قائمة المراجعة", click: function () { oldReviewCsv(plan); } },
+        { label: "استيراد " + plan.ops.length.toLocaleString("en") + " كتاب", kind: "primary", click: function (close) { close(); oldApply(plan); } }
+      ]
+    });
+  }
+
+  function oldReviewCsv(plan) {
+    var rows = [["القسم", "المعتمد", "الكتابات في الملف (العدد)", "عدد الكتب"]];
+    plan.pub.forEach(function (g) { rows.push(["دار نشر", g.canon, g.forms.map(function (f) { return f.v + " (" + f.n + ")"; }).join(" | "), g.n]); });
+    plan.cat.forEach(function (g) { rows.push(["تخصص", g.canon, g.forms.map(function (f) { return f.v + " (" + f.n + ")"; }).join(" | "), g.n]); });
+    plan.dups.forEach(function (d) { rows.push(["رمز مكرر", d.code, d.titles.join(" | "), d.titles.length]); });
+    App.download("مراجعة-الاستيراد-" + App.today() + ".csv", App.toCsv(rows), "text/csv");
+  }
+
+  function oldApply(plan) {
+    var list = S().books, now = App.nowStamp(), added = [], upd = 0;
+    plan.ops.forEach(function (op) {
+      var o = op.ex, f = op.f;
+      if (o) {
+        ["title", "author", "publisher", "cat"].forEach(function (k) { if (f[k]) o[k] = f[k]; });
+        ["price", "priceW", "cost"].forEach(function (k) { if (f[k] > 0) o[k] = f[k]; });
+        o.updated = now; upd++;
+        return;
+      }
+      o = { id: App.uid(), code: App.nextCode("book"), title: f.title, author: f.author || "", publisher: f.publisher || "", cat: f.cat || "",
+        lib: "", shelf: "", barcode: f.barcode || "", cost: f.cost || 0, price: f.price || 0, priceW: f.priceW || 0, qty: 0, min: 0,
+        uncounted: true, created: now };
+      if (f.note) o.note = f.note;
+      added.push(o);
+    });
+    for (var i = 0; i < added.length; i += 5000) Array.prototype.push.apply(list, added.slice(i, i + 5000));
+    App.log("استيراد من المنظومة القديمة", "أضيف " + added.length + " وحُدّث " + upd + " (بلا كميات، «لم يُجرد»)");
+    App.saveNow(); App.rerender();
+    App.toast("تم الاستيراد: " + added.length.toLocaleString("en") + " كتاب جديد، " + upd + " محدَّث. كلها «لم تُجرد» حتى الجرد الأول.", "ok");
+  }
+
   function importApply(type, plan) {
     var list = App.listOf(type), isB = type === "book";
     plan.ops.forEach(function (op) {
@@ -2540,6 +2724,7 @@ var Inv = (function () {
     purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase, purSetTo: purSetTo,
     purPay: purPay, purPast: purPast, pastImport: pastImport, __pastPlan: pastPlan, __pastApply: pastApply,
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
+    oldImport: oldImport, __oldPlan: oldPlan, __oldApply: oldApply,
     pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint, normRate: normRate,
     newPublisher: newPublisher, newSupplier: newSupplier,
     smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes,

@@ -155,7 +155,7 @@ var Sales = (function () {
     suggest("");
     paint();
     focusScan();
-    if (App.num(it.qty) <= 0) App.toast("تنبيه: «" + App.itemName(it) + "» كميته صفر في المخزون.", "warn");
+    if (App.num(it.qty) <= 0 && !it.uncounted) App.toast("تنبيه: «" + App.itemName(it) + "» كميته صفر في المخزون.", "warn");
     if (App.sellPrice(it, mode) <= 0) App.toast("«" + App.itemName(it) + "» سعره صفر — " +
       (App.isX4 && App.isX4() ? "تكتب سعره عند «إتمام البيع»." : "سيُباع مجاناً إن لم تكتب سعره."), App.isX4 && App.isX4() ? "warn" : "bad");
   }
@@ -506,7 +506,7 @@ var Sales = (function () {
     var short = [];
     cart.forEach(function (l) {
       var it = App.findItem(l.type, l.id);
-      if (it && App.num(l.qty) > App.num(it.qty)) short.push(l.name + " (المتوفر " + App.num(it.qty) + ")");
+      if (it && !it.uncounted && App.num(l.qty) > App.num(it.qty)) short.push(l.name + " (المتوفر " + App.num(it.qty) + ")");
     });
 
     if (short.length) {

@@ -629,6 +629,68 @@ const check = (name, ok, got) => {
     await pg.close();
   }
 
+  /* ------ X4: الاستيراد من المنظومة القديمة (ملفات صغيرة مصنوعة هنا، لا بيانات المكتبة) ------ */
+  console.log('\n[ن] X4: الاستيراد من المنظومة القديمة');
+  {
+    const pg = await fresh();
+    await pg.evaluate(() => document.body.setAttribute('data-edition', 'tripoli'));
+    const csv = '﻿رقم الصنف,اسم الصنف,الرقم التجاري,الوحدة,المكان,العدد الموجود,العدد الصادر,التكلفة,اجمالي التكلفة,سعر البيع جملة,سعر البيع قطاعي,الاسم الانجليزي,التصنيف\n' +
+      '1001,كتاب أ — من الملف,دار الثقافه,قطعة,0,-5,5,0,0,0,0,لا,عام\n' +
+      '2001,كتاب س,دار الثقافة,لغة عربية,1,-3,3,0,0,20,25,لا,مؤلف س\n' +
+      '2002,كتاب ص,دار الثقافة,لغة عربيه,0,0,0,0,0,0,0,لا,0\n' +
+      '2002,كتاب ص مكرر,0,0,0,0,0,0,0,0,30,لا,.\n' +
+      '9.78995993E+12,كتاب بباركود طويل,,,0,7,0,0,0,0,15,لا,مؤلف\n' +
+      ',,,,,,,,,,,,\n';
+    const p = await pg.evaluate(t => { const pl = Inv.__oldPlan(App.parseCsv(t)); window.__pl = pl;
+      return { rows: pl.rows, add: pl.add, upd: pl.upd, zero: pl.zero, pub: pl.pub.map(g => g.canon + ':' + g.forms.length), cat: pl.cat.length, dups: pl.dups.map(d => d.code + ':' + d.titles.length), pc: pl.pubCount }; }, csv);
+    check('المراجعة: 5 كتب، 4 جديدة و1 موجود، 2 بلا سعر', p.rows === 5 && p.add === 4 && p.upd === 1 && p.zero === 2, JSON.stringify(p));
+    check('«دار الثقافه» و«دار الثقافة» دار واحدة (الأكثر وروداً)، و«لغة عربيه» مع «لغة عربية»', JSON.stringify(p.pub) === '["دار الثقافة:2"]' && p.cat === 1 && p.pc === 1, JSON.stringify(p));
+    check('الرمز المكرر في قائمة المراجعة', JSON.stringify(p.dups) === '["2002:2"]', JSON.stringify(p.dups));
+    const n0 = await S(pg, () => App.S.books.length);
+    await pg.evaluate(() => Inv.__oldApply(window.__pl)); await sleep(500);
+    const r = await S(pg, () => {
+      const by = t => App.S.books.find(b => b.title === t);
+      return { n: App.S.books.length, b1: App.S.books.find(b => b.id === 'b1'), s: by('كتاب س'), d: by('كتاب ص مكرر'), l: by('كتاب بباركود طويل'), badge: App.stockBadge(by('كتاب س')), low: App.lowCount() };
+    });
+    check('4 كتب جديدة بكمية صفر و«لم يُجرد»', r.n === n0 + 4 && r.s.qty === 0 && r.s.uncounted === true && r.badge.indexOf('لم يُجرد') >= 0, JSON.stringify(r.s));
+    check('الحقول: دار النشر الموحّدة، التخصص، المؤلف، والسعرين', r.s.publisher === 'دار الثقافة' && r.s.cat === 'لغة عربية' && r.s.author === 'مؤلف س' && r.s.price === 25 && r.s.priceW === 20 && r.s.barcode === '2001', JSON.stringify(r.s));
+    check('الموجود يُحدَّث اسمه، وسعره لا يُمسح بصفر، وكميته كما هي', r.b1.title === 'كتاب أ — من الملف' && r.b1.price === 50 && r.b1.qty === 10 && !r.b1.uncounted, JSON.stringify(r.b1));
+    check('المكرر بلا باركود ومعه ملاحظة', r.d.barcode === '' && /مكرر/.test(r.d.note || ''), JSON.stringify(r.d));
+    check('رقم Excel العلمي يرجع باركود كاملاً', r.l.barcode === '9789959930000', r.l.barcode);
+    check('«لم يُجرد» لا يملأ التنبيهات', r.low === 0, r.low);
+
+    /* ملف xlsx حقيقي: zip بملف مضغوط (deflate) وآخر مخزّن، ونصوص مشتركة، ورموز XML */
+    const zlib = require('zlib');
+    const shared = '<?xml version="1.0" encoding="UTF-8"?><sst xmlns="x"><si><t>رقم الصنف</t></si><si><t>اسم الصنف</t></si><si><t>سعر البيع قطاعي</t></si>' +
+      '<si><r><t>كتاب </t></r><r><t>&amp; قلم</t></r></si><si><t>كتاب &lt;ب&gt;</t></si></sst>';
+    const sheet = '<?xml version="1.0" encoding="UTF-8"?><worksheet><sheetData>' +
+      '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="D1" t="s"><v>2</v></c></row>' +
+      '<row r="2"><c r="A2"><v>3001</v></c><c r="B2" t="s"><v>3</v></c><c r="D2"><v>12.5</v></c></row>' +
+      '<row r="3"><c r="A3"><v>9.789959930996E+12</v></c><c r="B3" t="s"><v>4</v></c><c r="C3" t="inlineStr"><is><t>نص</t></is></c><c r="D3"><v>7</v></c></row>' +
+      '</sheetData></worksheet>';
+    const zip = (files) => {
+      const loc = [], cen = []; let off = 0;
+      for (const [name, data, deflate] of files) {
+        const nb = Buffer.from(name, 'utf8'), raw = Buffer.from(data, 'utf8'), body = deflate ? zlib.deflateRawSync(raw) : raw;
+        const h = Buffer.alloc(30); h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(deflate ? 8 : 0, 8);
+        h.writeUInt32LE(body.length, 18); h.writeUInt32LE(raw.length, 22); h.writeUInt16LE(nb.length, 26);
+        const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(deflate ? 8 : 0, 10);
+        c.writeUInt32LE(body.length, 20); c.writeUInt32LE(raw.length, 24); c.writeUInt16LE(nb.length, 28); c.writeUInt32LE(off, 42);
+        loc.push(h, nb, body); cen.push(c, nb); off += 30 + nb.length + body.length;
+      }
+      const cd = Buffer.concat(cen), e = Buffer.alloc(22);
+      e.writeUInt32LE(0x06054b50, 0); e.writeUInt16LE(files.length, 8); e.writeUInt16LE(files.length, 10); e.writeUInt32LE(cd.length, 12); e.writeUInt32LE(off, 16);
+      return Buffer.concat(loc.concat([cd, e])).toString('base64');
+    };
+    const b64 = zip([['[Content_Types].xml', '<Types/>', false], ['xl/sharedStrings.xml', shared, true], ['xl/worksheets/sheet1.xml', sheet, false]]);
+    const rows = await pg.evaluate(async b => { const bin = atob(b), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return App.readXlsx(u.buffer); }, b64);
+    check('قراءة xlsx: العناوين، النصوص المشتركة والمضغوطة، الخانة الفارغة، والرموز', JSON.stringify(rows) ===
+      JSON.stringify([['رقم الصنف', 'اسم الصنف', '', 'سعر البيع قطاعي'], ['3001', 'كتاب & قلم', '', '12.5'], ['9.789959930996E+12', 'كتاب <ب>', 'نص', '7']]), JSON.stringify(rows));
+    const p2 = await pg.evaluate(rs => { const pl = Inv.__oldPlan(rs); return { n: pl.rows, bc: pl.ops.map(o => o.f.barcode), pr: pl.ops.map(o => o.f.price) }; }, rows);
+    check('ومنها خطة الاستيراد', p2.n === 2 && JSON.stringify(p2.bc) === '["3001","9789959930996"]' && JSON.stringify(p2.pr) === '[12.5,7]', JSON.stringify(p2));
+    await pg.close();
+  }
+
   console.log('\nأخطاء JavaScript:', errs.length ? [...new Set(errs)] : 'لا شيء');
   if (errs.length) fail++;
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));

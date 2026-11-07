@@ -1225,6 +1225,7 @@ var App = (function () {
   }
 
   function stockState(it) {
+    if (it.uncounted) return "ok";          // X4: لم يُجرد بعد — كميته غير معروفة، لا «نفد»
     var q = num(it.qty), m = num(it.min);
     if (q <= 0) return "out";
     if (m > 0 && q <= m) return "low";
@@ -1232,6 +1233,7 @@ var App = (function () {
   }
 
   function stockBadge(it) {
+    if (it.uncounted) return '<span class="badge">لم يُجرد</span>';
     var st = stockState(it);
     if (st === "out") return '<span class="badge bad">نفدت</span>';
     if (st === "low") return '<span class="badge warn">قاربت على النفاد</span>';
@@ -1856,6 +1858,90 @@ var App = (function () {
       try { return new TextDecoder("windows-1256").decode(buf); }
       catch (e2) { return new TextDecoder("utf-8").decode(buf); }
     }
+  }
+
+  /* الملف كما هو (بايتات): ملفات Excel ‏(xlsx) */
+  function pickBinary(accept, cb) {
+    var i = document.createElement("input");
+    i.type = "file"; i.accept = accept;
+    i.onchange = function () {
+      if (!i.files.length) return;
+      var f = i.files[0], fr = new FileReader();
+      fr.onload = function () { cb(fr.result, f.name); };
+      fr.readAsArrayBuffer(f);
+    };
+    i.click();
+  }
+
+  /* ---------- قراءة ملف Excel ‏(xlsx) بلا مكتبات ----------
+     xlsx ملف zip فيه XML: أول ورقة (xl/worksheets/sheet1.xml) ونصوصها المشتركة
+     (xl/sharedStrings.xml). فك الضغط بـ DecompressionStream المدمج في المتصفح.
+     النتيجة صفوف، كل صف مصفوفة خانات نصية بترتيب الأعمدة (A، B، ...)، كـ parseCsv.
+     ملف المنظومة القديمة في طرابلس 61 ألف سطر: لا يُطلب من الموظف تحويله CSV */
+  function readXlsx(buf) {
+    var u8 = new Uint8Array(buf), dv = new DataView(buf);
+    function str(o, n) { var t = ""; for (var i = 0; i < n; i++) t += String.fromCharCode(u8[o + i]); return t; }
+    var eocd = -1;
+    for (var p = u8.length - 22; p >= Math.max(0, u8.length - 70000); p--) if (dv.getUint32(p, true) === 0x06054b50) { eocd = p; break; }
+    if (eocd < 0) return Promise.reject(new Error("ليس ملف Excel ‏(xlsx)."));
+    var count = dv.getUint16(eocd + 10, true), off = dv.getUint32(eocd + 16, true), files = {};
+    for (var k = 0; k < count; k++) {
+      if (dv.getUint32(off, true) !== 0x02014b50) break;
+      var method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true);
+      var nlen = dv.getUint16(off + 28, true), xlen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true);
+      var local = dv.getUint32(off + 42, true), name = decodeText(buf.slice(off + 46, off + 46 + nlen)) || str(off + 46, nlen);
+      files[name] = { method: method, csize: csize, local: local };
+      off += 46 + nlen + xlen + clen;
+    }
+    function read(name) {
+      var e = files[name];
+      if (!e) return Promise.resolve(null);
+      var lo = e.local, start = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true);
+      var data = u8.subarray(start, start + e.csize);
+      if (e.method === 0) return Promise.resolve(new TextDecoder("utf-8").decode(data));
+      if (e.method !== 8 || typeof DecompressionStream === "undefined") return Promise.reject(new Error("ضغط غير مدعوم في الملف."));
+      var stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return new Response(stream).text();
+    }
+    var sheets = Object.keys(files).filter(function (n) { return /^xl\/worksheets\/sheet\d+\.xml$/.test(n); })
+      .sort(function (a, b) { return +a.match(/(\d+)\.xml$/)[1] - +b.match(/(\d+)\.xml$/)[1]; });
+    if (!sheets.length) return Promise.reject(new Error("لا ورقة في الملف."));
+    function unxml(t) {
+      return t.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, function (m, e) {
+        var l = e.toLowerCase();
+        if (l === "amp") return "&"; if (l === "lt") return "<"; if (l === "gt") return ">"; if (l === "quot") return '"'; if (l === "apos") return "'";
+        return String.fromCodePoint(l.charAt(1) === "x" ? parseInt(l.slice(2), 16) : parseInt(l.slice(1), 10));
+      });
+    }
+    function texts(x) {
+      var out = "", re = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g, m;
+      while ((m = re.exec(x))) out += m[1];
+      return unxml(out);
+    }
+    return Promise.all([read("xl/sharedStrings.xml"), read(sheets[0])]).then(function (r) {
+      var shared = [];
+      if (r[0]) { var re = /<si>([\s\S]*?)<\/si>|<si\/>/g, m; while ((m = re.exec(r[0]))) shared.push(m[1] ? texts(m[1]) : ""); }
+      var rows = [], rr = /<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g, rm;
+      while ((rm = rr.exec(r[1]))) {
+        var row = [], cr = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g, cm, auto = 0;
+        while ((cm = cr.exec(rm[1] || ""))) {
+          var at = cm[1], ref = /\br="([A-Z]+)\d+"/.exec(at), col = auto;
+          if (ref) { col = 0; for (var i = 0; i < ref[1].length; i++) col = col * 26 + (ref[1].charCodeAt(i) - 64); col--; }
+          auto = col + 1;
+          var tt = /\bt="([^"]+)"/.exec(at), body = cm[2] || "", v = "";
+          if (tt && tt[1] === "inlineStr") v = texts(body);
+          else {
+            var vm = /<v>([\s\S]*?)<\/v>/.exec(body);
+            v = vm ? unxml(vm[1]) : "";
+            if (tt && tt[1] === "s") v = shared[+v] || "";
+          }
+          while (row.length < col) row.push("");
+          row[col] = v;
+        }
+        rows.push(row);
+      }
+      return rows;
+    });
   }
 
   function pickFile(accept, cb) {
@@ -2638,7 +2724,7 @@ var App = (function () {
     canProfit: canProfit, unlockProfit: unlockProfit, lockProfit: lockProfit,
     paintBranchTag: paintBranchTag, branchLabel: branchLabel, applyUiSize: applyUiSize,
     icon: icon, applyTheme: applyTheme, THEMES: THEMES,
-    download: download, toCsv: toCsv, parseCsv: parseCsv, pickFile: pickFile, xls: xls,
+    download: download, toCsv: toCsv, parseCsv: parseCsv, pickFile: pickFile, pickBinary: pickBinary, readXlsx: readXlsx, xls: xls,
     printHtml: printHtml, printImage: printImage, refreshBadges: refreshBadges, rerenderKeep: rerenderKeep
   };
 })();
