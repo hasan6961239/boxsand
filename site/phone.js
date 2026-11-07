@@ -60,8 +60,9 @@ window.PhoneExt = (function () {
     /* خيارات الإشعار واسم التلفون تُحفظ لحظة تغييرها، بلا زر حفظ */
     document.addEventListener("change", function (e) {
       var t = e.target;
-      if (!t || !t.id || !/^(nf_|sPhone$)/.test(t.id)) return;
+      if (!t || !t.id || !/^(nf_|sPhone$|sBranch$)/.test(t.id)) return;
       saveSettings(); A.save(); onConfig();
+      if (t.id === "sBranch") A.render();
     });
     /* عند العودة من إعدادات التلفون تتحدّث حالة الإذن */
     document.addEventListener("visibilitychange", function () { if (!document.hidden) paintNotifState(); onVisible(); });
@@ -78,10 +79,16 @@ window.PhoneExt = (function () {
   }
 
   /* الفرع الرئيسي: أول لقطة فيها لوحة اليوم (منظومة 2.6 فما فوق) */
-  function main() {
+  /* فرع هذا التلفون: المختار في الإعدادات (أو المبنيّ في التطبيق: config.js)، وإلا أول فرع
+     فيه لوحة اليوم. مهم حين يربط خادمُ الربط مصراتة وطرابلس معاً: البيع والدخول لفرعه */
+  function realBranches() {
     var br = (S().snap && S().snap.branches) || [];
-    var real = br.filter(function (b) { return !A.isPhone(b); });
-    return real.filter(function (b) { return b.dash; })[0] || real[0] || null;
+    return br.filter(function (b) { return !A.isPhone(b); });
+  }
+  function main() {
+    var real = realBranches(), want = S().cfg && S().cfg.branch;
+    var mine = want ? real.filter(function (b) { return b.branch && String(b.branch.id).toLowerCase() === want; })[0] : null;
+    return mine || real.filter(function (b) { return b.dash; })[0] || real[0] || null;
   }
   function cur() { var m = main(); return (m && m.dash && m.dash.cur) || "د.ل"; }
   function localToday() {
@@ -882,7 +889,7 @@ window.PhoneExt = (function () {
       '<p class="sub">بعض التلفونات (شاومي، سامسونج، أوبو…) توقف التطبيقات في الخلفية لتوفير البطارية فتتأخّر الإشعارات. «السماح بالعمل في الخلفية» يمنع ذلك.</p>' : ntfyHtml();
     return '<div class="card"><h2>' + ico("palette", 18) + ' لون التطبيق</h2><p class="sub">نفس ألوان المنظومة على الكمبيوتر. الوضع الليلي من الزر أعلى الشاشة.</p>' +
       '<div class="swatches">' + sw + "</div></div>" +
-      '<div class="card"><h2>هذا التلفون</h2>' +
+      '<div class="card"><h2>هذا التلفون</h2>' + branchPick() +
       '<label class="fld"><span>اسمه في المنظومة (يظهر على فواتيره)</span>' +
       '<input class="inp" id="sPhone" maxlength="40" value="' + esc(s.phone.name || "") + '"></label>' +
       "<h2>الإشعارات</h2>" +
@@ -894,6 +901,18 @@ window.PhoneExt = (function () {
       chk("sync", "المنظومة توقّفت عن التحديث", "لم يصل خبر من الكمبيوتر منذ 3 ساعات") +
       nfBtns + "</div>";
   }
+  /* فرع التلفون: يظهر حين يكون في خادم الربط أكثر من فرع بمنظومة */
+  function branchPick() {
+    var real = realBranches().filter(function (b) { return b.dash && b.branch; });
+    if (real.length < 2) return "";
+    var cur = main(), id = cur && cur.branch ? String(cur.branch.id).toLowerCase() : "";
+    return '<label class="fld"><span>فرع هذا التلفون (بيعه وتعديلاته ودخول موظفيه)</span><select class="inp" id="sBranch">' +
+      real.map(function (b) {
+        var v = String(b.branch.id).toLowerCase();
+        return '<option value="' + esc(v) + '"' + (v === id ? " selected" : "") + ">" + esc(b.branch.name || v) + "</option>";
+      }).join("") + "</select></label>";
+  }
+
   /* الآيفون لا يسمح لتطبيق من المتصفح أن يفحص وهو مغلق. إشعارات
      المنظومة نفسها (ntfy) تصله من تطبيق ntfy المجاني — بلا أي تغيير. */
   function ntfyHtml() {
@@ -907,6 +926,8 @@ window.PhoneExt = (function () {
   function saveSettings() {
     var s = S(), p = el("sPhone");
     if (p) s.phone.name = p.value.trim().slice(0, 40) || "تلفون";
+    var bsel = el("sBranch");
+    if (bsel && bsel.value !== s.cfg.branch) { s.cfg.branch = bsel.value; me = null; lockPick = ""; }
     ["stock", "restock", "daily", "sync"].forEach(function (k) {
       var c = el("nf_" + k);
       if (c) s.notif[k] = !!c.checked;
@@ -920,7 +941,7 @@ window.PhoneExt = (function () {
     var s = S();
     try {
       window.AndroidApp.setConfig(JSON.stringify({
-        url: s.cfg.url || "", key: s.cfg.key || "", notif: s.notif, phone: s.phone.id
+        url: s.cfg.url || "", key: s.cfg.key || "", notif: s.notif, phone: s.phone.id, branch: s.cfg.branch || ""
       }));
     } catch (e) { }
   }

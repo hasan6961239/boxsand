@@ -38,7 +38,7 @@ var UI = (function () {
 
   function blank() {
     return {
-      cfg: { url: "", key: "" },
+      cfg: { url: "", key: "", branch: "" },
       snap: null,                 // { at, branches: [] }
       q: "", filter: "", shown: PAGE, screen: "home",
       theme: "auto",              // auto | light | dark
@@ -55,6 +55,7 @@ var UI = (function () {
       d.cfg = (d.cfg && typeof d.cfg === "object") ? d.cfg : b.cfg;
       if (typeof d.cfg.url !== "string") d.cfg.url = "";
       if (typeof d.cfg.key !== "string") d.cfg.key = "";
+      if (typeof d.cfg.branch !== "string") d.cfg.branch = "";
       d.q = ""; d.filter = ""; d.shown = PAGE; d.screen = "home";
       if (["auto", "light", "dark"].indexOf(d.theme) < 0) d.theme = "auto";
       if (["name", "qty", "value", "price"].indexOf(d.sort) < 0) d.sort = "name";
@@ -745,7 +746,8 @@ var UI = (function () {
   function paintHead() {
     var pls = places();
     var nameEl = el("shopName"), fresh = el("freshLine");
-    var main = pls.filter(function (p) { return p.kind === "branch"; })[0];
+    var brs = pls.filter(function (p) { return p.kind === "branch"; });
+    var main = brs.filter(function (p) { return S.cfg.branch && p.key === "b:" + S.cfg.branch; })[0] || brs[0];
     if (nameEl) nameEl.textContent = (main && main.name) || "مخزون المكتبة";
 
     if (!fresh) return;
@@ -1634,6 +1636,7 @@ var UI = (function () {
       try { v = decodeURIComponent(v.replace(/\+/g, " ")); } catch (e) { }
       if (k === "u" || k === "url") { got.url = v; any = true; }
       if (k === "k" || k === "key") { got.key = v; any = true; }
+      if (k === "b" || k === "branch") { got.branch = v; any = true; }
     });
     return any ? got : null;
   }
@@ -1647,6 +1650,7 @@ var UI = (function () {
       S.cfg.url = u;
     }
     if (got.key !== undefined) S.cfg.key = got.key.trim();
+    if (got.branch !== undefined) S.cfg.branch = got.branch.trim().toLowerCase();
     save();
     /* امسح الجزء الحسّاس من شريط العنوان بلا إعادة تحميل */
     try {
@@ -1695,6 +1699,9 @@ var UI = (function () {
        والمحفوظ يغلب المدمج (فلا يُلغى ما ضبطه صاحب الجهاز بيده). */
     var viaHash = fromHash();
     if (!viaHash && !configured()) { if (fromConfig()) save(); }
+    /* فرع هذا التطبيق من config.js (تطبيق طرابلس مبنيّ عليه) ما لم يُختر غيره */
+    var cb = window.MAKTABA_CONFIG && String(window.MAKTABA_CONFIG.branch || "").trim().toLowerCase();
+    if (cb && !S.cfg.branch) { S.cfg.branch = cb; save(); }
 
     document.addEventListener("click", onTap);
 

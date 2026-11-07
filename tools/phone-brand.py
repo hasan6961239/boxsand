@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""phone-brand.py <logo> <android-res-dir> <site-dir> <name> [short-name]
+"""phone-brand.py <logo> <android-res-dir> <site-dir> <name> [short-name] [branch]
 
 يعطي تطبيق الهاتف اسم المكتبة وشعارها في نسخة مؤقتة يُبنى منها (لا في المستودع:
 الشعار لا يُرفع إلى GitHub). أيقونات أندرويد بكل المقاسات (العادية والمتكيّفة على خلفية
 بيضاء)، وأيقونات الموقع للآيفون (icon-180/192/512 وmaskable)، والاسم في strings.xml
-وmanifest.json وindex.html.
+وmanifest.json وindex.html. branch (tripoli مثلاً) يُكتب في config.js: فرع هذا التطبيق
+حين يربط خادمُ الربط أكثر من فرع.
 """
 import json, re, sys
 from pathlib import Path
 from PIL import Image, ImageDraw
 
 logo_path, res, site, name = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4]
-short = sys.argv[5] if len(sys.argv) > 5 else name
+short = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else name
+branch = sys.argv[6] if len(sys.argv) > 6 else ""
 logo = Image.open(logo_path).convert("RGBA")
 
 def square(img):
@@ -73,5 +75,17 @@ ix = site / "index.html"
 t = ix.read_text(encoding="utf-8")
 t = re.sub(r'(<meta name="apple-mobile-web-app-title" content=")[^"]*(">)', lambda mm: mm.group(1) + short + mm.group(2), t)
 t = re.sub(r"<title>[^<]*</title>", "<title>" + name + "</title>", t)
+# الشاشة الأولى (قبل الربط): الشعار والاسم بدل الرسم العام، وأين بيانات الربط في 4.0
+on_white(256, 0.9, round_=True).save(site / "logo.png")
+t, n1 = re.subn(r'<svg viewBox="0 0 120 120" class="gate-mark">.*?</svg>', '<img class="gate-logo" src="logo.png" alt="">', t, count=1, flags=re.S)
+t, n2 = re.subn(r'(<div class="gate-box">\s*<h1>)[^<]*(</h1>)', lambda mm: mm.group(1) + name + mm.group(2), t, count=1)
+t = t.replace("<b>المخزون والفروع ← إعدادات الربط</b>", "<b>الإعدادات ← الأجهزة والفروع</b>")
+assert n1 == 1 and n2 == 1, "index.html: gate"
 ix.write_text(t, encoding="utf-8")
-print("brand:", name, "/", short)
+if branch:
+    cf = site / "config.js"
+    t = cf.read_text(encoding="utf-8")
+    t, n = re.subn(r'branch:\s*""', 'branch: "' + re.sub(r"[^a-z0-9_-]", "", branch.lower()) + '"', t)
+    assert n == 1, "config.js: branch"
+    cf.write_text(t, encoding="utf-8")
+print("brand:", name, "/", short, ("/ branch " + branch) if branch else "")

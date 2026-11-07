@@ -1,5 +1,6 @@
 #!/bin/bash
 # build-phone-app.sh <out.apk> [logo] [app name] [short name] [id suffix]
+#   (id suffix هو رمز الفرع أيضاً: يُكتب في config.js فيبيع التطبيق ويُدخل موظفي ذلك الفرع)
 #
 # يبني تطبيق أندرويد (مجلدا android وsite) في نسخة مؤقتة، فلا يتغيّر شيء في المستودع.
 # مع الشعار والاسم: التطبيق باسم المكتبة وأيقونتها، مثلاً لفرع طرابلس:
@@ -21,7 +22,7 @@ rm -rf "$TMP/android/app/build" "$TMP/android/.gradle"
 echo "sdk.dir=$ANDROID_HOME" > "$TMP/android/local.properties"
 if [ -n "${PHONE_KEYSTORE:-}" ]; then cp "$PHONE_KEYSTORE" "$TMP/android/keystore.properties"; fi
 if [ -n "$LOGO" ]; then
-  python3 "$ROOT/tools/phone-brand.py" "$LOGO" "$TMP/android/app/src/main/res" "$TMP/site" "${NAME:-مخزون المكتبة}" "$SHORT"
+  python3 "$ROOT/tools/phone-brand.py" "$LOGO" "$TMP/android/app/src/main/res" "$TMP/site" "${NAME:-مخزون المكتبة}" "$SHORT" "$SUFFIX"
 fi
 if [ -n "$SUFFIX" ]; then
   sed -i "s/applicationId \"ly.maktaba.stock\"/applicationId \"ly.maktaba.stock.$SUFFIX\"/" "$TMP/android/app/build.gradle"

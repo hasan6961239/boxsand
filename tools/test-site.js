@@ -815,6 +815,38 @@ const srv = http.createServer((q,s)=>{
     br0.items = keepItems;
   }
 
+  // 30) فرعان على خادم ربط واحد (مصراتة وطرابلس): تلفون طرابلس لفرعه هو
+  {
+    const crypto = require('crypto');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const tb = PAYLOAD.branches[1], keepT = JSON.stringify(tb);
+    tb.dash = JSON.parse(JSON.stringify(PAYLOAD.branches[0].dash)); tb.cust = []; tb.acks = {}; tb.phoneSell = true; tb.at = ago(3);
+    tb.staff = { staff: [{ id: 't1', n: 'موظف طرابلس', r: 'r-admin', s: salt, h: crypto.pbkdf2Sync('5555', Buffer.from(salt, 'hex'), 60000, 32, 'sha256').toString('hex') }], roles: [{ id: 'r-admin', n: 'مدير', admin: 1 }] };
+    tb.shop = { name: 'دار الحكمة — طرابلس', libs: ['A'] };
+    const cx = await b.newContext({ viewport: { width: 390, height: 844 } });
+    const tp = await cx.newPage();
+    tp.on('pageerror', e => errs.push('BR PAGEERROR: ' + e.message));
+    await tp.addInitScript(() => { window.AndroidApp = { scan() {}, version() { return '1.4'; }, setConfig() {}, bioAvailable() { return 'no'; } }; });
+    await tp.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr'); await tp.waitForTimeout(1500);
+    ok('بلا اختيار: أول فرع (مصراتة، بلا موظفين) — لا قفل', !(await tp.$('#phLock')) && /دار الحكمة/.test(await tp.textContent('#shopName')));
+    await tp.evaluate(() => UI.go('settings')); await tp.waitForTimeout(500);
+    ok('والإعدادات فيها «فرع هذا التلفون» بالفرعين', (await tp.$$eval('#sBranch option', e => e.length)) === 2);
+    await tp.selectOption('#sBranch', 'tripoli'); await tp.waitForTimeout(700);
+    ok('اختيار طرابلس: شاشة دخول موظفي طرابلس', await tp.isVisible('#phLock') && /موظف طرابلس/.test(await tp.textContent('#phLock')));
+    await tp.close();
+    const tp2 = await cx.newPage();
+    await tp2.addInitScript(() => { localStorage.clear(); window.AndroidApp = { scan() {}, version() { return '1.4'; }, setConfig() {}, bioAvailable() { return 'no'; } }; });
+    await tp2.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr&b=tripoli'); await tp2.waitForTimeout(1500);
+    await tp2.fill('#phPw', '5555'); await tp2.press('#phPw', 'Enter'); await tp2.waitForTimeout(1200);
+    await tp2.evaluate(() => { UI.closeSheet(); UI.go('sell'); UI.onScan('9789991234567'); }); await tp2.waitForTimeout(400);
+    const n0 = PUTS.length;
+    await tp2.click('button[data-act="checkout"]'); await tp2.waitForTimeout(1200);
+    const o = PUTS.slice(n0).map(x => x.orders || []).flat().pop();
+    ok('رابط التهيئة بـ b=tripoli: البيع يذهب لطرابلس باسم موظفها، والرأس باسم طرابلس', o && o.to === 'tripoli' && o.by === 't1' && /طرابلس/.test(await tp2.textContent('#shopName')), JSON.stringify(o && { to: o.to, by: o.by }));
+    await cx.close();
+    PAYLOAD.branches[1] = JSON.parse(keepT);
+  }
+
   const plainCam = await pg.$('#qcam');
   ok('في المتصفح العادي لا زر كاميرا', !plainCam);
 
