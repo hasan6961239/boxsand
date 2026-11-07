@@ -133,6 +133,34 @@ var Staff = (function () {
     return o;
   }
 
+  /* ---------- تطبيق الهاتف ----------
+     من يدخل من التلفون يدخل باسمه وكلمة سره نفسها: تذهب في لقطة الربط
+     البصمة والملح والدور فقط (لا كلمة سر)، والتلفون يتحقق منها بنفسه بلا إنترنت.
+     وهنا، عند وصول فاتورة أو تعديل من التلفون، تُراجع صلاحية صاحبه من جديد */
+  function phoneList() {
+    if (!on()) return null;
+    return {
+      staff: list().map(function (p) {
+        return { id: p.id, n: p.name, u: p.user || "", r: p.role, s: p.salt, h: p.hash, off: p.active === false ? 1 : undefined };
+      }),
+      roles: roles().map(function (r) {
+        return { id: r.id, n: r.name, admin: r.admin ? 1 : undefined, perms: r.admin ? undefined : (r.perms || []).slice() };
+      })
+    };
+  }
+  function canId(id, perm) {
+    var p = person(id);
+    if (Array.isArray(perm)) return perm.some(function (x) { return canOf(p, x); });
+    return canOf(p, perm);
+  }
+  /* حركة جاءت من التلفون: باسم موظف التلفون وجهازه، لا باسم من على الكمبيوتر */
+  function stampAs(o, id, device) {
+    var p = person(id);
+    if (p) { o.by = p.id; o.byName = p.name; }
+    if (device) o.dev = String(device).slice(0, 60);
+    return o;
+  }
+
   /* ---------- الدخول والقفل ---------- */
 
   function boot() {
@@ -658,6 +686,7 @@ var Staff = (function () {
     page: page, setup: setup, edit: edit, resetPw: resetPw, toggle: toggle, editRole: editRole, setLock: setLock,
     logsPage: logsPage, setLF: setLF, exportLogs: exportLogs,
     devicesPage: devicesPage, saveDevName: saveDevName,
+    phoneList: phoneList, canId: canId, stampAs: stampAs,
     PERMS: PERMS, ROLES0: ROLES0,
     __enter: function (id) { var p = person(id); if (p) enter(p); }, __hash: hashPw
   };

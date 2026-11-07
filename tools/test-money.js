@@ -840,6 +840,53 @@ const check = (name, ok, got) => {
     await pg.close();
   }
 
+  /* ------ X4: ما يأتي من تطبيق الهاتف باسم الموظف وصلاحيته ------ */
+  console.log('\n[ص] X4: بيع وتعديل من الهاتف باسم الموظف وصلاحيته');
+  {
+    const pg = await fresh(d => {
+      d.books.push({ id: 'z1', code: 'K51', title: 'كتاب بلا سعر', barcode: '5101', price: 0, qty: 4 });
+      d.books.push({ id: 'u9', code: 'K52', title: 'كتاب لم يُجرد', barcode: '5102', price: 12, qty: 0, uncounted: true });
+      d.meta.libraries = ['A', 'B', 'C'];
+    });
+    await pg.evaluate(async () => {
+      document.body.setAttribute('data-edition', 'tripoli');
+      const mk = async (id, name, role, pw) => { const salt = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'; return { id, name, user: '', role, active: true, salt, hash: await Staff.__hash(pw, salt) }; };
+      App.S.staff = [await mk('s1', 'المدير حسن', 'r-admin', '9876'), await mk('s2', 'سالم', 'r-cashier', '1111')];
+      App.S.roles = JSON.parse(JSON.stringify(Staff.ROLES0));
+      App.S.meta.staffOn = true; App.S.meta.logo = 'data:image/png;base64,AAAA';
+      Staff.__enter('s1'); App.rebuildNav();
+    }); await sleep(300);
+    const sn = await S(pg, () => { const x = Stock.snapshot(); return { st: x.staff, shop: x.shop, raw: JSON.stringify(x) }; });
+    check('لقطة الربط: الموظفون بالبصمة والملح والدور فقط، واسم المكتبة وشعارها وخزائنها',
+      sn.st && sn.st.staff.length === 2 && sn.st.staff[1].h.length === 64 && sn.st.staff[1].r === 'r-cashier' && sn.raw.indexOf('1111') < 0 &&
+      sn.st.roles.some(r => r.id === 'r-cashier' && r.perms.includes('sell')) && sn.shop.name === 'اختبار' && sn.shop.logo && sn.shop.libs.join() === 'A,B,C', JSON.stringify(sn.st && sn.st.staff[1]).slice(0, 120));
+    const today = await S(pg, () => App.today());
+    const order = (id, items, by) => ({ id, date: today, at: today + ' 10:00', items, method: 'cash', disc: 0, paid: 0, by, byName: by === 's2' ? 'سالم' : '' });
+    const n = await pg.evaluate(o => Stock.takePhoneOrders([{ kind: 'phone', branch: { id: 'phone-abc', name: 'تلفون المعرض' }, orders: o }]), [
+      order('o1', [{ b: '1001', n: 'كتاب أ', q: 1, p: 50 }], 's2'),
+      order('o2', [{ b: '1002', n: 'كتاب ب', q: 1, p: 20 }], ''),
+      order('o3', [{ b: '5101', n: 'كتاب بلا سعر', q: 2, p: 15, zp: 1 }], 's2')
+    ]);
+    const inv = await S(pg, () => App.S.invoices.map(v => ({ no: v.no, by: v.byName, dev: v.dev, t: v.total, ph: v.phoneId })));
+    check('فاتورة الهاتف باسم موظف الهاتف وجهازه، لا باسم من على الكمبيوتر', n === 2 && inv.some(v => v.ph === 'o1' && v.by === 'سالم' && v.dev === 'تلفون المعرض'), JSON.stringify(inv));
+    check('طلب بلا اسم موظف (والموظفون مفعّلون) لا يُسجَّل', !inv.some(v => v.ph === 'o2') && await S(pg, () => App.S.phoneDone.o2 === 0 && App.S.log.some(l => /بلا اسم موظف/.test(l.detail))));
+    const z1 = await S(pg, () => App.S.books.find(b => b.id === 'z1'));
+    check('الكتاب الصفري سعّره الكاشير في الهاتف: سعره صار 15، والفاتورة 30', z1.price === 15 && z1.qty === 2 && inv.some(v => v.ph === 'o3' && v.t === 30), JSON.stringify({ p: z1.price, q: z1.qty }));
+    const lgS = await S(pg, () => App.S.log.filter(l => /بيع من التلفون|تسعير عند البيع/.test(l.action)).map(l => l.byName + '|' + l.dev));
+    check('وسطور السجل باسم سالم والهاتف', lgS.length >= 3 && lgS.filter(x => x === 'سالم|تلفون المعرض').length >= 2, JSON.stringify(lgS));
+
+    await pg.evaluate(() => Stock.takePhoneEdits([{ kind: 'phone', branch: { id: 'phone-abc', name: 'تلفون المعرض' }, edits: [
+      { id: 'e1', b: '1001', set: { p: 99 }, by: 's2' },
+      { id: 'e2', b: '5102', set: { l: 'B', s: '3', qd: 2, cnt: 1 }, by: 's1' },
+      { id: 'e3', b: '1002', set: { l: 'C', s: '1', p: 77 }, by: 's2' }
+    ] }])); await sleep(200);
+    const ed = await S(pg, () => ({ b1: App.S.books.find(b => b.id === 'b1'), u9: App.S.books.find(b => b.id === 'u9'), b2: App.S.books.find(b => b.id === 'b2'), done: App.S.phoneDone }));
+    check('الكاشير عدّل السعر من الهاتف: لا يُطبَّق (ليس من صلاحياته)', ed.b1.price === 50 && ed.done.e1 === 0, JSON.stringify({ p: ed.b1.price, d: ed.done.e1 }));
+    check('المدير سجّل المكان وجرد من الهاتف: B رف 3، والكمية 2، ولم يعد «لم يُجرد»', ed.u9.lib === 'B' && ed.u9.shelf === '3' && ed.u9.qty === 2 && !ed.u9.uncounted && ed.done.e2 === 1, JSON.stringify(ed.u9));
+    check('تعديل فيه سعر ومكان من الكاشير: لا يُطبَّق أي منهما (الكاشير لا يسجّل الأماكن)', ed.b2.lib === 'A' && ed.b2.price === 20 && ed.done.e3 === 0, JSON.stringify({ l: ed.b2.lib, p: ed.b2.price }));
+    await pg.close();
+  }
+
   console.log('\nأخطاء JavaScript:', errs.length ? [...new Set(errs)] : 'لا شيء');
   if (errs.length) fail++;
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));

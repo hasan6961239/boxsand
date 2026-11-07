@@ -68,8 +68,26 @@ var Stock = (function () {
         return { id: c.id, n: c.name || "", ph: c.phone || "", b: App.r3(App.num(c.balance)) };
       }),
       acks: phoneAcks(),
-      phoneSell: S().meta.phoneSales !== false
+      phoneSell: S().meta.phoneSales !== false,
+      /* طرابلس: دخول الموظفين في التلفون (بصمات كلمات السر فقط)، واسم المكتبة وشعارها */
+      staff: phoneStaff(),
+      shop: phoneShop()
     };
+  }
+
+  function phoneStaff() {
+    return (typeof Staff !== "undefined" && Staff.phoneList) ? (Staff.phoneList() || undefined) : undefined;
+  }
+  function phoneShop() {
+    if (!(App.isX4 && App.isX4())) return undefined;
+    return { name: S().meta.shopName || "", logo: S().meta.logo || undefined, libs: (S().meta.libraries || []).slice() };
+  }
+
+  /* الموظفون مفعّلون: كل ما يأتي من التلفون يحمل صاحبه، وصلاحيته تُراجع هنا */
+  function staffGate() { return typeof Staff !== "undefined" && Staff.on && Staff.on(); }
+  function phoneLog(by, device) {
+    var e = S().log[0];
+    if (e && typeof Staff !== "undefined" && Staff.stampAs) Staff.stampAs(e, by, device);
   }
 
   /* مجاميع المبيعات: اليوم، آخر 35 يوماً، وآخر الفواتير — بلا ربح ولا تكلفة */
@@ -123,7 +141,14 @@ var Stock = (function () {
       snap.orders.forEach(function (o) {
         if (!o || !o.id || done[o.id]) return;
         if (o.to && o.to !== S().branch.id) return;      // لفرع آخر: هو يسجّلها لا نحن
-        var inv = Sales.applyPhoneOrder(o, (snap.branch && snap.branch.name) || "التلفون");
+        var dev = (snap.branch && snap.branch.name) || "التلفون";
+        if (staffGate() && !Staff.canId(o.by, "sell")) {
+          done[o.id] = 0;
+          App.log("بيع من التلفون", "طلب " + o.id + " لم يُسجَّل: " + (o.by ? "الموظف لا يملك صلاحية البيع أو موقوف" : "بلا اسم موظف") + " — " + dev);
+          phoneLog(o.by, dev);
+          return;
+        }
+        var inv = Sales.applyPhoneOrder(o, dev);
         done[o.id] = inv ? inv.no : 0;          // 0 = لم يُسجَّل (أصناف غير موجودة)
         if (inv) { n++; made.push(inv.no); }
       });
@@ -166,6 +191,24 @@ var Stock = (function () {
     });
     if (!hit) return false;
     var it = hit.it, isB = hit.type === "book", f = e.set || {}, what = [];
+    /* الموظفون مفعّلون: كل حقل بصلاحيته — الاسم والمؤلف (items)، السعر (price)،
+       حد التنبيه (goods)، الكمية (count أو goods)، المكان (items أو count) */
+    if (staffGate()) {
+      var ok = function (p) { return Staff.canId(e.by, p); }, g = {};
+      if (f.n !== undefined && ok("items")) g.n = f.n;
+      if (f.a !== undefined && ok("items")) g.a = f.a;
+      if (f.p !== undefined && ok("price")) g.p = f.p;
+      if (f.m !== undefined && ok(["goods", "items"])) g.m = f.m;
+      if (f.qd !== undefined && ok(["count", "goods"])) g.qd = f.qd;
+      ["l", "s", "loc"].forEach(function (k) { if (f[k] !== undefined && ok(["items", "count"])) g[k] = f[k]; });
+      if (f.cnt && g.qd !== undefined) g.cnt = 1;
+      if (!Object.keys(g).length) {
+        App.log("تعديل من التلفون", App.itemName(it) + ": لم يُطبَّق — ليس من صلاحيات الموظف — " + device);
+        phoneLog(e.by, device);
+        return false;
+      }
+      f = g;
+    }
     function txt(v) { return String(v == null ? "" : v).trim().slice(0, 300); }
     if (f.n !== undefined && txt(f.n)) { if (isB) it.title = txt(f.n); else it.name = txt(f.n); what.push("الاسم"); }
     if (f.a !== undefined) { if (isB) it.author = txt(f.a); else it.brand = txt(f.a); what.push(isB ? "المؤلف" : "الماركة"); }
@@ -178,8 +221,11 @@ var Stock = (function () {
       it.qty = Math.max(App.num(it.qty) + App.num(f.qd), 0);
       what.push("الكمية " + (App.num(f.qd) > 0 ? "+" : "") + App.num(f.qd));
     }
+    /* جرد من التلفون (تسجيل الأماكن مع عدّ النسخ): الكتاب صار مجروداً */
+    if (f.cnt && it.uncounted) { delete it.uncounted; what.push("جُرد"); }
     it.updated = App.nowStamp();
     App.log("تعديل من التلفون", App.itemName(it) + ": " + what.join("، ") + " — " + device);
+    if (staffGate()) phoneLog(e.by, device);
     return true;
   }
 

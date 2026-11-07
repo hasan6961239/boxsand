@@ -1124,3 +1124,57 @@ body.scanning{overflow:hidden}
 /* الخانة تغطّي الزر نفسه: اللمسة تقع عليها مباشرة فيفتح الآيفون كاميرته */
 .sc-file{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0}
 @media (prefers-reduced-motion:reduce){.sc-line{animation:none}.scanner{animation:none}}
+
+/* ============================================================
+   طرابلس (X4): الدخول بالموظف، الشعار، تسجيل الأماكن، الإيصال
+   ============================================================ */
+.ph-lock{position:fixed;inset:0;z-index:300;overflow:auto;display:grid;place-items:center;
+  padding:calc(24px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));
+  background:radial-gradient(900px 480px at 50% -10%, var(--green-wash) 0%, transparent 65%), var(--paper)}
+.pl-box{width:100%;max-width:420px}
+.pl-brand{text-align:center;margin-bottom:22px}
+.pl-brand b{display:block;font-size:20px;font-weight:800;margin-top:10px}
+.pl-brand span{display:block;color:var(--muted);font-size:14.5px;margin-top:2px}
+.pl-logo{width:92px;height:92px;object-fit:contain;border-radius:50%;background:#fff;box-shadow:var(--sh-2);display:inline-block}
+.pl-logo.none{display:inline-grid;place-items:center;color:var(--green)}
+.pl-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.pl-tile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 10px;cursor:pointer;
+  font:inherit;color:inherit;display:flex;flex-direction:column;align-items:center;gap:4px;box-shadow:var(--sh-1)}
+.pl-tile:active{transform:scale(.97)}
+.pl-tile i{font-style:normal;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;
+  background:var(--green);color:#fff;font-size:19px;font-weight:800}
+.pl-tile b{font-size:15px}
+.pl-tile span{font-size:12.5px;color:var(--muted)}
+.pl-form{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--sh-1)}
+.pl-foot{text-align:center;color:var(--faint);font-size:12.5px;margin-top:14px}
+.brand-logo{width:30px;height:30px;border-radius:50%;object-fit:contain;background:#fff;flex-shrink:0}
+.brand-mark.gone{display:none}
+.ph-who{display:grid;place-items:center;background:rgba(255,255,255,.14);border:0;color:#fff;font:inherit;
+  border-radius:99px;padding:4px;cursor:pointer;flex-shrink:0}
+.ph-who i{font-style:normal;width:24px;height:24px;border-radius:50%;background:#fff;color:var(--green);display:grid;place-items:center;font-weight:800}
+.loc-pick .chk{margin:6px 0 12px}
+.loc-pick .sell-search{margin-top:12px}
+.loc-head{display:flex;justify-content:space-between;align-items:baseline;margin:14px 2px 8px}
+.loc-head span{color:var(--muted);font-size:13px}
+.done-pop.ask{pointer-events:auto;background:rgba(18,33,43,.28)}
+.done-pop .dp-acts{display:flex;gap:8px;margin-top:16px}
+.done-pop .dp-acts .btn{flex:1;min-height:44px;font-size:13.5px;white-space:nowrap;padding-inline:12px}
+.done-pop .dp-acts .btn:not(.primary){background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);color:#fff}
+#phPrint{display:none}
+.rc{width:72mm;margin:0 auto;color:#000;background:#fff;font-size:12px;line-height:1.5;padding:2mm 0}
+.rc-logo{display:block;width:22mm;height:22mm;object-fit:contain;margin:0 auto 1mm}
+.rc-shop{text-align:center;font-weight:800;font-size:14px}
+.rc-meta{text-align:center;font-size:11px;margin:1mm 0 2mm}
+.rc table{width:100%;border-collapse:collapse;font-size:11.5px}
+.rc th{border-bottom:1px solid #000;text-align:start;padding:1mm 0}
+.rc td{padding:1mm 0;border-bottom:1px dashed #999;vertical-align:top}
+.rc .n{text-align:end;white-space:nowrap;padding-inline-start:2mm}
+.rc-row{display:flex;justify-content:space-between;margin-top:1.5mm}
+.rc-row.big{font-size:15px;font-weight:800;border-top:1px solid #000;padding-top:1mm}
+.rc-foot{text-align:center;margin-top:3mm;font-size:11px}
+body.rc-print{background:#fff;margin:0}
+@media print{
+  body.printing-rc > *:not(#phPrint){display:none !important}
+  body.printing-rc #phPrint{display:block}
+  @page{size:80mm auto;margin:0}
+}

@@ -39,7 +39,10 @@ window.PhoneExt = (function () {
       phone2: "M8 3h8a1 1 0 011 1v16a1 1 0 01-1 1H8a1 1 0 01-1-1V4a1 1 0 011-1zm3 15h2",
       zzz: "M4 6h6l-6 7h6M14 11h6l-6 8h6",
       edit: "M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z",
-      palette: "M12 21a9 9 0 110-18c5 0 9 3.6 9 8 0 2.5-2 4-4.5 4H15a2 2 0 00-1.4 3.4A1.9 1.9 0 0112 21zM7.5 11h.01M10 7.5h.01M14.5 7.5h.01"
+      palette: "M12 21a9 9 0 110-18c5 0 9 3.6 9 8 0 2.5-2 4-4.5 4H15a2 2 0 00-1.4 3.4A1.9 1.9 0 0112 21zM7.5 11h.01M10 7.5h.01M14.5 7.5h.01",
+      lock: "M6 11h12v10H6V11zm2 0V8a4 4 0 118 0v3m-4 4v2",
+      pin: "M12 21s-6-5.6-6-11a6 6 0 1112 0c0 5.4-6 11-6 11zm0-8.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z",
+      print: "M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7v-7z"
     });
     var s = S();
     if (!Array.isArray(s.orders)) s.orders = [];
@@ -61,7 +64,7 @@ window.PhoneExt = (function () {
       saveSettings(); A.save(); onConfig();
     });
     /* عند العودة من إعدادات التلفون تتحدّث حالة الإذن */
-    document.addEventListener("visibilitychange", function () { if (!document.hidden) paintNotifState(); });
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) paintNotifState(); onVisible(); });
     setTimeout(function () { onConfig(); if (hasPending()) push(); }, 300);
   }
 
@@ -96,11 +99,11 @@ window.PhoneExt = (function () {
   /* ---------- الشريط السفلي ---------- */
   function tabs() {
     var t = [{ k: "dash", t: "اليوم", i: "chart" }, { k: "home", t: "المخزون", i: "box" }];
-    if (inApp) t.push({ k: "sell", t: "بيع", i: "cart", hero: true });
+    if (inApp && canP("sell")) t.push({ k: "sell", t: "بيع", i: "cart", hero: true });
     t.push({ k: "room", t: "الخزين", i: "door" }, { k: "more", t: "المزيد", i: "grid" });
     return t;
   }
-  var UNDER_MORE = { browse: 1, stats: 1, settings: 1, debts: 1, alerts: 1, orders: 1 };
+  var UNDER_MORE = { browse: 1, stats: 1, settings: 1, debts: 1, alerts: 1, orders: 1, loc: 1 };
   function tabOf(k) { return UNDER_MORE[k] ? "more" : k; }
 
   /* ============================================================
@@ -229,16 +232,17 @@ window.PhoneExt = (function () {
     ((m && m.cust) || []).forEach(function (c) { if (c.b > 0) { debt += c.b; nDebt++; } });
     var al = alertsData();
     var nAl = al.out.length + al.low.length + al.dry.length;
-    var tiles = [
-      { a: "browse", i: "shelf", t: "الرفوف", s: "تصفّح المكتبات والرفوف" },
-      { a: "debts", i: "users", t: "الزبائن والديون", s: nDebt ? money(debt) + " على " + nDebt + " زبون" : "لا ديون", c: nDebt ? "warn" : "" },
-      { a: "alerts", i: "alert", t: "التنبيهات والراكد", s: nAl + " تنبيه · " + al.slow.length + " راكد", c: nAl ? "bad" : "" },
-      { a: "stats", i: "grid", t: "ملخّص المخزون", s: "القيمة والتصنيفات" }
-    ];
+    var tiles = [{ a: "browse", i: "shelf", t: "الرفوف", s: "تصفّح المكتبات والرفوف" }];
+    /* الموظفون مفعّلون: الديون لمن عنده صلاحيتها، وملخّص القيمة للمدير */
+    if (canP(["debts", "pay"])) tiles.push({ a: "debts", i: "users", t: "الزبائن والديون", s: nDebt ? money(debt) + " على " + nDebt + " زبون" : "لا ديون", c: nDebt ? "warn" : "" });
+    tiles.push({ a: "alerts", i: "alert", t: "التنبيهات والراكد", s: nAl + " تنبيه · " + al.slow.length + " راكد", c: nAl ? "bad" : "" });
+    if (!staffInfo() || canP("profits")) tiles.push({ a: "stats", i: "grid", t: "ملخّص المخزون", s: "القيمة والتصنيفات" });
+    if (inApp && shop() && canP(["items", "count"])) tiles.push({ a: "loc", i: "pin", t: "تسجيل الأماكن", s: "مكتبة ورف، ثم امسح الكتب" });
     if (inApp) tiles.push({ a: "orders", i: "phone2", t: "مبيعات هذا التلفون", s: S().orders.length + " فاتورة" });
     tiles.push({ a: "settings", i: "gear", t: "الإعدادات", s: "الربط والإشعارات" });
+    if (me && staffInfo()) tiles.push({ a: "phLogout", i: "lock", t: "خروج", s: me.n, act: 1 });
     el("view").innerHTML = '<div class="more-grid">' + tiles.map(function (x, i) {
-      return '<button class="more-tile d' + i + (x.c ? " " + x.c : "") + '" data-act="go" data-arg="' + x.a + '">' +
+      return '<button class="more-tile d' + i + (x.c ? " " + x.c : "") + '" data-act="' + (x.act ? x.a : "go") + '" data-arg="' + (x.act ? "" : x.a) + '">' +
         '<span class="mt-ic">' + ico(x.i, 22) + "</span><b>" + x.t + "</b><span>" + esc(x.s) + "</span></button>";
     }).join("") + "</div>";
     el("foot").innerHTML = "";
@@ -345,6 +349,7 @@ window.PhoneExt = (function () {
      ============================================================ */
   function paintSell() {
     var v = el("view"), s = S(), m = main();
+    if (!canP("sell")) { v.innerHTML = A.emptyBox("lock", "البيع ليس من صلاحياتك", "اطلب من المدير صلاحية البيع."); el("foot").innerHTML = ""; return; }
     var cart = s.cart, sub = subtotal(), disc = discNow(), tot = r3(sub - disc);
     var stopped = m && m.phoneSell === false;
     var h = "";
@@ -376,7 +381,7 @@ window.PhoneExt = (function () {
       var custs = ((m && m.cust) || []).slice().sort(function (a, b) { return String(a.n).localeCompare(String(b.n), "ar"); });
       h += '<div class="card pay">' +
         '<div class="kv"><dt>المجموع</dt><dd class="ltr">' + money(sub) + "</dd></div>" +
-        '<label class="fld inline"><span>الخصم</span><input class="inp ltr" id="sellDisc" inputmode="decimal" value="' + esc(s.sell.disc) + '" placeholder="0"></label>' +
+        (canP("discount") ? '<label class="fld inline"><span>الخصم</span><input class="inp ltr" id="sellDisc" inputmode="decimal" value="' + esc(s.sell.disc) + '" placeholder="0"></label>' : "") +
         '<div class="grand"><span>الصافي</span><b class="ltr">' + money(tot) + " " + esc(cur()) + "</b></div>" +
         '<div class="seg2 pay-m">' + ["cash", "card", "credit"].map(function (k) {
           return '<button class="' + (s.sell.method === k ? "on" : "") + '" data-act="payM" data-arg="' + k + '">' + METHOD[k] + "</button>";
@@ -446,11 +451,16 @@ window.PhoneExt = (function () {
     })[0] || null;
   }
 
-  function addToCart(g) {
+  function addToCart(g, price) {
     var s = S(), ex = null;
+    /* طرابلس: الكتاب الذي بلا سعر لا يُباع حتى يُسعَّر، والسعر يُحفظ في المنظومة */
+    if (shop() && A.num(g.p) <= 0 && !(price > 0)) {
+      var had = s.cart.filter(function (l) { return l.key === g.key && l.p > 0; })[0];
+      if (!had) { askPrice(g); return; }
+    }
     s.cart.forEach(function (l) { if (l.key === g.key) ex = l; });
     if (ex) ex.q++;
-    else s.cart.unshift({ key: g.key, b: g.b || "", k: g.code || "", n: g.n, p: A.num(g.p), q: 1 });
+    else s.cart.unshift({ key: g.key, b: g.b || "", k: g.code || "", n: g.n, p: price > 0 ? price : A.num(g.p), q: 1, zp: price > 0 ? 1 : undefined });
     A.save();
     if (g.total <= 0) A.toast("تنبيه: «" + g.n + "» غير متوفر حسب آخر تحديث.", "warn");
     paintSell();
@@ -460,7 +470,7 @@ window.PhoneExt = (function () {
 
   function r3(v) { return Math.round(A.num(v) * 1000) / 1000; }
   function subtotal() { return r3(S().cart.reduce(function (a, l) { return a + A.num(l.p) * A.num(l.q); }, 0)); }
-  function discNow() { return Math.min(Math.max(A.num(S().sell.disc), 0), subtotal()); }
+  function discNow() { return canP("discount") ? Math.min(Math.max(A.num(S().sell.disc), 0), subtotal()) : 0; }
 
   function checkout() {
     var s = S(), m = main();
@@ -474,11 +484,12 @@ window.PhoneExt = (function () {
     var tot = r3(subtotal() - discNow());
     var o = {
       id: "o" + Date.now().toString(36) + rand(4), date: localToday(), at: nowStamp(),
-      items: s.cart.map(function (l) { return { b: l.b, k: l.k, n: l.n, q: A.num(l.q), p: A.num(l.p) }; }),
+      items: s.cart.map(function (l) { return { b: l.b, k: l.k, n: l.n, q: A.num(l.q), p: A.num(l.p), zp: l.zp ? 1 : undefined }; }),
       disc: discNow(), method: method, cust: cust ? cust.id : "", custName: cust ? cust.n : "",
       paid: method === "credit" ? Math.min(Math.max(A.num(s.sell.paid), 0), tot) : tot,
       total: tot, status: "pending", to: m && m.branch ? m.branch.id : ""
     };
+    stamp(o);
     s.orders.unshift(o);
     if (s.orders.length > 80) s.orders.length = 80;
     s.cart = [];
@@ -497,8 +508,12 @@ window.PhoneExt = (function () {
     e.className = "done-pop";
     e.innerHTML = '<div class="dp-card"><svg class="dp-check" viewBox="0 0 52 52"><circle class="dp-c" cx="26" cy="26" r="23"/>' +
       '<path class="dp-t" d="M15 27l7.5 7.5L37.5 19"/></svg><div class="dp-title">تم البيع</div>' +
-      '<div class="dp-sub">' + money(o.total) + " " + esc(cur()) + '</div><div class="dp-note">تُرسل للمنظومة الآن</div></div>';
+      '<div class="dp-sub">' + money(o.total) + " " + esc(cur()) + '</div><div class="dp-note">تُرسل للمنظومة الآن</div>' +
+      /* طرابلس: كما في المنظومة — اطبع الإيصال أو اتركه */
+      (shop() ? '<div class="dp-acts"><button class="btn primary" data-act="rcPrint" data-arg="' + esc(o.id) + '">' + ico("print", 16) + " طباعة الإيصال</button>" +
+        '<button class="btn" data-act="rcSkip">بدون طباعة</button></div>' : "") + "</div>";
     document.body.appendChild(e);
+    if (shop()) { e.classList.add("ask"); return; }
     setTimeout(function () { e.classList.add("out"); }, 1300);
     setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, 1700);
   }
@@ -520,9 +535,9 @@ window.PhoneExt = (function () {
       branch: { id: s.phone.id, name: s.phone.name || "تلفون" },
       items: [],
       orders: pend.map(function (o) {
-        return { id: o.id, date: o.date, at: o.at, items: o.items, disc: o.disc, method: o.method, cust: o.cust, paid: o.paid, to: o.to || "" };
+        return { id: o.id, date: o.date, at: o.at, items: o.items, disc: o.disc, method: o.method, cust: o.cust, paid: o.paid, to: o.to || "", by: o.by, byName: o.byName };
       }),
-      edits: pendE.map(function (e) { return { id: e.id, b: e.b, k: e.k, set: e.set, to: e.to || "" }; })
+      edits: pendE.map(function (e) { return { id: e.id, b: e.b, k: e.k, set: e.set, to: e.to || "", by: e.by }; })
     };
     var base = String(s.cfg.url).trim().replace(/\/+$/, "");
     fetch(base + "/put", {
@@ -629,7 +644,14 @@ window.PhoneExt = (function () {
     var s = S(), n = s.notif, ev = [];
     var d = alertsData();
     if (n.stock) {
-      d.out.forEach(function (g) { ev.push({ k: "out:" + g.key, lv: "bad", t: "نفد: " + g.n, s: "لم يبقَ منه شيء", key: g.key }); });
+      /* «نفد» لما يهمّ: صنف له حد تنبيه، أو بِيع منه في آخر 30 يوماً. مكتبة فيها عشرات
+         الآلاف من الكتب (طرابلس، ومنها ما لم يُجرد بعد) لا يصير جرسها آلاف السطور */
+      var since = new Date(Date.now() - 30 * 864e5), p2 = function (x) { return (x < 10 ? "0" : "") + x; };
+      var recent = since.getFullYear() + "-" + p2(since.getMonth() + 1) + "-" + p2(since.getDate());
+      d.out.forEach(function (g) {
+        if (!(g.minTop > 0) && !(g.ls && String(g.ls) >= recent)) return;
+        ev.push({ k: "out:" + g.key, lv: "bad", t: "نفد: " + g.n, s: "لم يبقَ منه شيء", key: g.key });
+      });
       d.low.forEach(function (g) { ev.push({ k: "low:" + g.key, lv: "warn", t: "قارب على النفاد: " + g.n, s: "بقي " + g.total, key: g.key }); });
     }
     if (n.restock) d.dry.forEach(function (g) { ev.push({ k: "dry:" + g.key, lv: "info", t: "املأ الرفوف: " + g.n, s: "في غرفة الخزين " + g.room, key: g.key }); });
@@ -654,6 +676,8 @@ window.PhoneExt = (function () {
   function chrome() {
     var top = el("top");
     if (!top) return;
+    brand();
+    paintLock();
     var b = el("btnBell");
     if (!b) {
       b = document.createElement("button");
@@ -719,6 +743,7 @@ window.PhoneExt = (function () {
   /* بعد كل تحديث: التأكيدات، ثم هل ظهر جديد يستحق رنّة الجرس؟ */
   function afterRefresh(first) {
     var s = S();
+    refreshMe();
     takeAcks();
     var ev = events();
     if (!s.seenInit) {                   // أول مرة: ما كان قائماً لا يُعدّ جديداً
@@ -741,7 +766,7 @@ window.PhoneExt = (function () {
      تعديل صنف من التلفون (داخل التطبيق)
      ============================================================ */
   function detailActs(g) {
-    if (!inApp) return "";
+    if (!inApp || !canP(["items", "price", "goods", "count"])) return "";
     var pe = S().edits.filter(function (e) { return e.status === "pending" && ((e.b && e.b === g.b) || (!e.b && e.k === g.code)); }).length;
     return '<div class="det-edit">' +
       (pe ? '<span class="tag a">' + ico("clock", 11) + " تعديل بانتظار الكمبيوتر</span>" : "") +
@@ -754,8 +779,12 @@ window.PhoneExt = (function () {
     if (!g.b && !g.code) { A.toast("هذا الصنف بلا باركود ولا رمز — عدّله من الكمبيوتر.", "warn"); return; }
     var w = g.at.filter(function (x) { return x.place.kind === "branch"; })[0] || g.at[0] || {};
     var isB = g.t === "book";
+    /* الموظفون مفعّلون: كل حقل بصلاحيته (والكمبيوتر يراجعها من جديد) */
+    var can = { n: canP("items"), p: canP("price"), m: canP(["goods", "items"]), q: canP(["count", "goods"]), l: canP(["items", "count"]) };
+    var key2 = { eN: "n", eA: "n", eP: "p", eM: "m", eL: "l", eS: "l", eLoc: "l" };
     function fld(id, lbl, val, attrs) {
-      return '<label class="fld"><span>' + lbl + '</span><input class="inp" id="' + id + '" value="' + esc(val == null ? "" : val) + '"' + (attrs || "") + "></label>";
+      var off = key2[id] && !can[key2[id]];
+      return '<label class="fld"><span>' + lbl + '</span><input class="inp" id="' + id + '" value="' + esc(val == null ? "" : val) + '"' + (attrs || "") + (off ? " disabled" : "") + "></label>";
     }
     var h = '<div class="inner"><div class="grab"></div><div class="det-head"><h2>' + ico("edit", 18) + " تعديل الصنف</h2>" +
       '<p class="by">يُرسل للمنظومة على الكمبيوتر فتطبّقه في أول تحديث.</p></div>' +
@@ -765,7 +794,7 @@ window.PhoneExt = (function () {
       fld("eM", "حد التنبيه", g.minTop || 0, ' inputmode="numeric" dir="ltr"') + "</div>" +
       '<label class="fld"><span>الكمية الكلية (الآن ' + g.total + ')</span><div class="stepper">' +
       '<button type="button" data-act="eStep" data-arg="-1">' + ico("minus", 18) + "</button>" +
-      '<input class="inp" id="eQ" inputmode="numeric" dir="ltr" value="' + g.total + '" data-was="' + g.total + '">' +
+      '<input class="inp" id="eQ" inputmode="numeric" dir="ltr" value="' + g.total + '" data-was="' + g.total + '"' + (can.q ? "" : " disabled") + ">" +
       '<button type="button" data-act="eStep" data-arg="1">' + ico("plus", 18) + "</button></div>" +
       '<small class="fld-hint" id="eQd"></small></label>' +
       (isB ? '<div class="two">' + fld("eL", "المكتبة", w.lib || "") + fld("eS", "الرف", w.shelf || "", ' inputmode="numeric" dir="ltr"') + "</div>"
@@ -795,14 +824,14 @@ window.PhoneExt = (function () {
   function editSave(key) {
     var g = A.items().filter(function (x) { return x.key === key; })[0];
     if (!g) return;
-    function v(id) { var e = el(id); return e ? e.value.trim() : undefined; }
+    function v(id) { var e = el(id); return e && !e.disabled ? e.value.trim() : undefined; }
     var set = {}, isB = g.t === "book";
     var w = g.at.filter(function (x) { return x.place.kind === "branch"; })[0] || g.at[0] || {};
     if (v("eN") && v("eN") !== g.n) set.n = v("eN");
     if (v("eA") !== undefined && v("eA") !== (g.a || "")) set.a = v("eA");
     if (v("eP") !== undefined && A.num(v("eP")) !== A.num(g.p)) set.p = A.num(v("eP"));
     if (v("eM") !== undefined && A.num(v("eM")) !== A.num(g.minTop)) set.m = A.num(v("eM"));
-    var qd = A.num(v("eQ")) - A.num(el("eQ").getAttribute("data-was"));
+    var qd = v("eQ") === undefined ? 0 : A.num(v("eQ")) - A.num(el("eQ").getAttribute("data-was"));
     if (qd) set.qd = qd;
     if (isB) {
       if (v("eL") !== undefined && v("eL") !== (w.lib || "")) set.l = v("eL");
@@ -810,8 +839,8 @@ window.PhoneExt = (function () {
     } else if (v("eLoc") !== undefined && v("eLoc") !== (w.loc || "")) set.loc = v("eLoc");
     if (!Object.keys(set).length) { A.closeSheet(); A.toast("لم يتغيّر شيء."); return; }
     var m = main();
-    S().edits.unshift({ id: "e" + Date.now().toString(36) + rand(4), b: g.b || "", k: g.code || "", n: g.n, set: set,
-      at: nowStamp(), status: "pending", to: m && m.branch ? m.branch.id : "" });
+    S().edits.unshift(stamp({ id: "e" + Date.now().toString(36) + rand(4), b: g.b || "", k: g.code || "", n: g.n, set: set,
+      at: nowStamp(), status: "pending", to: m && m.branch ? m.branch.id : "" }));
     S().pushedEmpty = false;
     A.save();
     A.closeSheet();
@@ -898,6 +927,17 @@ window.PhoneExt = (function () {
 
   /* ---------- الكاميرا والرجوع ---------- */
   function onScan(code) {
+    if (S().screen === "loc") {
+      var g2 = exact(code);
+      if (!g2) { A.toast("الباركود " + code + " غير مسجّل في المنظومة.", "warn"); return true; }
+      /* مسح متتابع: الكاميرا تفتح للكتاب التالي، والرجوع يوقفها */
+      if (locAdd(g2)) setTimeout(function () {
+        if (S().screen !== "loc") return;
+        if (window.AndroidApp && window.AndroidApp.scan) window.AndroidApp.scan();
+        else if (window.WebScan) window.WebScan.open(function (c) { if (window.UI && UI.onScan) UI.onScan(c); });
+      }, 700);
+      return true;
+    }
     if (S().screen !== "sell") return false;
     var g = exact(code);
     if (g) addToCart(g);
@@ -910,7 +950,474 @@ window.PhoneExt = (function () {
     return false;
   }
 
+  /* ============================================================
+     طرابلس (X4): الدخول بالموظف، البصمة أو الوجه، الصلاحيات،
+     تسعير الكتاب الصفري، تسجيل الأماكن رفاً رفاً، وطباعة الإيصال
+     ------------------------------------------------------------
+     الموظفون يأتون في لقطة جهاز المحل (main().staff): الاسم والدور وبصمة كلمة
+     السر وملحها فقط — التلفون يتحقق منها بنفسه بلا إنترنت (PBKDF2 كما في
+     المنظومة). من يعمل الآن في الذاكرة فقط: كل فتح للتطبيق يسأل من جديد
+     (وبالبصمة يكون في ثانية). وكل فاتورة وتعديل يحمل صاحبه، والكمبيوتر يراجع
+     صلاحيته من جديد قبل أن يسجّله.
+     ============================================================ */
+  var me = null, hiddenAt = 0, lockPick = "", lockBusy = false, bioAuto = true, lockList = false;
+  var LOCK_AWAY = 2 * 60000;
+
+  function staffInfo() {
+    var m = main();
+    return (m && m.staff && m.staff.staff && m.staff.staff.length) ? m.staff : null;
+  }
+  function shop() { var m = main(); return (m && m.shop) || null; }
+  function roleOf(p) {
+    var inf = staffInfo();
+    return inf && p ? (inf.roles || []).filter(function (r) { return r.id === p.r; })[0] || null : null;
+  }
+  /* قبل تفعيل الموظفين (ومصراتة): كل شيء كما كان */
+  function canP(perm) {
+    if (!staffInfo()) return true;
+    if (!me) return false;
+    var r = roleOf(me);
+    if (!r) return false;
+    if (r.admin) return true;
+    return (Array.isArray(perm) ? perm : [perm]).some(function (x) { return (r.perms || []).indexOf(x) >= 0; });
+  }
+  function locked() { return !!staffInfo() && !me; }
+  function people() { var inf = staffInfo(); return inf ? inf.staff.filter(function (p) { return !p.off; }) : []; }
+  function personOf(id) { return people().filter(function (p) { return p.id === id; })[0] || null; }
+
+  /* بعد كل تحديث: موظف أُوقف أو تغيّرت كلمة سره في المنظومة يخرج */
+  function refreshMe() {
+    if (!me) return;
+    var p = personOf(me.id);
+    if (!staffInfo()) { me = null; return; }
+    if (!p || p.h !== me.h) { me = null; lockPick = ""; A.toast("تغيّرت بيانات دخولك في المنظومة — ادخل من جديد.", "warn"); }
+    else me = p;
+  }
+
+  /* ---------- كلمات السر: نفس طريقة المنظومة ---------- */
+  function unhex(h) {
+    var a = new Uint8Array(h.length / 2);
+    for (var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16);
+    return a;
+  }
+  function hex(buf) {
+    var b = new Uint8Array(buf), s = "";
+    for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? "0" : "") + b[i].toString(16);
+    return s;
+  }
+  function pwOk(p, pw) {
+    if (!p || !p.s || !p.h || !window.crypto || !crypto.subtle) return Promise.resolve(false);
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey("raw", enc.encode(String(pw)), "PBKDF2", false, ["deriveBits"]).then(function (k) {
+      return crypto.subtle.deriveBits({ name: "PBKDF2", salt: unhex(p.s), iterations: 60000, hash: "SHA-256" }, k, 256);
+    }).then(function (b) { return hex(b) === p.h; }, function () { return false; });
+  }
+
+  /* ---------- البصمة أو الوجه ----------
+     أندرويد: نافذة البصمة من التلفون نفسه (AndroidApp.bioAuth).
+     الآيفون: Face ID أو البصمة عبر WebAuthn (مفتاح على هذا التلفون وحده).
+     تُربط بالموظف وبصمة كلمة سره: إن غيّرها في المنظومة تُطلب كلمة السر من جديد */
+  var bioWait = {};
+  function bioWord() { return A.ios ? "الوجه أو البصمة" : "البصمة"; }
+  function b64(buf) { var b = new Uint8Array(buf), s = ""; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
+  function unb64(t) { var s = atob(t), a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+  function rnd(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
+  function bioAvail() {
+    if (window.AndroidApp) {
+      try { return Promise.resolve(!!window.AndroidApp.bioAvailable && window.AndroidApp.bioAvailable() === "yes"); }
+      catch (e) { return Promise.resolve(false); }
+    }
+    try {
+      if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+        return PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(function () { return false; });
+      }
+    } catch (e) { }
+    return Promise.resolve(false);
+  }
+  function androidBio(title) {
+    return new Promise(function (res) {
+      var id = "b" + Date.now().toString(36) + rand(3);
+      bioWait[id] = res;
+      try { window.AndroidApp.bioAuth(id, title); } catch (e) { delete bioWait[id]; res(false); }
+    });
+  }
+  function bioDone(id, ok) { var f = bioWait[id]; delete bioWait[id]; if (f) f(!!ok); }
+  function bioRec(p) {
+    var r = p && S().bio && S().bio[p.id];
+    return r && r.tag === String(p.h || "").slice(0, 16) ? r : null;
+  }
+  function bioEnroll(p) {
+    var tag = String(p.h || "").slice(0, 16), title = (shop() && shop().name) || "المكتبة";
+    var keep = function (rec) { S().bio = S().bio || {}; rec.tag = tag; S().bio[p.id] = rec; A.save(); return true; };
+    if (window.AndroidApp) return androidBio("تفعيل الدخول بالبصمة — " + p.n).then(function (ok) { return ok ? keep({ k: "a" }) : false; });
+    return navigator.credentials.create({ publicKey: {
+      challenge: rnd(32), rp: { name: title },
+      user: { id: rnd(16), name: p.u || p.n, displayName: p.n },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "discouraged" },
+      timeout: 60000, attestation: "none"
+    } }).then(function (c) { return c ? keep({ k: "w", c: b64(c.rawId) }) : false; }, function () { return false; });
+  }
+  function bioCheck(p) {
+    var r = bioRec(p);
+    if (!r) return Promise.resolve(false);
+    if (r.k === "a") return window.AndroidApp ? androidBio("الدخول — " + p.n) : Promise.resolve(false);
+    return navigator.credentials.get({ publicKey: {
+      challenge: rnd(32), allowCredentials: [{ type: "public-key", id: unb64(r.c) }],
+      userVerification: "required", timeout: 60000
+    } }).then(function (a) { return !!a; }, function () { return false; });
+  }
+
+  /* ---------- شاشة الدخول ---------- */
+  function paintLock() {
+    var ov = el("phLock");
+    if (!locked()) { if (ov) ov.parentNode.removeChild(ov); return; }
+    if (!ov) {
+      ov = document.createElement("section");
+      ov.id = "phLock"; ov.className = "ph-lock";
+      document.body.appendChild(ov);
+    }
+    var sh = shop() || {}, list = people();
+    if (lockPick && !personOf(lockPick)) lockPick = "";
+    if (!lockPick && list.length === 1) lockPick = list[0].id;
+    /* آخر من دخل بالبصمة يظهر جاهزاً — إلا إن ضغط أحد «موظف آخر» */
+    if (!lockPick && !lockList && S().lastWho && personOf(S().lastWho) && bioRec(personOf(S().lastWho))) lockPick = S().lastWho;
+    var p = lockPick ? personOf(lockPick) : null;
+    var h = '<div class="pl-box"><div class="pl-brand">' +
+      (sh.logo ? '<img class="pl-logo" src="' + esc(sh.logo) + '" alt="">' : '<span class="pl-logo none">' + ico("book", 34) + "</span>") +
+      "<b>" + esc(sh.name || ((main() && main().branch && main().branch.name) || "المكتبة")) + "</b>" +
+      "<span>" + (p ? "أهلاً " + esc(p.n) : "من يعمل الآن؟") + "</span></div>";
+    if (!p) {
+      h += '<div class="pl-tiles">' + list.map(function (x) {
+        var r = roleOf(x);
+        return '<button class="pl-tile" data-act="phPick" data-arg="' + esc(x.id) + '"><i>' + esc(String(x.n || "؟").charAt(0)) + "</i>" +
+          "<b>" + esc(x.n) + "</b><span>" + esc((r && r.n) || "") + "</span></button>";
+      }).join("") + "</div>";
+    } else {
+      var rec = bioRec(p);
+      h += '<form class="pl-form" id="phLockForm" novalidate>' +
+        '<label class="fld"><span>كلمة السر</span><input class="inp ltr" id="phPw" type="password" autocomplete="current-password" enterkeyhint="go"></label>' +
+        '<p class="fld-note" id="phErr" role="alert" hidden></p>' +
+        '<button class="btn primary lg wide" type="submit" data-act="phLogin">' + ico("check", 18) + " دخول</button>" +
+        (rec ? '<button class="btn wide mt" type="button" data-act="phBio">' + ico("lock", 18) + " الدخول ب" + bioWord() + "</button>" : "") +
+        (list.length > 1 ? '<button class="btn ghost wide mt" type="button" data-act="phPick" data-arg="">موظف آخر</button>' : "") +
+        "</form>";
+    }
+    h += '<p class="pl-foot">كلمة السر نفسها التي في المنظومة على الكمبيوتر.</p></div>';
+    ov.innerHTML = h;
+    var f = el("phLockForm");
+    if (f) f.addEventListener("submit", function (e) { e.preventDefault(); login(); });
+    var pw = el("phPw");
+    if (p && bioRec(p) && bioAuto) { bioAuto = false; setTimeout(function () { bioLogin(); }, 250); }
+    else if (pw) setTimeout(function () { try { pw.focus(); } catch (e) { } }, 60);
+  }
+
+  function enter(p, how) {
+    me = p; lockPick = ""; lockList = false; S().lastWho = p.id; A.save();
+    A.toast("أهلاً " + p.n + (how ? " — " + how : ""), "ok");
+    A.render();
+    if (!bioRec(p) && !(S().bioNo || {})[p.id]) {
+      bioAvail().then(function (ok) { if (ok && me && me.id === p.id) offerBio(p); });
+    }
+  }
+
+  function login() {
+    if (lockBusy) return;
+    var p = personOf(lockPick), pw = el("phPw"), err = el("phErr");
+    if (!p || !pw) return;
+    if (!pw.value) { pw.focus(); return; }
+    lockBusy = true;
+    pwOk(p, pw.value).then(function (ok) {
+      lockBusy = false;
+      if (ok) { enter(p); return; }
+      if (err) { err.textContent = "كلمة السر غير صحيحة."; err.hidden = false; }
+      pw.value = ""; pw.focus();
+    });
+  }
+
+  function bioLogin() {
+    var p = personOf(lockPick);
+    if (!p || lockBusy) return;
+    lockBusy = true;
+    bioCheck(p).then(function (ok) {
+      lockBusy = false;
+      if (ok && locked()) enter(p, bioWord());
+      else if (!ok) { var pw = el("phPw"); if (pw) pw.focus(); }
+    });
+  }
+
+  function offerBio(p) {
+    var h = '<div class="inner"><div class="grab"></div><div class="det-head"><h2>' + ico("lock", 18) + " الدخول ب" + bioWord() + "</h2>" +
+      '<p class="by">بدل كتابة كلمة السر كل مرة، تدخل ب' + bioWord() + " في ثانية — على هذا التلفون وحده.</p></div>" +
+      '<div class="det-acts"><button class="btn primary" data-act="phBioOn">' + ico("check", 16) + " فعّلها</button>" +
+      '<button class="btn" data-act="phBioNo">ليس الآن</button></div></div>';
+    openSheet(h);
+  }
+
+  function openSheet(h) {
+    var sh = el("sheet");
+    sh.classList.remove("closing");
+    sh.innerHTML = h;
+    sh.hidden = false;
+    var inner = sh.querySelector(".inner");
+    if (inner) inner.classList.add("morph", "omc");
+    document.body.style.overflow = "hidden";
+  }
+
+  function logout() {
+    me = null; lockPick = ""; bioAuto = false;
+    A.closeSheet(); A.go("dash");
+  }
+
+  /* الخروج من التطبيق والعودة بعد دقيقتين أو أكثر = فتح جديد: يسأل من جديد */
+  function onVisible() {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (me && staffInfo() && hiddenAt && Date.now() - hiddenAt > LOCK_AWAY) { me = null; bioAuto = true; A.render(); }
+  }
+
+  /* الاسم والشعار في رأس التطبيق (طرابلس) */
+  function brand() {
+    var sh = shop(), top = el("top");
+    if (!top || !sh) return;
+    var mark = top.querySelector(".brand-mark"), img = top.querySelector(".brand-logo");
+    if (sh.logo) {
+      if (!img) { img = document.createElement("img"); img.className = "brand-logo"; img.alt = ""; if (mark) mark.parentNode.insertBefore(img, mark); }
+      if (img.getAttribute("src") !== sh.logo) img.setAttribute("src", sh.logo);
+      if (mark) mark.classList.add("gone");
+    }
+    if (sh.name && document.title !== sh.name) document.title = sh.name;
+    var who = el("phWho");
+    if (me && staffInfo()) {
+      if (!who) {
+        who = document.createElement("button");
+        who.id = "phWho"; who.className = "ph-who"; who.setAttribute("data-act", "phLogout");
+        var ref = el("btnTheme");
+        top.insertBefore(who, ref || null);
+      }
+      who.innerHTML = "<i>" + esc(String(me.n || "").charAt(0)) + "</i>";
+      who.setAttribute("aria-label", "خروج " + me.n);
+    } else if (who) who.parentNode.removeChild(who);
+  }
+
+  /* ---------- الكتاب الذي بلا سعر (طرابلس): يُسعَّر وقت البيع ويُحفظ ---------- */
+  function askPrice(g) {
+    if (!canP(["price_zero", "price"])) { A.toast("«" + g.n + "» بلا سعر — تسعيره من صلاحية المدير.", "warn"); return; }
+    openSheet('<div class="inner"><div class="grab"></div><div class="det-head"><h2>' + ico("money", 18) + " كتاب بلا سعر</h2>" +
+      '<p class="by">' + esc(g.n) + "</p></div>" +
+      '<label class="fld"><span>سعر البيع</span><input class="inp ltr" id="zpP" inputmode="decimal" placeholder="0"></label>' +
+      '<p class="sub">يُحفظ السعر في المنظومة مع الفاتورة، فلا يُسأل عنه مرة ثانية.</p>' +
+      '<div class="det-acts"><button class="btn primary" data-act="zpOk" data-arg="' + esc(g.key) + '">' + ico("check", 16) + " أضفه للسلة</button>" +
+      '<button class="btn" data-act="closeSheet">إلغاء</button></div></div>');
+    setTimeout(function () { var i = el("zpP"); if (i) i.focus(); }, 80);
+  }
+
+  /* ---------- تسجيل الأماكن رفاً رفاً ----------
+     تختار المكتبة والرف مرة، وتمسح الكتب واحداً وراء الآخر: كل كتاب يأخذ
+     مكان هذا الرف. «عدّ النسخ» يجعلها جرداً: كل مسحة نسخة على الرف.
+     يُرسل تعديلات عادية (الكمية فرقاً) فيبقى بيع الكمبيوتر بينها محسوباً */
+  function locState() {
+    var L = S().loc;
+    if (!L || typeof L !== "object") L = S().loc = { lib: "", shelf: "1", count: false, list: [] };
+    if (!Array.isArray(L.list)) L.list = [];
+    return L;
+  }
+  function libsAll() {
+    var sh = shop(), seen = {}, out = [];
+    ((sh && sh.libs) || []).forEach(function (l) { if (l && !seen[l]) { seen[l] = 1; out.push(l); } });
+    A.items().forEach(function (g) {
+      (g.at || []).forEach(function (w) { var l = w.place && w.place.kind === "branch" ? w.lib : ""; if (l && !seen[l]) { seen[l] = 1; out.push(l); } });
+    });
+    if (!out.length) out = "ABCDEFGH".split("");
+    return out.sort();
+  }
+  /* مكان الكتاب في فرع هذا التلفون (الفرع الذي يسجّل تعديلاته)، لا في كل الفروع */
+  function branchAt(g) {
+    var m = main(), key = m && m.branch ? "b:" + m.branch.id : "";
+    var br = (g.at || []).filter(function (x) { return x.place && x.place.kind === "branch"; });
+    return br.filter(function (x) { return x.place.key === key; })[0] || br[0] || {};
+  }
+  /* ما على رفوف هذا الفرع الآن، مع تعديلات من هذا التلفون لم تُطبَّق بعد */
+  function shelfHere(g) {
+    var q = A.num(branchAt(g).q);
+    S().edits.forEach(function (e) {
+      if (e.status === "pending" && ((e.b && e.b === g.b) || (!e.b && e.k === g.code)) && e.set && e.set.qd) q += A.num(e.set.qd);
+    });
+    return q;
+  }
+
+  function paintLoc() {
+    var L = locState(), v = el("view");
+    if (!canP(["items", "count"])) { v.innerHTML = A.emptyBox("lock", "ليست من صلاحياتك", "تسجيل الأماكن والجرد لأمين المخزن أو المدير."); return; }
+    var libs = libsAll();
+    var h = crumb("تسجيل الأماكن") +
+      '<div class="card loc-pick"><div class="two">' +
+      '<label class="fld"><span>المكتبة (الخزانة)</span><select class="inp" id="locLib"><option value="">— اختر —</option>' +
+      libs.map(function (l) { return '<option value="' + esc(l) + '"' + (L.lib === l ? " selected" : "") + ">" + esc(l) + "</option>"; }).join("") + "</select></label>" +
+      '<label class="fld"><span>الرف</span><div class="stepper">' +
+      '<button type="button" data-act="locShelf" data-arg="-1">' + ico("minus", 18) + "</button>" +
+      '<input class="inp" id="locShelfIn" inputmode="numeric" dir="ltr" value="' + esc(L.shelf) + '">' +
+      '<button type="button" data-act="locShelf" data-arg="1">' + ico("plus", 18) + "</button></div></label></div>" +
+      '<label class="chk"><input type="checkbox" id="locCount"' + (L.count ? " checked" : "") + "><span><b>عدّ النسخ أيضاً (جرد)</b>" +
+      "<i>كل مسحة نسخة على هذا الرف — امسح كل نسخة</i></span></label>" +
+      '<button class="btn primary wide big" data-act="scan">' + ico("camera", 20) + " امسح الكتب</button>" +
+      '<div class="search sell-search"><input id="locQ" class="search-inp" type="search" autocomplete="off" placeholder="كتاب بلا باركود؟ ابحث باسمه…"></div>' +
+      '<div id="locSug"></div></div>';
+    if (!L.list.length) h += A.emptyBox("shelf", L.lib ? "مكتبة " + L.lib + " · رف " + L.shelf : "اختر المكتبة والرف", "ثم امسح الكتب التي على هذا الرف واحداً وراء الآخر.");
+    else {
+      h += '<div class="loc-head"><b>مكتبة ' + esc(L.lib) + " · رف " + esc(L.shelf) + "</b><span>" + L.list.length + " كتاب" +
+        (L.count ? " · " + L.list.reduce(function (a, x) { return a + x.c; }, 0) + " نسخة" : "") + "</span></div>" +
+        '<div class="rows">' + L.list.map(function (x, i) {
+          return '<div class="row d' + Math.min(i, 9) + '"><span class="row-ic bk">' + ico("book", 17) + "</span>" +
+            '<div class="row-main"><div class="row-name">' + esc(x.n) + "</div>" +
+            '<div class="row-sub">' + (x.moved ? "صار مكانه: " + esc(L.lib) + " · رف " + esc(L.shelf) : "مكانه كما هو") + "</div></div>" +
+            (L.count ? '<div class="qty"><button data-act="locMinus" data-arg="' + esc(x.key) + '">' + ico("minus", 16) + "</button><b>" + x.c + "</b></div>" : "") + "</div>";
+        }).join("") + "</div>" +
+        '<button class="btn wide mt" data-act="locNext">' + ico("check", 16) + " انتهى هذا الرف — الرف التالي</button>";
+    }
+    v.innerHTML = h;
+    el("foot").innerHTML = "يُرسل كل كتاب للمنظومة على الكمبيوتر فتسجّل مكانه" + (L.count ? " وعدد نسخه" : "") + ". بلا إنترنت يُحفظ هنا ويُرسل وحده لاحقاً.";
+    var lib = el("locLib");
+    if (lib) lib.addEventListener("change", function () { L.lib = this.value; L.list = []; A.save(); paintLoc(); });
+    var si = el("locShelfIn");
+    if (si) si.addEventListener("change", function () { L.shelf = String(Math.max(1, A.num(this.value) || 1)); L.list = []; A.save(); paintLoc(); });
+    var cc = el("locCount");
+    if (cc) cc.addEventListener("change", function () { L.count = this.checked; A.save(); });
+    var q = el("locQ"), t = null;
+    if (q) q.addEventListener("input", function () {
+      var val = this.value; clearTimeout(t);
+      t = setTimeout(function () {
+        var host = el("locSug"); if (!host) return;
+        if (!String(val).trim()) { host.innerHTML = ""; return; }
+        var res = A.search(A.items(), val).slice(0, 8);
+        host.innerHTML = res.length ? '<div class="sugs">' + res.map(function (g) {
+          var w = branchAt(g);
+          return '<button class="sug" data-act="locAdd" data-arg="' + esc(g.key) + '"><span class="sg-main"><b>' + esc(g.n) + "</b><span>" + esc(g.a || "") + "</span></span>" +
+            '<span class="sg-side"><span>' + esc(w.lib ? w.lib + " · رف " + (w.shelf || "") : "بلا مكان") + "</span></span></button>";
+        }).join("") + "</div>" : '<p class="sub">لا نتائج.</p>';
+      }, 120);
+    });
+  }
+
+  function locAdd(g) {
+    var L = locState();
+    if (!L.lib) { A.toast("اختر المكتبة أولاً.", "warn"); return false; }
+    if (!g.b && !g.code) { A.toast("هذا الصنف بلا باركود ولا رمز — سجّل مكانه من الكمبيوتر.", "warn"); return false; }
+    var ent = L.list.filter(function (x) { return x.key === g.key; })[0], set = {};
+    if (!ent) {
+      var w = branchAt(g);
+      ent = { key: g.key, n: g.n, b: g.b || "", k: g.code || "", c: 0, moved: false };
+      L.list.unshift(ent);
+      if (g.t === "book") {
+        if ((w.lib || "") !== L.lib) set.l = L.lib;
+        if (String(w.shelf || "") !== String(L.shelf)) set.s = String(L.shelf);
+      } else if ((w.loc || "") !== L.lib + " رف " + L.shelf) set.loc = L.lib + " رف " + L.shelf;
+      ent.moved = Object.keys(set).length > 0;
+      if (L.count) { set.qd = 1 - shelfHere(g); set.cnt = 1; }
+    } else if (L.count) set.qd = 1;
+    else { A.toast("«" + g.n + "» مسجّل على هذا الرف.", "ok"); return true; }
+    ent.c++;
+    if (Object.keys(set).length) queueEdit(g, set);
+    A.save();
+    if (S().screen === "loc") paintLoc();
+    A.toast(L.count ? "«" + g.n + "» — " + ent.c + (ent.c === 1 ? " نسخة" : " نسخ") : "«" + g.n + "» ← " + L.lib + " · رف " + L.shelf, "ok");
+    return true;
+  }
+
+  /* تعديل الرف نفسه للكتاب نفسه يُدمج في واحد ما دام لم يُرسل */
+  var locPushT = null;
+  function queueEdit(g, set) {
+    var m = main(), e = S().edits.filter(function (x) {
+      return x.status === "pending" && !x.sent && x.loc && ((x.b && x.b === g.b) || (!x.b && x.k === g.code));
+    })[0];
+    if (e) {
+      Object.keys(set).forEach(function (k) { if (k === "qd") e.set.qd = A.num(e.set.qd) + A.num(set.qd); else e.set[k] = set[k]; });
+    } else {
+      S().edits.unshift(stamp({ id: "e" + Date.now().toString(36) + rand(4), b: g.b || "", k: g.code || "", n: g.n, set: set, loc: 1,
+        at: nowStamp(), status: "pending", to: m && m.branch ? m.branch.id : "" }));
+    }
+    S().pushedEmpty = false;
+    clearTimeout(locPushT);
+    locPushT = setTimeout(push, 1500);
+  }
+
+  /* الموظف على كل ما يُرسل */
+  function stamp(o) { if (me && staffInfo()) { o.by = me.id; o.byName = me.n; } return o; }
+
+  /* ---------- إيصال البيع من التلفون ---------- */
+  function receiptHtml(o) {
+    var sh = shop() || {}, m = main() || {}, c = esc(cur());
+    var lines = o.items.map(function (l) {
+      return "<tr><td>" + esc(l.n) + '</td><td class="n">' + l.q + '</td><td class="n">' + money(l.p * l.q) + "</td></tr>";
+    }).join("");
+    return '<div class="rc">' + (sh.logo ? '<img class="rc-logo" src="' + esc(sh.logo) + '" alt="">' : "") +
+      '<div class="rc-shop">' + esc(sh.name || (m.branch && m.branch.name) || "") + "</div>" +
+      '<div class="rc-meta">' + esc(o.at) + (o.byName ? " · " + esc(o.byName) : "") + "<br>بيع من التلفون · " + esc(o.id.slice(-6).toUpperCase()) + "</div>" +
+      "<table><thead><tr><th>الصنف</th><th>ك</th><th>المبلغ</th></tr></thead><tbody>" + lines + "</tbody></table>" +
+      (o.disc ? '<div class="rc-row"><span>الخصم</span><b>' + money(o.disc) + "</b></div>" : "") +
+      '<div class="rc-row big"><span>الصافي</span><b>' + money(o.total) + " " + c + "</b></div>" +
+      '<div class="rc-row"><span>' + esc(METHOD[o.method] || "") + "</span>" + (o.custName ? "<b>" + esc(o.custName) + "</b>" : "") + "</div>" +
+      '<div class="rc-foot">شكراً لزيارتكم</div></div>';
+  }
+  function printReceipt(id) {
+    var o = S().orders.filter(function (x) { return x.id === id; })[0];
+    if (!o) return;
+    var html = receiptHtml(o);
+    if (window.AndroidApp && window.AndroidApp.printHtml) {
+      try {
+        var css = Array.prototype.map.call(document.querySelectorAll('link[rel="stylesheet"]'), function (l) { return l.href; })[0] || "";
+        window.AndroidApp.printHtml('<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">' +
+          (css ? '<link rel="stylesheet" href="' + css + '">' : "") + '</head><body class="rc-print">' + html + "</body></html>", "إيصال " + o.id.slice(-6));
+        return;
+      } catch (e) { }
+    }
+    var host = el("phPrint");
+    if (!host) { host = document.createElement("div"); host.id = "phPrint"; document.body.appendChild(host); }
+    host.innerHTML = html;
+    document.body.classList.add("printing-rc");
+    setTimeout(function () {
+      try { window.print(); } catch (e) { A.toast("الطباعة غير متاحة على هذا الجهاز.", "warn"); }
+      setTimeout(function () { document.body.classList.remove("printing-rc"); }, 800);
+    }, 60);
+  }
+
   var acts = {
+    phPick: function (id) { lockPick = id; lockList = !id; bioAuto = !!id; paintLock(); },
+    phLogin: function () { login(); },
+    phBio: function () { bioLogin(); },
+    phBioOn: function () {
+      if (!me) return;
+      var p = me;
+      bioEnroll(p).then(function (ok) {
+        A.closeSheet();
+        A.toast(ok ? "تم: الدخول ب" + bioWord() + " مفعّل على هذا التلفون." : "لم يتم التفعيل — تقدر تفعّلها لاحقاً من الإعدادات.", ok ? "ok" : "warn");
+      });
+    },
+    phBioNo: function () { if (me) { S().bioNo = S().bioNo || {}; S().bioNo[me.id] = 1; A.save(); } A.closeSheet(); },
+    phLogout: function () { logout(); },
+    zpOk: function (key) {
+      var g = A.items().filter(function (x) { return x.key === key; })[0], i = el("zpP"), pr = i ? A.num(i.value) : 0;
+      if (!g) return;
+      if (!(pr > 0)) { A.toast("اكتب سعراً أكبر من صفر.", "warn"); if (i) i.focus(); return; }
+      A.closeSheet(); addToCart(g, Math.round(pr * 1000) / 1000);
+    },
+    locShelf: function (d) { var L = locState(); L.shelf = String(Math.max(1, A.num(L.shelf) + (+d))); L.list = []; A.save(); paintLoc(); },
+    locAdd: function (key) {
+      var g = A.items().filter(function (x) { return x.key === key; })[0];
+      if (g && locAdd(g)) { var q = el("locQ"); if (q) q.value = ""; var h = el("locSug"); if (h) h.innerHTML = ""; }
+    },
+    locMinus: function (key) {
+      var L = locState(), ent = L.list.filter(function (x) { return x.key === key; })[0];
+      var g = A.items().filter(function (x) { return x.key === key; })[0];
+      if (!ent || !g || ent.c <= 0) return;
+      ent.c--; queueEdit(g, { qd: -1 }); A.save(); paintLoc();
+    },
+    locNext: function () {
+      var L = locState();
+      L.shelf = String(A.num(L.shelf) + 1); L.list = []; A.save(); push(); paintLoc();
+      A.toast("الرف " + L.shelf + " — امسح كتبه.", "ok");
+    },
+    rcPrint: function (id) { var e = document.querySelector(".done-pop"); if (e) e.parentNode.removeChild(e); printReceipt(id); },
+    rcSkip: function () { var e = document.querySelector(".done-pop"); if (e) e.parentNode.removeChild(e); },
     bell: function () { openBell(); },
     editItem: function (k) { editItem(k); },
     editSave: function (k) { editSave(k); },
@@ -969,10 +1476,12 @@ window.PhoneExt = (function () {
     init: init, tabs: tabs, tabOf: tabOf, chrome: chrome, adjust: adjust,
     afterRefresh: afterRefresh, settingsHtml: settingsHtml, saveSettings: saveSettings,
     onConfig: onConfig, onScan: onScan, back: back, acts: acts, events: events, push: push,
-    detailActs: detailActs, paintNotifState: paintNotifState,
+    detailActs: detailActs, paintNotifState: paintNotifState, bioDone: bioDone,
+    /* للاختبار */
+    __me: function () { return me; }, __can: canP, __receipt: receiptHtml,
     screens: {
       dash: paintDash, sell: paintSell, room: paintRoom, more: paintMore,
-      debts: paintDebts, alerts: paintAlerts, orders: paintOrders
+      debts: paintDebts, alerts: paintAlerts, orders: paintOrders, loc: paintLoc
     }
   };
 })();

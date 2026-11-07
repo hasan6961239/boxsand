@@ -771,6 +771,14 @@ var Sales = (function () {
       });
       var q = App.num(l.q);
       if (!hit || q <= 0) { missing.push(l.n || bc || code); return; }
+      /* طرابلس: كتاب سعره صفر سعّره موظف التلفون وقت البيع: يُحفظ سعره كما في نقطة البيع */
+      if (l.zp && App.num(l.p) > 0 && App.num(hit.it.price) <= 0 && App.isX4 && App.isX4() &&
+          (typeof Staff === "undefined" || !Staff.on() || Staff.canId(o.by, ["price_zero", "price"]))) {
+        hit.it.price = App.num(l.p);
+        hit.it.updated = App.nowStamp();
+        App.log("تسعير عند البيع", App.itemName(hit.it) + " ← " + App.money0(l.p) + " (من التلفون)");
+        if (o.by && typeof Staff !== "undefined" && Staff.stampAs) Staff.stampAs(S().log[0], o.by, device);
+      }
       lines.push({ type: hit.type, id: hit.it.id, name: App.itemName(hit.it), qty: q,
         price: App.num(l.p), cost: App.num(hit.it.cost) });
     });
@@ -799,6 +807,7 @@ var Sales = (function () {
       note: missing.length ? "لم تُسجَّل (غير موجودة هنا): " + missing.join("، ") : ""
     };
     inv.due = App.r3(Math.max(t - inv.paid, 0));
+    if (o.by && typeof Staff !== "undefined" && Staff.on && Staff.on()) Staff.stampAs(inv, o.by, inv.device);
 
     inv.items.forEach(function (l) {
       var it = App.findItem(l.type, l.id);
@@ -815,6 +824,7 @@ var Sales = (function () {
 
     S().invoices.unshift(inv);
     App.log("بيع من التلفون", "فاتورة " + inv.no + " بقيمة " + App.money0(t) + " — " + inv.device);
+    if (inv.by && typeof Staff !== "undefined" && Staff.stampAs) Staff.stampAs(S().log[0], inv.by, inv.device);
     if (typeof Notify !== "undefined") { try { Notify.afterSale(inv, beforeQty); } catch (e) { } }
     return inv;
   }

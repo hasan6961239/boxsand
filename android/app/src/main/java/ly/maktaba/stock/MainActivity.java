@@ -11,6 +11,8 @@ import android.provider.Settings;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.print.PrintAttributes;
+import android.print.PrintManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -18,10 +20,13 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import androidx.activity.ComponentActivity;
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.FragmentActivity;
 import androidx.webkit.WebViewAssetLoader;
 
 import com.journeyapps.barcodescanner.ScanContract;
@@ -34,10 +39,10 @@ import org.json.JSONObject;
    ------------------------------------------------------------
    الواجهة هي الموقع نفسه (مجلد site) محفوظاً داخل التطبيق، يُفتح
    من عنوان https محلي فيعمل التخزين والاتصال بخادم الربط كما في
-   المتصفح. التطبيق يضيف شيئين: مسح الباركود بالكاميرا، وزر الرجوع.
-   للعرض فقط: لا بيع ولا تعديل، كالموقع تماماً.
+   المتصفح. التطبيق يضيف: مسح الباركود بالكاميرا، وزر الرجوع، والإشعارات،
+   والدخول بالبصمة (طرابلس)، وطباعة إيصال البيع من نافذة الطباعة في التلفون.
    ============================================================ */
-public class MainActivity extends ComponentActivity {
+public class MainActivity extends FragmentActivity {
 
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START = "https://" + HOST + "/assets/site/index.html";
@@ -183,6 +188,43 @@ public class MainActivity extends ComponentActivity {
         if (web != null) web.post(() -> web.evaluateJavascript(code, null));
     }
 
+    private void bioDone(String id, boolean ok) {
+        js("window.PhoneExt && PhoneExt.bioDone && PhoneExt.bioDone('" + id + "'," + ok + ")");
+    }
+
+    /* إيصال البيع: صفحة صغيرة تُطبع من نافذة الطباعة في التلفون، فتعمل مع أي طابعة
+       لها خدمة طباعة في أندرويد (طابعات الإيصالات بالبلوتوث لها تطبيق خدمة طباعة) */
+    private WebView printView;
+    private void printReceipt(String html, String job) {
+        final String name = (job == null || job.isEmpty()) ? "إيصال" : job;
+        final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
+            .setDomain(HOST)
+            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+            .build();
+        WebView pv = new WebView(this);
+        pv.getSettings().setJavaScriptEnabled(false);
+        pv.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                return loader.shouldInterceptRequest(r.getUrl());
+            }
+            @Override
+            public void onPageFinished(WebView v, String url) {
+                try {
+                    PrintManager pm = (PrintManager) getSystemService(Context.PRINT_SERVICE);
+                    PrintAttributes attrs = new PrintAttributes.Builder()
+                        .setMediaSize(new PrintAttributes.MediaSize("RECEIPT_80", "إيصال 80 مم", 3150, 11690))
+                        .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                        .build();
+                    pm.print(name, v.createPrintDocumentAdapter(name), attrs);
+                } catch (Exception ignored) { }
+                printView = null;
+            }
+        });
+        printView = pv;
+        pv.loadDataWithBaseURL("https://" + HOST + "/assets/site/", html, "text/html", "utf-8", null);
+    }
+
     /* ما تستطيع الواجهة طلبه من التلفون */
     private class Bridge {
         @JavascriptInterface
@@ -199,6 +241,44 @@ public class MainActivity extends ComponentActivity {
 
         @JavascriptInterface
         public String version() { return BuildConfig.VERSION_NAME; }
+
+        /* الدخول بالبصمة (طرابلس): هل في التلفون بصمة مسجّلة؟ */
+        @JavascriptInterface
+        public String bioAvailable() {
+            try {
+                int r = BiometricManager.from(MainActivity.this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
+                return r == BiometricManager.BIOMETRIC_SUCCESS ? "yes" : "no";
+            } catch (Exception e) { return "no"; }
+        }
+
+        /* نافذة البصمة من التلفون نفسه؛ النتيجة تعود لـ PhoneExt.bioDone(id, ok) */
+        @JavascriptInterface
+        public void bioAuth(String id, String title) {
+            final String rid = String.valueOf(id).replaceAll("[^A-Za-z0-9]", "");
+            final String t = (title == null || title.isEmpty()) ? "الدخول" : title;
+            runOnUiThread(() -> {
+                try {
+                    BiometricPrompt p = new BiometricPrompt(MainActivity.this, ContextCompat.getMainExecutor(MainActivity.this),
+                        new BiometricPrompt.AuthenticationCallback() {
+                            @Override
+                            public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult r) { bioDone(rid, true); }
+                            @Override
+                            public void onAuthenticationError(int code, CharSequence msg) { bioDone(rid, false); }
+                        });
+                    p.authenticate(new BiometricPrompt.PromptInfo.Builder()
+                        .setTitle(t)
+                        .setSubtitle("ضع إصبعك على حسّاس البصمة")
+                        .setNegativeButtonText("كلمة السر")
+                        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+                        .build());
+                } catch (Exception e) { bioDone(rid, false); }
+            });
+        }
+
+        @JavascriptInterface
+        public void printHtml(String html, String job) {
+            runOnUiThread(() -> printReceipt(html, job));
+        }
 
         /* on: مسموحة · ask: لم يُسأل بعد (أندرويد 13+) · off: ممنوعة من الإعدادات */
         @JavascriptInterface

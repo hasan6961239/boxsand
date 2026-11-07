@@ -65,9 +65,59 @@ var UI = (function () {
     } catch (e) { return blank(); }
   }
 
+  /* اللقطة وحدها في IndexedDB: 61 ألف كتاب (طرابلس) نحو 10 ميجا، وlocalStorage لا يسع
+     إلا 5 ميجا تقريباً. وكانت اللقطة والفواتير التي تنتظر الإرسال في مفتاح واحد: إن امتلأ
+     لم يُحفظ شيء، فتضيع فواتير التلفون عند إغلاقه بلا إنترنت. الآن الباقي صغير في
+     localStorage، واللقطة تُكتب في IndexedDB كلما تغيّرت (snapDirty) */
+  var SNAP_DB = "maktaba_stock", dbP = null, snapDirty = false;
+  function idb() {
+    if (dbP) return dbP;
+    dbP = new Promise(function (res, rej) {
+      if (!window.indexedDB) { rej(new Error("no-idb")); return; }
+      var r = indexedDB.open(SNAP_DB, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore("kv"); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error || new Error("idb")); };
+    });
+    dbP.catch(function () { });
+    return dbP;
+  }
+  function idbDo(mode, fn) {
+    return idb().then(function (d) {
+      return new Promise(function (res, rej) {
+        var t = d.transaction("kv", mode), st = t.objectStore("kv"), out;
+        var q = fn(st);
+        if (q) q.onsuccess = function () { out = q.result; };
+        t.oncomplete = function () { res(out); };
+        t.onerror = t.onabort = function () { rej(t.error || new Error("idb")); };
+      });
+    });
+  }
+  function snapPut(v) { return idbDo("readwrite", function (st) { return st.put(v, "snap"); }); }
+  function snapGet() { return idbDo("readonly", function (st) { return st.get("snap"); }); }
+  function snapDrop() { return idbDo("readwrite", function (st) { return st.delete("snap"); }).catch(function () { }); }
+
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(S)); }
-    catch (e) { /* ذاكرة ممتلئة أو خاصة — نكمل بلا حفظ */ }
+    var snap = S.snap;
+    try {
+      localStorage.setItem(KEY, JSON.stringify(S, function (k, v) { return k === "snap" && this === S ? undefined : v; }));
+    } catch (e) { /* ذاكرة ممتلئة أو خاصة — نكمل بلا حفظ */ }
+    if (snapDirty && snap) {
+      snapDirty = false;
+      snapPut(snap).catch(function () {
+        /* بلا IndexedDB (تصفّح خاص): لقطة صغيرة تُحفظ مع الباقي كما كانت */
+        try { localStorage.setItem(KEY + "_snap", JSON.stringify(snap)); } catch (e) { }
+      });
+    }
+  }
+
+  /* عند الفتح: اللقطة من IndexedDB (أو من الحفظ القديم في localStorage فتُنقل) */
+  function loadSnap() {
+    var legacy = S.snap;
+    if (legacy) { snapDirty = true; save(); return Promise.resolve(legacy); }
+    return snapGet().then(function (v) { return v || null; }, function () {
+      try { return JSON.parse(localStorage.getItem(KEY + "_snap") || "null"); } catch (e) { return null; }
+    });
   }
 
   /* ---------- الأيقونات ----------
@@ -230,6 +280,7 @@ var UI = (function () {
       busy = false;
       if (b) b.classList.remove("spin");
       S.snap = { at: new Date().toISOString(), branches: branches };
+      snapDirty = true;
       if (X && X.afterRefresh) X.afterRefresh();
       save();
       render();
@@ -1392,7 +1443,8 @@ var UI = (function () {
   function wipe() {
     if (!window.confirm("سيُمسح العنوان وكلمة السر والنسخة المحفوظة من هذا الجهاز. متأكد؟")) return;
     S = blank();
-    try { localStorage.removeItem(KEY); } catch (e) { }
+    try { localStorage.removeItem(KEY); localStorage.removeItem(KEY + "_snap"); } catch (e) { }
+    snapDrop();
     if (X && X.onConfig) X.onConfig();
     render();
     toast("مُسح كل شيء من هذا الجهاز.");
@@ -1422,6 +1474,7 @@ var UI = (function () {
 
     fetchAll().then(function (branches) {
       S.snap = { at: new Date().toISOString(), branches: branches };
+      snapDirty = true;
       if (X && X.afterRefresh) X.afterRefresh(true);
       save();
       if (X && X.onConfig) X.onConfig();
@@ -1675,8 +1728,17 @@ var UI = (function () {
     var url = el("gUrl");
     if (url && S.cfg.url) url.value = S.cfg.url;
 
-    render();
-    if (configured()) refresh(!!S.snap);
+    /* اللقطة من IndexedDB قبل أول رسم بالبيانات: ما وصل قبل الإغلاق يظهر بلا إنترنت */
+    var started = false;
+    var start = function (snap) {
+      if (started) return;
+      started = true;
+      if (snap && !S.snap) S.snap = snap;
+      render();
+      if (configured()) refresh(!!S.snap);
+    };
+    loadSnap().then(start, function () { start(null); });
+    setTimeout(function () { start(null); }, 2500);      // IndexedDB معطّل أو عالق: لا شاشة فارغة
 
     /* عند العودة للصفحة: الأرقام القديمة أسوأ من الانتظار لحظة */
     document.addEventListener("visibilitychange", function () {

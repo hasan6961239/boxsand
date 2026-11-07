@@ -697,6 +697,124 @@ const srv = http.createServer((q,s)=>{
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 
+  // 28) طرابلس: الدخول بالموظف، البصمة، الصلاحيات، الكتاب بلا سعر، الإيصال، تسجيل الأماكن
+  {
+    const crypto = require('crypto');
+    const mk = (id, n, r, pw, extra) => { const salt = crypto.randomBytes(16).toString('hex');
+      return Object.assign({ id, n, u: '', r, s: salt, h: crypto.pbkdf2Sync(pw, Buffer.from(salt, 'hex'), 60000, 32, 'sha256').toString('hex') }, extra || {}); };
+    const br0 = PAYLOAD.branches[0], keep = { staff: br0.staff, shop: br0.shop, items: br0.items.slice() };
+    const LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    br0.staff = { staff: [mk('s1', 'المدير حسن', 'r-admin', '9876'), mk('s2', 'سالم', 'r-cashier', '1111'), mk('s3', 'موقوف', 'r-cashier', '2222', { off: 1 })],
+      roles: [{ id: 'r-admin', n: 'مدير', admin: 1 }, { id: 'r-cashier', n: 'كاشير', perms: ['sell', 'invoices', 'price_zero', 'pay'] }] };
+    br0.shop = { name: 'دار الحكمة — طرابلس', logo: LOGO, libs: ['A', 'B', 'C'] };
+    br0.items.push({ n: 'كتاب بلا سعر', b: '7000001', k: 'K0100', q: 3, p: 0, t: 'book', l: '', s: '' });
+    const cx = await b.newContext({ viewport: { width: 390, height: 844 } });
+    const tp = await cx.newPage();
+    tp.on('pageerror', e => errs.push('X4 PAGEERROR: ' + e.message));
+    tp.on('console', m => { const t = m.text(); if (/Content Security Policy|Refused to/.test(t)) errs.push('X4 CSP: ' + t.slice(0, 120)); });
+    await tp.addInitScript(() => { window.__bioOk = true; window.__bio = 0; window.__scans = 0;
+      window.AndroidApp = { scan() { window.__scans++; }, version() { return '1.4'; }, setConfig() {}, notifyStatus() { return 'on'; },
+        bioAvailable() { return 'yes'; }, bioAuth(id) { window.__bio++; setTimeout(() => PhoneExt.bioDone(id, window.__bioOk), 60); },
+        printHtml(h, j) { window.__printed = h; } }; });
+    await tp.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr'); await tp.waitForTimeout(1800);
+    ok('طرابلس: شاشة الدخول فوق التطبيق، بأسماء الموظفين (بلا الموقوف)', await tp.isVisible('#phLock') && (await tp.$$eval('.pl-tile', e => e.length)) === 2);
+    ok('وشعار المكتبة واسمها', !!(await tp.$('#phLock img.pl-logo')) && /دار الحكمة — طرابلس/.test(await tp.textContent('#phLock')));
+    if (SHOT) await tp.screenshot({ path: SHOT + 'x4-lock.png' });
+    await tp.click('.pl-tile[data-arg="s2"]'); await tp.waitForTimeout(300);
+    await tp.fill('#phPw', '0000'); await tp.press('#phPw', 'Enter'); await tp.waitForTimeout(900);
+    ok('كلمة سر غلط: يبقى القفل ويقولها', await tp.isVisible('#phLock') && /غير صحيحة/.test(await tp.textContent('#phErr')));
+    await tp.fill('#phPw', '1111'); await tp.press('#phPw', 'Enter'); await tp.waitForTimeout(1200);
+    ok('الكلمة الصحيحة (نفس المنظومة) تدخل', !(await tp.$('#phLock')) && await tp.evaluate(() => PhoneExt.__me().id) === 's2');
+    ok('ويعرض تفعيل البصمة', /الدخول بالبصمة/.test(await tp.textContent('#sheet')));
+    await tp.click('#sheet [data-act="phBioOn"]'); await tp.waitForTimeout(500);
+    ok('تفعيل البصمة يُحفظ لهذا الموظف على هذا التلفون', await tp.evaluate(() => !!(UI.S.bio && UI.S.bio.s2 && UI.S.bio.s2.k === 'a')));
+    ok('والشعار في رأس التطبيق، وزر الخروج باسمه', !!(await tp.$('#top img.brand-logo')) && !!(await tp.$('#phWho')));
+    const tabsC = await tp.$$eval('#tabs button', e => e.map(x => x.getAttribute('data-tab')));
+    ok('الكاشير: تبويب البيع موجود', tabsC.includes('sell'), tabsC.join());
+    await tp.evaluate(() => UI.go('more')); await tp.waitForTimeout(500);
+    const moreC = await tp.$$eval('.more-tile', e => e.map(x => x.getAttribute('data-arg') || x.getAttribute('data-act')));
+    ok('«المزيد» للكاشير: بلا ملخّص القيمة ولا تسجيل الأماكن، ومعه «خروج»', !moreC.includes('stats') && !moreC.includes('loc') && moreC.includes('phLogout'), moreC.join());
+
+    await tp.evaluate(() => UI.go('sell')); await tp.waitForTimeout(400);
+    await tp.evaluate(() => UI.onScan('9789991234567')); await tp.waitForTimeout(300);
+    ok('الكاشير بلا صلاحية خصم: لا خانة خصم', !(await tp.$('#sellDisc')));
+    await tp.evaluate(() => UI.onScan('7000001')); await tp.waitForTimeout(400);
+    ok('كتاب بلا سعر: يُسأل عن سعره قبل أن يدخل السلة', !!(await tp.$('#zpP')) && (await tp.$$eval('.cline', e => e.length)) === 1);
+    await tp.fill('#zpP', '15'); await tp.click('#sheet [data-act="zpOk"]'); await tp.waitForTimeout(500);
+    ok('وبعد السعر يدخل السلة به', (await tp.$$eval('.cline', e => e.length)) === 2 && /15\.00/.test(await tp.textContent('.cart')));
+    const nPut = PUTS.length;
+    await tp.click('button[data-act="checkout"]'); await tp.waitForTimeout(1200);
+    ok('بعد البيع: «طباعة الإيصال» أو «بدون طباعة»', !!(await tp.$('.done-pop [data-act="rcPrint"]')) && !!(await tp.$('.done-pop [data-act="rcSkip"]')));
+    if (SHOT) await tp.screenshot({ path: SHOT + 'x4-sold.png' });
+    await tp.click('.done-pop [data-act="rcPrint"]'); await tp.waitForTimeout(300);
+    const pr = await tp.evaluate(() => window.__printed || '');
+    ok('الطباعة: إيصال فيه الكتاب والموظف والصافي', /كتاب بلا سعر/.test(pr) && /سالم/.test(pr) && /40\.00/.test(pr), pr.slice(0, 80));
+    const sent = PUTS.slice(nPut).map(x => x.orders || []).flat().pop();
+    ok('الفاتورة تُرسل باسم الموظف، والسعر الجديد معلَّم ليُحفظ', sent && sent.by === 's2' && sent.byName === 'سالم' && sent.items.some(l => l.b === '7000001' && l.p === 15 && l.zp === 1), JSON.stringify(sent && sent.items));
+
+    await tp.evaluate(() => UI.go('more')); await tp.waitForTimeout(300);
+    await tp.click('.more-tile[data-act="phLogout"]'); await tp.waitForTimeout(900);
+    ok('«خروج»: القفل على آخر موظف، وزر البصمة (لا تُسأل وحدها: قد يدخل موظف آخر)', !!(await tp.$('#phLock [data-act="phBio"]')) && await tp.evaluate(() => window.__bio) === 1);
+    await tp.click('#phLock [data-act="phBio"]'); await tp.waitForTimeout(700);
+    ok('والبصمة الصحيحة تدخل بلا كلمة سر', !(await tp.$('#phLock')) && await tp.evaluate(() => PhoneExt.__me() && PhoneExt.__me().id) === 's2');
+
+    await tp.evaluate(() => UI.go('more')); await tp.waitForTimeout(300);
+    await tp.evaluate(() => { window.__bioOk = false; }); 
+    await tp.click('.more-tile[data-act="phLogout"]'); await tp.waitForTimeout(900);
+    await tp.click('#phLock [data-act="phPick"][data-arg=""]'); await tp.waitForTimeout(300);
+    await tp.click('.pl-tile[data-arg="s1"]'); await tp.waitForTimeout(300);
+    await tp.fill('#phPw', '9876'); await tp.press('#phPw', 'Enter'); await tp.waitForTimeout(1200);
+    await tp.evaluate(() => UI.closeSheet()); await tp.waitForTimeout(300);
+    await tp.evaluate(() => UI.go('more')); await tp.waitForTimeout(400);
+    const moreA = await tp.$$eval('.more-tile', e => e.map(x => x.getAttribute('data-arg') || x.getAttribute('data-act')));
+    ok('المدير: «تسجيل الأماكن» و«ملخّص المخزون»', moreA.includes('loc') && moreA.includes('stats'), moreA.join());
+    await tp.evaluate(() => UI.go('loc')); await tp.waitForTimeout(400);
+    await tp.selectOption('#locLib', 'B'); await tp.waitForTimeout(300);
+    await tp.click('[data-act="locShelf"][data-arg="1"]'); await tp.click('[data-act="locShelf"][data-arg="1"]'); await tp.waitForTimeout(300);
+    await tp.check('#locCount'); await tp.waitForTimeout(200);
+    await tp.evaluate(() => UI.onScan('9789991234567')); await tp.waitForTimeout(400);
+    await tp.evaluate(() => UI.onScan('9789991234567')); await tp.waitForTimeout(400);
+    if (SHOT) await tp.screenshot({ path: SHOT + 'x4-loc.png' });
+    const ed = await tp.evaluate(() => UI.S.edits.filter(e => e.loc && e.b === '9789991234567'));
+    ok('مكتبة B رف 3 مع العدّ: مسحتان = نسختان، تعديل واحد بالمكان والفرق', ed.length === 1 && ed[0].set.l === 'B' && ed[0].set.s === '3' && ed[0].set.qd === -1 && ed[0].set.cnt === 1 && ed[0].by === 's1', JSON.stringify(ed));
+    ok('والكاميرا تفتح للكتاب التالي وحدها', await tp.evaluate(() => window.__scans) >= 1);
+    await tp.waitForTimeout(1800);
+    const sentE = PUTS.map(x => x.edits || []).flat().filter(e => e.b === '9789991234567').pop();
+    ok('والتعديل يُرسل باسم المدير', sentE && sentE.by === 's1' && sentE.set.l === 'B', JSON.stringify(sentE));
+
+    br0.staff.staff[0] = mk('s1', 'المدير حسن', 'r-admin', 'jadid');
+    await tp.evaluate(() => UI.refresh(true)); await tp.waitForTimeout(1500);
+    ok('تغيّرت كلمة سر المدير في المنظومة: يخرج ويُسأل من جديد', !!(await tp.$('#phLock')));
+    await cx.close();
+    br0.staff = keep.staff; br0.shop = keep.shop; br0.items = keep.items;
+  }
+
+  // 29) لقطة كبيرة (61 ألف كتاب كطرابلس): تُحفظ وتفتح بلا إنترنت، والفواتير المنتظرة لا تضيع
+  {
+    const big = [];
+    for (let i = 0; i < 61000; i++) big.push({ n: 'كتاب رقم ' + i + ' في علم من العلوم', a: 'مؤلف ' + (i % 900), b: String(9780000000000 + i), c: 'تخصص ' + (i % 40), k: 'K' + i, q: i % 7, p: 10 + (i % 50), t: 'book', l: 'ABCDEFG'[i % 7], s: String(1 + i % 6), d: 'دار نشر ' + (i % 120) });
+    const br0 = PAYLOAD.branches[0], keepItems = br0.items;
+    br0.items = br0.items.concat(big);
+    const cx = await b.newContext({ viewport: { width: 390, height: 844 } });
+    const tp = await cx.newPage();
+    tp.on('pageerror', e => errs.push('BIG PAGEERROR: ' + e.message));
+    await tp.addInitScript(() => { window.AndroidApp = { scan() {}, version() { return '1.4'; }, setConfig() {} }; });
+    await tp.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr'); await tp.waitForTimeout(5000);
+    const n1 = await tp.evaluate(() => UI.items().length);
+    ok('61 ألف كتاب تصل التلفون', n1 > 61000, n1);
+    await tp.evaluate(() => { UI.go('sell'); UI.onScan('9780000000005'); }); await tp.waitForTimeout(400);
+    await tp.click('button[data-act="checkout"]'); await tp.waitForTimeout(500);
+    /* خادم الربط لا يُوصل (الواجهة نفسها في التلفون: ملفات التطبيق) */
+    await tp.waitForTimeout(800);
+    await cx.route(/\/w\/(all|put)/, r => r.abort('internetdisconnected'));
+    await tp.reload({ waitUntil: 'domcontentloaded' }); await tp.waitForTimeout(4000);
+    const after = await tp.evaluate(() => ({ n: UI.items().length, orders: (UI.S.orders || []).length, ls: (localStorage.getItem('maktaba_stock_v2') || '').length }));
+    ok('بلا إنترنت بعد إعادة الفتح: الكتب كلها من ذاكرة التلفون (IndexedDB)', after.n === n1, JSON.stringify(after));
+    ok('والفاتورة التي تنتظر الإرسال باقية، وما في localStorage صغير', after.orders >= 1 && after.ls < 200000, JSON.stringify(after));
+    await cx.close();
+    br0.items = keepItems;
+  }
+
   const plainCam = await pg.$('#qcam');
   ok('في المتصفح العادي لا زر كاميرا', !plainCam);
 
