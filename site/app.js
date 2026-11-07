@@ -747,8 +747,9 @@ var UI = (function () {
     var pls = places();
     var nameEl = el("shopName"), fresh = el("freshLine");
     var brs = pls.filter(function (p) { return p.kind === "branch"; });
-    var main = brs.filter(function (p) { return S.cfg.branch && p.key === "b:" + S.cfg.branch; })[0] || brs[0];
-    if (nameEl) nameEl.textContent = (main && main.name) || "مخزون المكتبة";
+    var main = S.cfg.branch ? brs.filter(function (p) { return p.key === "b:" + S.cfg.branch; })[0] : brs[0];
+    /* فرع التطبيق لم يُربط بعد: اسم التطبيق نفسه (عنوان الصفحة)، لا اسم فرع آخر */
+    if (nameEl) nameEl.textContent = (main && main.name) || (S.cfg.branch ? document.title : "") || "مخزون المكتبة";
 
     if (!fresh) return;
     if (!S.snap) { fresh.textContent = "جارٍ الاتصال…"; fresh.className = ""; return; }

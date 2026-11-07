@@ -87,8 +87,16 @@ window.PhoneExt = (function () {
   }
   function main() {
     var real = realBranches(), want = S().cfg && S().cfg.branch;
-    var mine = want ? real.filter(function (b) { return b.branch && String(b.branch.id).toLowerCase() === want; })[0] : null;
-    return mine || real.filter(function (b) { return b.dash; })[0] || real[0] || null;
+    if (want) {
+      /* فرع هذا التلفون محدّد ولم يصل بعد (منظومته لم تُربط): لا يُؤخذ فرع آخر مكانه،
+         وإلا باع تلفون طرابلس لمصراتة */
+      return real.filter(function (b) { return b.branch && String(b.branch.id).toLowerCase() === want; })[0] || null;
+    }
+    return real.filter(function (b) { return b.dash; })[0] || real[0] || null;
+  }
+  function missingBranch() {
+    var want = S().cfg && S().cfg.branch;
+    return want && S().snap && !main() ? want : "";
   }
   function cur() { var m = main(); return (m && m.dash && m.dash.cur) || "د.ل"; }
   function localToday() {
@@ -244,7 +252,7 @@ window.PhoneExt = (function () {
     if (canP(["debts", "pay"])) tiles.push({ a: "debts", i: "users", t: "الزبائن والديون", s: nDebt ? money(debt) + " على " + nDebt + " زبون" : "لا ديون", c: nDebt ? "warn" : "" });
     tiles.push({ a: "alerts", i: "alert", t: "التنبيهات والراكد", s: nAl + " تنبيه · " + al.slow.length + " راكد", c: nAl ? "bad" : "" });
     if (!staffInfo() || canP("profits")) tiles.push({ a: "stats", i: "grid", t: "ملخّص المخزون", s: "القيمة والتصنيفات" });
-    if (inApp && shop() && canP(["items", "count"])) tiles.push({ a: "loc", i: "pin", t: "تسجيل الأماكن", s: "مكتبة ورف، ثم امسح الكتب" });
+    if (inApp && shop() && canP(["items", "count"]) && !missingBranch()) tiles.push({ a: "loc", i: "pin", t: "تسجيل الأماكن", s: "مكتبة ورف، ثم امسح الكتب" });
     if (inApp) tiles.push({ a: "orders", i: "phone2", t: "مبيعات هذا التلفون", s: S().orders.length + " فاتورة" });
     tiles.push({ a: "settings", i: "gear", t: "الإعدادات", s: "الربط والإشعارات" });
     if (me && staffInfo()) tiles.push({ a: "phLogout", i: "lock", t: "خروج", s: me.n, act: 1 });
@@ -357,6 +365,7 @@ window.PhoneExt = (function () {
   function paintSell() {
     var v = el("view"), s = S(), m = main();
     if (!canP("sell")) { v.innerHTML = A.emptyBox("lock", "البيع ليس من صلاحياتك", "اطلب من المدير صلاحية البيع."); el("foot").innerHTML = ""; return; }
+    if (missingBranch()) { v.innerHTML = A.emptyBox("alert", "البيع ينتظر ربط الفرع", "فرع هذا التطبيق لم يصل من خادم الربط بعد."); el("foot").innerHTML = ""; return; }
     var cart = s.cart, sub = subtotal(), disc = discNow(), tot = r3(sub - disc);
     var stopped = m && m.phoneSell === false;
     var h = "";
@@ -482,6 +491,7 @@ window.PhoneExt = (function () {
   function checkout() {
     var s = S(), m = main();
     if (!s.cart.length) return;
+    if (!m) { A.toast("فرع هذا التطبيق لم يُربط بعد — لا يُرسل البيع.", "warn"); return; }
     var method = s.sell.method;
     var cust = null;
     if (method === "credit") {
@@ -685,6 +695,7 @@ window.PhoneExt = (function () {
     if (!top) return;
     brand();
     paintLock();
+    paintMissing();
     var b = el("btnBell");
     if (!b) {
       b = document.createElement("button");
@@ -773,7 +784,7 @@ window.PhoneExt = (function () {
      تعديل صنف من التلفون (داخل التطبيق)
      ============================================================ */
   function detailActs(g) {
-    if (!inApp || !canP(["items", "price", "goods", "count"])) return "";
+    if (!inApp || !canP(["items", "price", "goods", "count"]) || missingBranch()) return "";
     var pe = S().edits.filter(function (e) { return e.status === "pending" && ((e.b && e.b === g.b) || (!e.b && e.k === g.code)); }).length;
     return '<div class="det-edit">' +
       (pe ? '<span class="tag a">' + ico("clock", 11) + " تعديل بانتظار الكمبيوتر</span>" : "") +
@@ -1194,6 +1205,21 @@ window.PhoneExt = (function () {
   function onVisible() {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     if (me && staffInfo() && hiddenAt && Date.now() - hiddenAt > LOCK_AWAY) { me = null; bioAuto = true; A.render(); }
+  }
+
+  /* فرع التلفون لم يصل من خادم الربط: سطر واضح تحت الرأس */
+  function paintMissing() {
+    var miss = missingBranch(), box = el("phMiss");
+    if (!miss) { if (box) box.parentNode.removeChild(box); return; }
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "phMiss"; box.className = "warnbox ph-miss";
+      var top = el("top");
+      top.parentNode.insertBefore(box, top.nextSibling);
+    }
+    box.innerHTML = ico("alert", 18) + "<div><b>فرع هذا التطبيق (" + esc(miss) + ") لم يُربط بعد</b>" +
+      "<span>شغّل منظومة الفرع على الكمبيوتر واربطها بخادم الربط (الإعدادات ← الأجهزة والفروع)، ثم اضغط تحديث. " +
+      "إلى ذلك الحين: البيع والتعديل موقوفان، والمعروض مخزون الفروع المربوطة.</span></div>";
   }
 
   /* الاسم والشعار في رأس التطبيق (طرابلس) */

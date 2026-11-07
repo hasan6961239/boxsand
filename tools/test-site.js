@@ -843,6 +843,13 @@ const srv = http.createServer((q,s)=>{
     await tp2.click('button[data-act="checkout"]'); await tp2.waitForTimeout(1200);
     const o = PUTS.slice(n0).map(x => x.orders || []).flat().pop();
     ok('رابط التهيئة بـ b=tripoli: البيع يذهب لطرابلس باسم موظفها، والرأس باسم طرابلس', o && o.to === 'tripoli' && o.by === 't1' && /طرابلس/.test(await tp2.textContent('#shopName')), JSON.stringify(o && { to: o.to, by: o.by }));
+    const tp3 = await cx.newPage();
+    await tp3.addInitScript(() => { localStorage.clear(); window.AndroidApp = { scan() {}, version() { return '1.4'; }, setConfig() {}, bioAvailable() { return 'no'; } }; });
+    await tp3.goto('http://127.0.0.1:18800/#u=http%3A%2F%2F127.0.0.1%3A18800%2Fw&k=sirr&b=benghazi'); await tp3.waitForTimeout(1500);
+    const miss = await tp3.evaluate(() => ({ box: !!document.getElementById('phMiss'), name: document.getElementById('shopName').textContent }));
+    ok('فرع التطبيق لم يُربط بعد: سطر يقولها، ولا يأخذ اسم فرع آخر', miss.box && !/دار الحكمة|طرابلس/.test(miss.name), JSON.stringify(miss));
+    await tp3.evaluate(() => UI.go('sell')); await tp3.waitForTimeout(400);
+    ok('والبيع موقوف حتى يُربط', /ينتظر ربط الفرع/.test(await tp3.textContent('#view')));
     await cx.close();
     PAYLOAD.branches[1] = JSON.parse(keepT);
   }
