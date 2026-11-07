@@ -222,7 +222,7 @@ var Sales = (function () {
   function clear() {
     if (!cart.length) return;
     App.confirm("سيتم إلغاء الفاتورة الحالية وكل أصنافها.", function () {
-      cart = []; discount = 0; paid = 0; method = "cash"; customerId = "";
+      cart = []; discount = 0; paid = 0; method = "cash"; customerId = ""; discOk = false;
       paint(); focusScan();
     }, { danger: true, yes: "إلغاء الفاتورة" });
   }
@@ -452,7 +452,15 @@ var Sales = (function () {
     host.innerHTML = h;
   }
 
+  /* X4: الخصم بإذن لمن ليس من صلاحياته؛ الإذن يبقى لهذه الفاتورة وحدها */
+  var discOk = false;
   function setDiscount(v) {
+    if (App.num(v) > 0 && !discOk && !App.can("discount")) {
+      var d0 = document.getElementById("tDisc");
+      if (d0) d0.value = App.num(discount);
+      App.allow("discount", function () { discOk = true; setDiscount(v); });
+      return;
+    }
     var want = App.num(v), cap = subtotal();
     discount = Math.min(Math.max(want, 0), cap);
     if (want > cap) App.toast("الخصم لا يتجاوز مجموع الفاتورة (" + App.money0(cap) + ").", "warn");
@@ -524,6 +532,10 @@ var Sales = (function () {
       body: body,
       actions: [
         { label: "احفظ السعر وكمّل البيع", kind: "primary", click: function (close, ov) {
+          if (!App.can("price_zero") && !App.can("price")) {
+            App.allow("price_zero", function () { ov.querySelector(".m-foot .btn.primary").click(); });
+            return;
+          }
           var vals = lines.map(function (l, i) { return App.r3(App.num(App.digits(ov.querySelector("#zp" + i).value))); });
           var miss = vals.filter(function (v) { return !(v > 0); }).length;
           if (miss) { App.toast(miss === lines.length ? "اكتب السعر، أو اختر «بيعه مجاناً»." : "اكتب سعر كل صنف، أو اختر «بيعه مجاناً».", "warn"); return; }
@@ -695,6 +707,8 @@ var Sales = (function () {
       paid: method === "credit" ? Math.min(App.num(paid), t) : t
     };
     inv.due = App.r3(Math.max(t - inv.paid, 0));
+    if (typeof Staff !== "undefined") Staff.stamp(inv);       // X4: الموظف والجهاز
+    discOk = false;
 
     // خصم المخزون + تسجيل ما بِيع من الكتب على المباع
     var fromStore = [];
@@ -958,6 +972,7 @@ var Sales = (function () {
   function deleteInvoice(id) {
     var v = getInvoice(id);
     if (!v) return;
+    if (!App.allow("delete", function () { deleteInvoice(id); })) return;
 
     /* فاتورة عليها إرجاع: «أرجعها للمخزون» كان يعيد الكمية المباعة كلها،
        والمُرجَع منها عاد للمخزون من قبل ⇦ نسخ وهمية. ويبقى الإرجاع معلّقاً
@@ -1011,6 +1026,7 @@ var Sales = (function () {
   function editInvoice(id) {
     var v = getInvoice(id);
     if (!v) return;
+    if (!App.allow("invoice_edit", function () { editInvoice(id); })) return;
     /* نافذة التعديل مبنية للبيع وحده. على فاتورة إرجاع كانت تقلب الإشارة:
        إرجاعٌ لقطعتين عُدّل إلى قطعة صار «بيعاً» بـ+50، وزاد المخزون
        قطعتين من العدم. وتعديل بيعٍ عليه إرجاع يُفسد المُرجع بالطريقة نفسها. */
@@ -1317,6 +1333,7 @@ var Sales = (function () {
     var v = getInvoice(id);
     if (!v) return;
     if (v.kind === "return") { App.toast("هذه عملية إرجاع — لا يُرجع منها.", "warn"); return; }
+    if (!App.allow("return", function () { startReturn(id); })) return;
     var back = returnedQty(v);
     var left = v.items.map(function (l) {
       return Math.max(App.num(l.qty) - App.num(back[l.type + ":" + l.id]), 0);

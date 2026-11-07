@@ -56,7 +56,7 @@ function buildEngine(dir, edition) {
   for (const [f, n] of [['app/index.html', 'index.html'], ['app/styles.css', 'styles.css'], [png, 'icon.png'], ['cloud/worker.js', 'worker.js']]) {
     res.push('-resource:' + path.join(ROOT, f) + ',' + n);
   }
-  for (const m of ['jsbarcode', 'core', 'inventory', 'branches', 'notify', 'consign', 'count', 'sales', 'people', 'stale', 'labels', 'reports']) {
+  for (const m of ['jsbarcode', 'core', 'inventory', 'branches', 'notify', 'consign', 'count', 'sales', 'people', 'stale', 'labels', 'staff', 'reports']) {
     res.push('-resource:' + path.join(ROOT, 'app', 'js', m + '.js') + ',js/' + m + '.js');
   }
   for (const f of fs.readdirSync(path.join(ROOT, 'app', 'v4'))) {

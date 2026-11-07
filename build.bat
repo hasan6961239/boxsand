@@ -54,7 +54,7 @@ set RES=!RES! /resource:app\styles.css,styles.css
 set RES=!RES! /resource:!PNG!,icon.png
 REM كود الـWorker يُنسخ من داخل البرنامج، فيبقى أصلاً واحداً لا نسختين
 set RES=!RES! /resource:cloud\worker.js,worker.js
-for %%f in (jsbarcode core inventory branches notify consign count sales people stale labels reports) do (
+for %%f in (jsbarcode core inventory branches notify consign count sales people stale labels staff reports) do (
   set RES=!RES! /resource:app\js\%%f.js,js/%%f.js
 )
 REM واجهة 4.0 (قرار 0021): كل ما في app\v4 باسم v4/<الملف>

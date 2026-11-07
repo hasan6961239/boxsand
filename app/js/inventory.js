@@ -455,6 +455,11 @@ var Inv = (function () {
         { k: "note", label: "ملاحظة", type: "textarea", full: true }
       ],
       onSave: function (v) {
+        /* X4: تعديل السعر لمن ليس من صلاحياته لا يُحفظ، والباقي يُحفظ */
+        if (b && !App.can("price") && ["price", "priceW", "cost"].some(function (k) { return App.num(v[k]) !== App.num(b[k]); })) {
+          ["price", "priceW", "cost"].forEach(function (k) { v[k] = b[k]; });
+          App.toast("تعديل الأسعار يحتاج صلاحية — حُفظ الباقي والأسعار كما كانت.", "warn");
+        }
         // لا أسعار ولا كميات سالبة
         ["cost", "price", "priceW", "qty", "min"].forEach(function (k) {
           if (App.num(v[k]) < 0) v[k] = 0;
@@ -1209,6 +1214,11 @@ var Inv = (function () {
         { k: "note", label: "ملاحظة", type: "textarea", full: true }
       ],
       onSave: function (v) {
+        /* X4: تعديل السعر لمن ليس من صلاحياته لا يُحفظ، والباقي يُحفظ */
+        if (p && !App.can("price") && ["price", "priceW", "cost"].some(function (k) { return App.num(v[k]) !== App.num(p[k]); })) {
+          ["price", "priceW", "cost"].forEach(function (k) { v[k] = p[k]; });
+          App.toast("تعديل الأسعار يحتاج صلاحية — حُفظ الباقي والأسعار كما كانت.", "warn");
+        }
         ["cost", "price", "priceW", "qty", "min"].forEach(function (k) {
           if (App.num(v[k]) < 0) v[k] = 0;
         });
@@ -1256,6 +1266,7 @@ var Inv = (function () {
   function del(type, id) {
     var it = App.findItem(type, id);
     if (!it) return;
+    if (!App.allow("delete", function () { del(type, id); })) return;
     App.confirm("سيُحذف «" + App.itemName(it) + "» نهائياً من المخزون. الفواتير القديمة تبقى كما هي.",
       function () {
         var a = App.listOf(type);

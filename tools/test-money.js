@@ -535,6 +535,100 @@ const check = (name, ok, got) => {
     await p2.close();
   }
 
+  /* ------ X4 (طرابلس): الموظفون والصلاحيات والسجلات ------ */
+  console.log('\n[م] X4: الموظفون والدخول والصلاحيات والسجلات');
+  {
+    const pg = await fresh();
+    const navKeys = () => pg.evaluate(() => [...document.querySelectorAll('#nav .nav-item')].map(b => b.dataset.k));
+    check('مصراتة: لا صفحات موظفين في الشريط', !(await navKeys()).includes('staff'));
+    await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); App.rebuildNav(); });
+    const nk0 = await navKeys();
+    check('طرابلس: «الموظفون» و«السجلات» و«الأجهزة» في الشريط، وقبل التفعيل كل شيء كما كان',
+      ['staff', 'logs', 'devices', 'settings', 'profits'].every(k => nk0.includes(k)), nk0.join(','));
+    await pg.evaluate(() => { location.hash = '#/staff'; App.route(); }); await sleep(300);
+    await pg.evaluate(() => Staff.setup()); await sleep(300);
+    await pg.fill('#f_name', 'المدير حسن'); await pg.fill('#f_pw', '9876'); await pg.fill('#f_pw2', '9876');
+    await clickModal(pg, 'فعّل'); await sleep(900);
+    const code = await pg.evaluate(() => { const el = [...document.querySelectorAll('#modalHost .num')].pop(); return el ? el.textContent.trim() : ''; });
+    const st = await S(pg, () => ({ on: App.S.meta.staffOn, n: App.S.staff.length, roles: App.S.roles.length, plain: JSON.stringify(App.S.staff).indexOf('9876') >= 0, hash: (App.S.staff[0].hash || '').length }));
+    check('التفعيل: حساب المدير بلا كلمة سر مكتوبة (بصمتها فقط)، و4 أدوار، ورمز استرجاع', st.on && st.n === 1 && st.roles === 4 && !st.plain && st.hash === 64 && /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code), JSON.stringify(st) + ' ' + code);
+    await clickModal(pg, 'كتبته');
+
+    await pg.evaluate(() => Staff.edit()); await sleep(300);
+    await pg.fill('#f_name', 'سالم الكاشير'); await pg.selectOption('#f_role', 'r-cashier'); await pg.fill('#f_pw', '1111');
+    await clickModal(pg, 'حفظ'); await sleep(700);
+    check('موظف جديد بدور كاشير', await S(pg, () => App.S.staff.some(p => p.name === 'سالم الكاشير' && p.role === 'r-cashier' && p.hash)));
+
+    await pg.evaluate(() => Staff.lock()); await sleep(400);
+    check('القفل: شاشة الدخول بأسماء الموظفين', await S(pg, () => document.querySelectorAll('.staff-lock .staff-tile').length) === 2);
+    const cashier = await S(pg, () => App.S.staff.find(p => p.role === 'r-cashier').id);
+    await pg.evaluate(id => Staff.pick(id), cashier); await sleep(200);
+    await pg.fill('#stPw', '0000'); await pg.keyboard.press('Enter'); await sleep(700);
+    check('كلمة سر غلط: لا دخول، ويُسجَّل «دخول فاشل»', !!(await pg.$('.staff-lock')) && await S(pg, () => App.S.log.some(l => l.action === 'دخول فاشل')));
+    await pg.fill('#stPw', '1111'); await pg.keyboard.press('Enter'); await sleep(800);
+    const nk = await navKeys();
+    check('الكاشير دخل: يرى البيع، ولا يرى الإعدادات ولا الأرباح ولا الموظفين', !(await pg.$('.staff-lock')) && nk.includes('pos') && !nk.includes('settings') && !nk.includes('profits') && !nk.includes('staff'), nk.join(','));
+    check('واسمه في الشريط العلوي', (await S(pg, () => (document.getElementById('whoChip') || {}).textContent || '')).indexOf('سالم الكاشير') >= 0);
+    await pg.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(300);
+    check('فتح الإعدادات بالرابط يرجعه لصفحة مسموحة', await S(pg, () => location.hash) !== '#/settings', await S(pg, () => location.hash));
+
+    let v = await sell(pg, [['b1', 1]], 0, 'cash');
+    check('الفاتورة باسم الكاشير والجهاز', v && v.byName === 'سالم الكاشير' && !!v.dev, JSON.stringify(v && { b: v.byName, d: v.dev }));
+    await pg.evaluate(id => Sales.deleteInvoice(id), v.id); await sleep(400);
+    check('الحذف ليس من صلاحياته: يُطلب إذن', (await S(pg, () => document.getElementById('modalHost').textContent)).indexOf('يحتاج إذن') >= 0);
+    await pg.fill('#f_pw', '1234'); await clickModal(pg, 'أذنت'); await sleep(600);
+    check('إذن بكلمة سر غلط: النافذة باقية والفاتورة باقية', (await S(pg, () => document.getElementById('modalHost').textContent)).indexOf('يحتاج إذن') >= 0 && await S(pg, () => App.S.invoices.length) === 1);
+    await pg.fill('#f_pw', '9876'); await clickModal(pg, 'أذنت'); await sleep(600);
+    const hostTxt = await S(pg, () => document.getElementById('modalHost').textContent);
+    check('بإذن المدير يكمل الحذف (نافذة تأكيد الحذف)، ويُسجَّل الإذن', hostTxt.indexOf('يحتاج إذن') < 0 && await S(pg, () => App.S.log.some(l => l.action === 'إذن' && l.detail.indexOf('المدير حسن') >= 0 && l.detail.indexOf('سالم الكاشير') >= 0)), hostTxt.slice(0, 120));
+    await pg.evaluate(() => { document.getElementById('modalHost').innerHTML = ''; });
+    await pg.evaluate(id => Sales.deleteInvoice(id), v.id); await sleep(400);
+    check('والإذن لمرة واحدة: المرة الثانية تسأل من جديد', (await S(pg, () => document.getElementById('modalHost').textContent)).indexOf('يحتاج إذن') >= 0);
+    await pg.evaluate(() => { document.getElementById('modalHost').innerHTML = ''; });
+
+    await pg.evaluate(() => Inv.editBook('b1')); await sleep(400);
+    await pg.fill('#f_price', '99'); await pg.fill('#f_title', 'كتاب أ — معدّل');
+    await clickModal(pg, 'حفظ'); await sleep(500);
+    const b1 = await S(pg, () => App.S.books.find(b => b.id === 'b1'));
+    check('تعديل السعر ليس من صلاحيات الكاشير: السعر كما هو والعنوان تغيّر', b1.price === 50 && b1.title === 'كتاب أ — معدّل', JSON.stringify({ p: b1.price, t: b1.title }));
+
+    const lg = await S(pg, () => App.S.log.slice(0, 30));
+    check('كل حركة في السجل باسم الموظف والجهاز', lg.filter(l => l.action !== 'دخول فاشل').slice(0, 5).every(l => l.byName && l.dev), JSON.stringify(lg.slice(0, 3)));
+
+    await pg.evaluate(() => Staff.lock()); await sleep(300);
+    const admin = await S(pg, () => App.S.staff.find(p => p.role === 'r-admin').id);
+    await pg.evaluate(id => Staff.pick(id), admin); await sleep(200);
+    await pg.fill('#stPw', '9876'); await pg.keyboard.press('Enter'); await sleep(800);
+    const nk2 = await navKeys();
+    check('المدير يرى كل الصفحات', ['settings', 'profits', 'staff', 'logs', 'devices'].every(k => nk2.includes(k)), nk2.join(','));
+    await pg.evaluate(() => { location.hash = '#/logs'; App.route(); }); await sleep(400);
+    await pg.evaluate(() => Staff.setLF('who', 'سالم الكاشير')); await sleep(300);
+    const who = await S(pg, () => [...document.querySelectorAll('#lgList tbody tr')].map(tr => tr.children[3].textContent.trim()));
+    check('السجلات: تصفية بالموظف', who.length >= 3 && who.every(w => w === 'سالم الكاشير'), JSON.stringify(who));
+    await pg.evaluate(() => Staff.setLF('who', ''));
+    await pg.evaluate(() => { location.hash = '#/devices'; App.route(); }); await sleep(400);
+    await pg.fill('#dvName', 'كاشير الدور الأرضي'); await pg.evaluate(() => Staff.saveDevName()); await sleep(300);
+    v = await sell(pg, [['b1', 1]], 0, 'cash');
+    check('اسم الجهاز يظهر في الفواتير', v.dev === 'كاشير الدور الأرضي' && v.byName === 'المدير حسن', JSON.stringify({ d: v.dev, b: v.byName }));
+    await pg.evaluate(() => { location.hash = '#/devices'; App.route(); }); await sleep(400);
+    check('صفحة الأجهزة: الجهاز وآخر نشاطه', (await S(pg, () => document.getElementById('view').textContent)).indexOf('كاشير الدور الأرضي') >= 0);
+
+    await pg.evaluate(() => App.saveNow()); await sleep(600);
+    await pg.reload({ waitUntil: 'domcontentloaded' });
+    await pg.waitForFunction(() => window.App && App.S && App.S.books && window.Staff, null, { timeout: 30000 });
+    await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); Staff.boot(); }); await sleep(500);
+    check('بعد إعادة الفتح: يسأل عن الدخول من جديد', !!(await pg.$('.staff-lock')));
+    await pg.evaluate(() => Staff.pick(App.S.staff.find(p => p.role === 'r-admin').id)); await sleep(200);
+    await pg.evaluate(() => Staff.forgot(App.S.staff.find(p => p.role === 'r-admin').id)); await sleep(300);
+    await pg.fill('#f_code', 'AAAA-BBBB-CCCC'); await pg.fill('#f_pw', '5555'); await pg.fill('#f_pw2', '5555');
+    await clickModal(pg, 'حفظ'); await sleep(700);
+    check('رمز استرجاع غلط: لا تتغيّر', await S(pg, () => App.S.log.some(l => l.action === 'استرجاع فاشل')));
+    await pg.fill('#f_code', code.toLowerCase()); await clickModal(pg, 'حفظ'); await sleep(900);
+    await pg.fill('#stPw', '5555'); await pg.keyboard.press('Enter'); await sleep(800);
+    check('برمز الاسترجاع: كلمة سر جديدة للمدير ويدخل بها', !(await pg.$('.staff-lock')) && await S(pg, () => App.S.log.some(l => l.action === 'استرجاع كلمة سر')));
+    await pg.close();
+  }
+
   console.log('\nأخطاء JavaScript:', errs.length ? [...new Set(errs)] : 'لا شيء');
   if (errs.length) fail++;
   console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));

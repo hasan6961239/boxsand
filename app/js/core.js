@@ -82,7 +82,7 @@ var App = (function () {
     for (var c in b.counters) { if (typeof s.counters[c] !== "number") s.counters[c] = b.counters[c]; }
     ["books", "stationery", "customers", "suppliers", "invoices", "payments", "purchases", "log",
       "remotes", "warehouses", "outbox",
-      "consignors", "consignments", "consPayments", "closings", "publishers", "counts", "supPayments"]
+      "consignors", "consignments", "consPayments", "closings", "publishers", "counts", "supPayments", "staff", "roles"]
       .forEach(function (k) { if (!Array.isArray(s[k])) s[k] = []; });
     return s;
   }
@@ -695,6 +695,9 @@ var App = (function () {
   /* أيقونات SVG — أوضح من الرموز النصية وتتلوّن مع الثيم */
   var ICONS = {
     dash: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
+    shield: "M12 2l8 3v6c0 5-3.4 9.2-8 11-4.6-1.8-8-6-8-11V5l8-3zm-3 10l2 2 4-4",
+    logs: "M5 3h14v18H5V3zm3 5h8M8 12h8M8 16h5",
+    device: "M3 4h18v12H3V4zm5 17h8M12 16v5",
     pos: "M3 3h2l.4 2M7 13h10l3-8H5.4M7 13L5.4 5M7 13l-2 4h13M9 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z",
     invoice: "M6 2h9l5 5v15H6V2zm9 0v5h5M9 12h8M9 16h8M9 8h3",
     stocktake: "M9 3h6v3H9V3zM7 5H5v16h14V5h-2M8.5 11.5l1.5 1.5 3-3M8.5 16.5l1.5 1.5 3-3",
@@ -1179,8 +1182,21 @@ var App = (function () {
   }
 
   function log(action, detail) {
-    S.log.unshift({ id: uid(), at: nowStamp(), action: action, detail: detail || "" });
-    if (S.log.length > 3000) S.log.length = 3000;
+    var e = { id: uid(), at: nowStamp(), action: action, detail: detail || "" };
+    /* X4: باسم الموظف والجهاز، والسجل أطول (لا يُحذف من الشاشة) */
+    if (typeof Staff !== "undefined") Staff.stamp(e);
+    S.log.unshift(e);
+    var cap = isX4() ? 20000 : 3000;
+    if (S.log.length > cap) S.log.length = cap;
+  }
+
+  /* ---------- الصلاحيات (X4، staff.js) ----------
+     قبل تفعيل الموظفين، وفي مصراتة: كل شيء مسموح كما كان */
+  function can(perm) { return typeof Staff === "undefined" || Staff.can(perm); }
+  function allow(perm, retry) { return typeof Staff === "undefined" || Staff.allow(perm, retry); }
+  function pageOk(p) {
+    if (p.x4 && !isX4()) return false;
+    return !p.perm || can(p.perm);
   }
 
   /* ---------- الأصناف ---------- */
@@ -1335,6 +1351,13 @@ var App = (function () {
   /* ---------- النوافذ ---------- */
 
   var modalStack = [];
+
+  /* أعلى نافذة مفتوحة تُغلق (كزر ✕) */
+  function closeTop() {
+    var ov = modalStack[modalStack.length - 1];
+    var x = ov && ov.querySelector("[data-x]");
+    if (x) x.click();
+  }
 
   function modal(opts) {
     var host = document.getElementById("modalHost");
@@ -1879,30 +1902,41 @@ var App = (function () {
     { g: "البيع" },
     { k: "dash", t: "لوحة اليوم", ic: "dash", f: function () { return Rep.dashboard(); },
       after: function () { countUp(document.getElementById("view")); } },
-    { k: "pos", t: "نقطة البيع", ic: "pos", f: function () { return Sales.pos(); } },
-    { k: "invoices", t: "الفواتير", ic: "invoice", f: function () { return Sales.invoices(); } },
-    { k: "stocktake", t: "الجرد", ic: "stocktake", f: function () { return Rep.stockHub(); } },
+    { k: "pos", perm: "sell", t: "نقطة البيع", ic: "pos", f: function () { return Sales.pos(); } },
+    { k: "invoices", perm: "invoices", t: "الفواتير", ic: "invoice", f: function () { return Sales.invoices(); } },
+    { k: "stocktake", perm: ["sell", "count"], t: "الجرد", ic: "stocktake", f: function () { return Rep.stockHub(); } },
     { g: "المخزون" },
-    { k: "stock", t: "المخزون والفروع", ic: "boxes", f: function () { return Stock.page(); }, badge2: true },
-    { k: "purchases", t: "إدخال بضاعة", ic: "goods", f: function () { return Inv.goods(); } },
-    { k: "alerts", t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true, badge6: true },
-    { k: "stale", t: "البضاعة الراكدة", ic: "stale", f: function () { return Stale.page(); }, badge4: true },
-    { k: "labels", t: "طباعة اللاصقات", ic: "tag", f: function () { return Labels.page(); }, badge5: true },
+    { k: "stock", perm: "stock", t: "المخزون والفروع", ic: "boxes", f: function () { return Stock.page(); }, badge2: true },
+    { k: "purchases", perm: ["items", "goods"], t: "إدخال بضاعة", ic: "goods", f: function () { return Inv.goods(); } },
+    { k: "alerts", perm: ["goods", "items"], t: "التنبيهات", ic: "bell", f: function () { return Inv.alerts(); }, badge: true, badge6: true },
+    { k: "stale", perm: "stale", t: "البضاعة الراكدة", ic: "stale", f: function () { return Stale.page(); }, badge4: true },
+    { k: "labels", perm: "labels", t: "طباعة اللاصقات", ic: "tag", f: function () { return Labels.page(); }, badge5: true },
     { g: "الحسابات" },
-    { k: "customers", t: "الزبائن والديون", ic: "people", f: function () { return People.customers(); } },
-    { k: "consign", t: "كتب على المباع", ic: "consign", f: function () { return Consign.page(); }, badge3: true },
-    { k: "suppliers", t: "الموردون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
+    { k: "customers", perm: ["debts", "pay"], t: "الزبائن والديون", ic: "people", f: function () { return People.customers(); } },
+    { k: "consign", perm: "consign", t: "كتب على المباع", ic: "consign", f: function () { return Consign.page(); }, badge3: true },
+    { k: "suppliers", perm: "debts", t: "الموردون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
     { g: "أخرى" },
-    { k: "profits", t: "الأرباح والتقارير", ic: "chart", f: function () { return Rep.profits(); } },
-    { k: "notify", t: "الإشعارات", ic: "signal", f: function () { return Notify.page(); } },
-    { k: "settings", t: "الإعدادات", ic: "gear", f: function () { return Rep.settings(); } }
+    { k: "profits", perm: "profits", t: "الأرباح والتقارير", ic: "chart", f: function () { return Rep.profits(); } },
+    { k: "notify", perm: "settings", t: "الإشعارات", ic: "signal", f: function () { return Notify.page(); } },
+    { k: "settings", perm: "settings", t: "الإعدادات", ic: "gear", f: function () { return Rep.settings(); } },
+    /* X4 (طرابلس) */
+    { k: "staff", perm: "staff", x4: true, t: "الموظفون والصلاحيات", ic: "shield", f: function () { return Staff.page(); } },
+    { k: "logs", perm: "logs", x4: true, t: "السجلات", ic: "logs", f: function () { return Staff.logsPage(); } },
+    { k: "devices", perm: "devices", x4: true, t: "الأجهزة", ic: "device", f: function () { return Staff.devicesPage(); } }
   ];
 
   function buildNav() {
     var nav = document.getElementById("nav");
     var h = "";
-    PAGES.forEach(function (p) {
-      if (p.g) { h += '<div class="group-label">' + esc(p.g) + "</div>"; return; }
+    PAGES.forEach(function (p, i) {
+      if (p.g) {
+        /* عنوان مجموعة لا صفحة مسموحة تحته لا يظهر */
+        var any = false;
+        for (var j = i + 1; j < PAGES.length && !PAGES[j].g; j++) if (pageOk(PAGES[j])) any = true;
+        if (any) h += '<div class="group-label">' + esc(p.g) + "</div>";
+        return;
+      }
+      if (!pageOk(p)) return;
       h += '<button class="nav-item" data-k="' + p.k + '" onclick="location.hash=\'#/' + p.k + '\'">' +
         icon(p.ic, 19) + "<span>" + esc(p.t) + "</span>" +
         (p.badge ? '<span class="count" data-lowcount hidden></span>' : "") +
@@ -2247,7 +2281,8 @@ var App = (function () {
      /api/load — أي موظف يفتحه في تبويب يقرأه. صار مجزّأً في النواة،
      والواجهة لا تعرفه إطلاقاً. */
   var profitOK = false;
-  function canProfit() { return profitOK; }
+  /* X4 بعد تفعيل الموظفين: صلاحية «الأرباح» بدل رمزها */
+  function canProfit() { return (typeof Staff !== "undefined" && Staff.on()) ? Staff.can("profits") : profitOK; }
   function unlockProfit(code) {
     return apiJson("/api/profit-unlock", {
       method: "POST",
@@ -2274,6 +2309,11 @@ var App = (function () {
     var page = null;
     PAGES.forEach(function (p) { if (p.k === k) page = p; });
     if (!page) { location.hash = "#/dash"; return; }
+    if (!pageOk(page)) {
+      var first = null;
+      PAGES.forEach(function (p) { if (!first && !p.g && pageOk(p)) first = p; });
+      if (first && first.k !== k) { location.hash = "#/" + first.k; return; }
+    }
     /* حركة دخول الصفحة عند الانتقال إليها فقط، لا مع كل ضغطة فلتر */
     var entering = k !== current;
     current = k;
@@ -2512,6 +2552,7 @@ var App = (function () {
     load().then(function () {
       setTimeout(warmSearch, 1200);
       buildNav();
+      if (typeof Staff !== "undefined") Staff.boot();
       paintVersion();
       window.addEventListener("hashchange", route);
       tickClock(); setInterval(tickClock, 20000);
@@ -2573,7 +2614,7 @@ var App = (function () {
     isSecond: function () { return !!dev.second; },
     /* على الأساس الجديد (قرار 0025): النواة تعطي رقم ما رأته الشاشة مع كل تحميل */
     isX3: function () { return !!x3.rev; },
-    isX4: isX4,
+    isX4: isX4, can: can, allow: allow, closeTop: closeTop, rebuildNav: function () { buildNav(); refreshBadges(); },
     /* للاختبار: الحفظ بالفرق */
     __snap: {
       of: snapOf, text: snapText, patch: snapPatch, apply: x3Apply,

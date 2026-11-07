@@ -143,6 +143,7 @@ var People = (function () {
   function delCustomer(id) {
     var c = customer(id);
     if (!c) return;
+    if (!App.allow("delete", function () { delCustomer(id); })) return;
     if (App.num(c.balance) > 0) { App.toast("لا يمكن حذف زبون عليه دين. سدّد الدين أولاً.", "warn"); return; }
     App.confirm("سيُحذف الزبون «" + c.name + "». الفواتير القديمة تبقى محفوظة.", function () {
       S().customers.splice(S().customers.indexOf(c), 1);
@@ -641,6 +642,7 @@ var People = (function () {
   function delPublisher(id) {
     var p2 = publisher(id);
     if (!p2) return;
+    if (!App.allow("delete", function () { delPublisher(id); })) return;
     App.confirm("سيُحذف «" + p2.name + "» من دور النشر. الكتب المسجّلة باسمها تبقى كما هي.", function () {
       S().publishers.splice(S().publishers.indexOf(p2), 1);
       App.save(); App.rerender();
@@ -650,6 +652,7 @@ var People = (function () {
   function delSupplier(id) {
     var s = supplier(id);
     if (!s) return;
+    if (!App.allow("delete", function () { delSupplier(id); })) return;
     if (supDebt(s) > 0 || supLater(id).length) { App.toast("لا يمكن حذف مورد علينا له دين (أو فواتير دينها مؤجّل). سدّد الدين أولاً.", "warn"); return; }
     App.confirm("سيُحذف المورد «" + s.name + "». سجل المشتريات يبقى محفوظاً.", function () {
       S().suppliers.splice(S().suppliers.indexOf(s), 1);

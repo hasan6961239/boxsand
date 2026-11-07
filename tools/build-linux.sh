@@ -32,7 +32,7 @@ echo "namespace Qirtasiya { static class BuildInfo { public const string Stamp =
 
 RES=(-resource:app/index.html,index.html -resource:app/styles.css,styles.css
      -resource:$PNG,icon.png -resource:cloud/worker.js,worker.js)
-for f in jsbarcode core inventory branches notify consign count sales people stale labels reports; do
+for f in jsbarcode core inventory branches notify consign count sales people stale labels staff reports; do
   RES+=("-resource:app/js/$f.js,js/$f.js")
 done
 for f in app/v4/*; do RES+=("-resource:$f,v4/$(basename "$f")"); done
