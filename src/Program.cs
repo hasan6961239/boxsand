@@ -592,9 +592,15 @@ namespace Qirtasiya
         static readonly AutoResetEvent SyncWake = new AutoResetEvent(false);
         static volatile bool SyncForce;
         static long SyncTicks;
+        /* «حدّث الآن» ينتظر دورته هو: رقم كل طلب دورة كاملة، وآخر رقم خدمته دورة انتهت.
+           (كان ينتظر «دورة انتهت ولا طلب معلّق»، فإن كانت دورة عادية جارية — طرابلس توقظها بعد كل
+           حفظ — رجع قبل انتهاء دورته هو: سباق ظهر في test-x3، فرع طرابلس لم يُنشر بعد) */
+        static long SyncForceReq, SyncForceDone;
         static readonly object SyncTickGate = new object();
         /* للاختبار: دورة أقصر من دقيقة */
         static readonly int SyncEveryMs = EnvInt("QIRTASIYA_SYNC_MS", 60000);
+        /* طرابلس: ما يُحفظ على جهاز يصل الأجهزة الأخرى خلال ثوانٍ (طلب المستخدم: «على طول يتحدث») */
+        static readonly int SyncFastMs = EnvInt("QIRTASIYA_SYNC_FAST_MS", 4000);
 
         static int EnvInt(string name, int def)
         {
@@ -606,16 +612,20 @@ namespace Qirtasiya
         {
             Sync = new SyncClient(delegate { return Db; }, delegate { return V2; },
                 delegate (string url, string key) { return (ICloud)new HttpCloud(url, key); }, Log, MachineFingerprint(), Path.GetTempPath());
+            /* طرابلس: التسليم مرة كل دورة عادية (دقيقة)، وبينها دورات سريعة قراءةً فقط (SyncFastMs) */
+            if (Tripoli) Sync.HelloEveryMs = SyncEveryMs;
             Thread t = new Thread(SyncLoop);
             t.IsBackground = true;
             t.Name = "sync";
             t.Start();
         }
 
-        static void WakeSync(bool force)
+        static long WakeSync(bool force)
         {
-            if (force) SyncForce = true;
+            long req = 0;
+            if (force) lock (SyncTickGate) { req = ++SyncForceReq; SyncForce = true; }
             SyncWake.Set();
+            return req;
         }
 
         static void SyncLoop()
@@ -623,8 +633,9 @@ namespace Qirtasiya
             SyncWake.WaitOne(Math.Min(SyncEveryMs, 3000));   // البرنامج يفتح أولاً
             while (true)
             {
-                bool force = SyncForce;
-                SyncForce = false;
+                bool force;
+                long serving;
+                lock (SyncTickGate) { force = SyncForce; SyncForce = false; serving = SyncForceReq; }
                 try
                 {
                     lock (SyncLock)
@@ -636,8 +647,13 @@ namespace Qirtasiya
                 catch (Exception ex) { Log("المزامنة: " + ex.Message); }
                 try { DailyNotify(); }
                 catch (Exception ex) { Log("ملخص اليوم: " + ex.Message); }
-                lock (SyncTickGate) { SyncTicks++; Monitor.PulseAll(SyncTickGate); }
-                SyncWake.WaitOne(SyncEveryMs);
+                lock (SyncTickGate)
+                {
+                    SyncTicks++;
+                    if (force) SyncForceDone = Math.Max(SyncForceDone, serving);
+                    Monitor.PulseAll(SyncTickGate);
+                }
+                SyncWake.WaitOne(Tripoli ? Math.Min(SyncEveryMs, SyncFastMs) : SyncEveryMs);
             }
         }
 
@@ -722,13 +738,11 @@ namespace Qirtasiya
         /* دورة كاملة الآن وانتظار انتهائها (زر «حدّث الآن»، والاختبار) */
         static void SyncNowAndWait(int timeoutMs)
         {
-            long t0;
-            lock (SyncTickGate) t0 = SyncTicks;
-            WakeSync(true);
+            long req = WakeSync(true);
             DateTime end = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             lock (SyncTickGate)
             {
-                while (!(SyncTicks > t0 && !SyncForce))
+                while (SyncForceDone < req)
                 {
                     int left = (int)(end - DateTime.UtcNow).TotalMilliseconds;
                     if (left <= 0) break;
@@ -2464,7 +2478,9 @@ namespace Qirtasiya
                         ShopDb hd = Db;
                         if (X3On) X3Touch(GetHeader(lines, "X-X3-Rev"));
                         /* بواجهة 3.x: رقم آخر تغيير، فتعيد الشاشة التحميل إن تغيّر من غيرها */
-                        SendJson(s, X3On && hd != null ? "{\"ok\":true,\"gen\":" + hd.X3Gen.ToString(CultureInfo.InvariantCulture) + "}" : "{\"ok\":true}");
+                        /* طرابلس: وما بقي من تغييرات جهاز المحل، فتنتظر الشاشة اكتمالها ثم تعيد التحميل مرة واحدة */
+                        string behindJs = Tripoli && Sync != null ? ",\"behind\":" + Sync.Behind.ToString(CultureInfo.InvariantCulture) : "";
+                        SendJson(s, X3On && hd != null ? "{\"ok\":true,\"gen\":" + hd.X3Gen.ToString(CultureInfo.InvariantCulture) + behindJs + "}" : "{\"ok\":true}");
                         return;
                     }
                 }
@@ -2593,6 +2609,20 @@ namespace Qirtasiya
             }
 
             /* ربط الأجهزة من شاشة 3.x (قرار 0025): الحالة لأي نافذة، والتغيير للمالكة */
+            /* أجهزة الفرع وآخر تحديث لكل جهاز (الإعدادات ← الأجهزة والفروع) */
+            if (path == "/api/link/devices")
+            {
+                try
+                {
+                    Dictionary<string, object> dv = Sync == null ? null : Sync.Devices();
+                    SendJson(s, dv == null ? "{\"ok\":false,\"code\":\"old\"}" : "{\"ok\":true,\"data\":" + Json.Write(dv) + "}");
+                }
+                catch (SyncException ex) { SendJson(s, "{\"ok\":false,\"code\":" + JsonStr(ex.Code) + ",\"error\":" + JsonStr(ex.Message) + "}"); }
+                catch (WebException ex) { SendJson(s, "{\"ok\":false,\"code\":\"net\",\"error\":" + JsonStr(SyncClient.NetError(ex)) + "}"); }
+                catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
+                return;
+            }
+
             if (path == "/api/link")
             {
                 if (method != "POST")
@@ -2684,6 +2714,7 @@ namespace Qirtasiya
                 {
                     if (!X3On || Db == null) { SendJson(s, "{\"ok\":false,\"full\":true}"); return; }
                     SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), true));
+                    if (Tripoli) WakeSync(false);           // يُرفع الآن لا في الدورة القادمة
                 }
                 catch (Exception ex)
                 {
@@ -2700,6 +2731,7 @@ namespace Qirtasiya
                     if (X3On)
                     {
                         SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), false));
+                        if (Tripoli) WakeSync(false);
                         return;
                     }
                     if (!LooksLikeJsonObject(body))

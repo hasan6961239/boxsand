@@ -929,12 +929,62 @@ var Rep = (function () {
     var h = "";
     if (App.can("settings")) {
       h += '<div class="grid g2" style="margin-bottom:16px">' + linkCard() +
+        '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>الأجهزة المربوطة</h3><div class="spacer"></div>' +
+        '<button class="btn sm ghost" onclick="Rep.loadDevs()">↻ تحديث</button></div><div class="card-body" id="devList">' +
+        '<span class="muted small">…</span></div></div>' +
         '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>ربط الفروع والمشاهدة من التلفون</h3>' +
         '<div class="spacer"></div><span id="syncState"></span></div><div class="card-body">' + Stock.linkBlock() + "</div></div></div>";
-      setTimeout(function () { loadLink(); if (Stock.afterRender) Stock.afterRender(); }, 0);
+      setTimeout(function () { loadLink(); loadDevs(); if (Stock.afterRender) Stock.afterRender(); }, 0);
     }
     if (App.can("devices")) h += Staff.devicesPage();
     return h;
+  }
+
+  /* أجهزة الفرع وآخر تحديث لكل جهاز (من خادم الربط)، وهواتفه وآخر ما أرسله كل هاتف */
+  function ago(ms) {
+    var m = Math.max(0, Math.round(ms / 60000));
+    if (m < 1) return "الآن";
+    if (m < 60) return "منذ " + m + " دقيقة";
+    if (m < 1440) return "منذ " + Math.round(m / 60) + " ساعة";
+    return "منذ " + Math.round(m / 1440) + " يوم";
+  }
+  function loadDevs() {
+    var host = document.getElementById("devList");
+    if (!host) return;
+    App.apiJson("/api/link/devices").then(function (r) {
+      host = document.getElementById("devList");
+      if (!host) return;
+      var phones = (typeof Stock !== "undefined" && Stock.phones) ? Stock.phones() : [];
+      if (!r || !r.ok) {
+        host.innerHTML = '<p class="muted small" style="margin:0;line-height:1.9">' + (r && r.code === "old"
+          ? "قائمة الأجهزة تحتاج تحديث كود خادم الربط مرة واحدة: «خطوات الربط» أعلاه ← انسخ الكود ← الصقه في Cloudflare مكان القديم ← Deploy."
+          : (r && r.error ? App.esc(r.error) : "هذا الجهاز غير مربوط بعد — اربطه من «ربط الأجهزة» أعلاه.")) + "</p>";
+        return;
+      }
+      var d = r.data || {}, now = +d.now || Date.now(), list = d.devices || [];
+      var rows = list.map(function (x) {
+        var seen = +x.seen || 0, on = now - seen < 150000;
+        var main = x.device === d.main;
+        return { name: x.name || (main ? "جهاز المحل" : "جهاز"), kind: main ? "جهاز المحل" : "جهاز ثانٍ", me: x.device === d.me,
+          when: seen ? ago(now - seen) : "—", at: seen ? new Date(seen).toLocaleString("ar-LY", { hour12: false }) : "", on: on };
+      });
+      phones.forEach(function (p) {
+        var t = Date.parse(String(p.at).replace(" ", "T"));
+        rows.push({ name: p.name, kind: "هاتف", me: false, when: isNaN(t) ? (p.at || "—") : ago(Date.now() - t), at: p.at || "", on: false, phone: true });
+      });
+      host.innerHTML = '<p class="muted small" style="margin:0 0 10px;line-height:1.8"><b>' + list.length + "</b> جهاز كمبيوتر" +
+        (phones.length ? " و<b>" + phones.length + "</b> هاتف" : "") + " مربوط بهذا الفرع. «آخر تحديث» آخر مرة تواصل فيها الجهاز مع خادم الربط." +
+        (phones.length ? " وللهاتف: آخر مرة أرسل فيها بيعاً أو تعديلاً." : "") + "</p>" +
+        App.table([
+          { h: "الجهاز", c: function (x) { return "<b>" + App.esc(x.name) + "</b>" + (x.me ? ' <span class="badge ok">هذا الجهاز</span>' : ""); } },
+          { h: "النوع", c: function (x) { return App.esc(x.kind); } },
+          { h: "آخر تحديث", c: function (x) { return App.esc(x.when) + (x.at ? '<div class="sub num">' + App.esc(x.at) + "</div>" : ""); } },
+          { h: "الحالة", c: function (x) { return x.phone ? '<span class="muted small">—</span>' : x.on ? '<span class="badge ok">متصل الآن</span>' : '<span class="badge">غير متصل</span>'; } }
+        ], rows, { emptyTitle: "لا أجهزة بعد", emptyText: "تظهر الأجهزة هنا بعد ربطها." });
+    }).catch(function () {
+      var h2 = document.getElementById("devList");
+      if (h2) h2.innerHTML = '<span class="muted small">تعذّر الاتصال بخادم الربط.</span>';
+    });
   }
 
   function setData() {
@@ -1627,7 +1677,7 @@ var Rep = (function () {
   return {
     copyDir: copyDir, linkMain: linkMain, linkSecond: linkSecond, linkNow: linkNow, linkStop: linkStop,
     dashboard: dashboard, reports: reports, settings: settings, firstRun: firstRun,
-    setTab: goSetTab, pickLogo: pickLogo, dropLogo: dropLogo,
+    setTab: goSetTab, pickLogo: pickLogo, dropLogo: dropLogo, loadDevs: loadDevs,
     setRange: setRange, quick: quick, printReport: printReport,
     setMeta: setMeta, setList: setList, letters: letters, allLetters: allLetters,
     stocktake: stocktake, stockHub: stockHub, setStk: setStk, closeDay: closeDay, printStocktake: printStocktake,

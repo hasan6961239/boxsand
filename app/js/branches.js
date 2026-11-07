@@ -133,6 +133,16 @@ var Stock = (function () {
     keys.slice(-300).forEach(function (k) { out[k] = done[k]; });
     return out;
   }
+  /* هواتف هذا الفرع وآخر ما أرسله كل هاتف (للمدير: الإعدادات ← الأجهزة والفروع) — في الذاكرة */
+  var phonesSeen = [];
+  function notePhones(list) {
+    phonesSeen = list.filter(function (b) {
+      return b && b.kind === "phone" && b.branch && (!Array.isArray(b.orders) || !b.orders.length ||
+        b.orders.some(function (o) { return !o.to || o.to === S().branch.id; }));
+    }).map(function (b) { return { id: b.branch.id, name: b.branch.name || "تلفون", at: b.at || "" }; });
+  }
+  function phones() { return phonesSeen.slice(); }
+
   function takePhoneOrders(list) {
     if (S().meta.phoneSales === false || typeof Sales === "undefined" || !Sales.applyPhoneOrder) return 0;
     var done = phoneDone(), n = 0, made = [];
@@ -318,6 +328,7 @@ var Stock = (function () {
       var seenBefore = {};
       requests().forEach(function (r) { seenBefore[r.id] = 1; });
       mergeRemotes(res.branches || []);
+      notePhones(res.branches || []);
       var gotPhone = takePhoneOrders(res.branches || []) + takePhoneEdits(res.branches || []);
       if (gotPhone) {
         App.rerender();
@@ -1564,6 +1575,6 @@ var Stock = (function () {
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,
     workerSetup: workerSetup, copyWorker: copyWorker,
-    snapshot: snapshot, linkBlock: linkBlock
+    snapshot: snapshot, linkBlock: linkBlock, phones: phones
   };
 })();

@@ -125,8 +125,22 @@ namespace Qirtasiya.Engine
 
         readonly object stateGate = new object();
         string lastOk = "", lastError = "", lastCode = "", mainName = "", phase = "";
-        long mainSeen, behind;
+        long mainSeen, behind, behindTo = -1;
         bool needRejoin;
+        DateTime lastHello = DateTime.MinValue;
+
+        /* طرابلس (تحديث خلال ثوانٍ): الدورة كل بضع ثوانٍ، والتسليم (hello) — وهو الكتابة الوحيدة
+           في D1 كل دورة — مرة كل HelloEveryMs. بينهما قراءة فقط: الجهاز الثاني يسأل عن تغييرات
+           جهاز المحل (v2/log)، وجهاز المحل عن أوامر الأجهزة الثانية (v2/cmds). 0 = كل دورة كما كان */
+        public int HelloEveryMs;
+
+        bool HelloDue(bool force)
+        {
+            return HelloEveryMs <= 0 || force || (DateTime.UtcNow - lastHello).TotalMilliseconds >= HelloEveryMs;
+        }
+
+        /* ما بقي على هذا الجهاز الثاني من تغييرات جهاز المحل (الشاشة تنتظره قبل أن تعيد التحميل) */
+        public long Behind { get { lock (stateGate) return behind; } }
         DateTime lastCatalog = DateTime.MinValue;
 
         public SyncClient(Func<ShopDb> db, Func<Api> api, Func<string, string, ICloud> cloud, Action<string> logger, string machineFp, string temp)
@@ -165,7 +179,22 @@ namespace Qirtasiya.Engine
 
         public void ClearState()
         {
-            lock (stateGate) { lastOk = lastError = lastCode = mainName = phase = ""; mainSeen = behind = 0; needRejoin = false; lastCatalog = DateTime.MinValue; }
+            lock (stateGate) { lastOk = lastError = lastCode = mainName = phase = ""; mainSeen = behind = 0; behindTo = -1; needRejoin = false; lastCatalog = DateTime.MinValue; lastHello = DateTime.MinValue; }
+        }
+
+        /* أجهزة الفرع وآخر تسليم لكل جهاز (v2/devices). خادم قديم بلا هذا المسار: null */
+        public Dictionary<string, object> Devices()
+        {
+            ShopDb db = dbOf();
+            if (db == null) return null;
+            string url = db.Local("sync.url") ?? "", key = db.Local("sync.key") ?? "";
+            if (url.Length == 0) return null;
+            CloudReply r = cloudOf(url, key).Call("GET", "v2/devices", Q("branch", db.Local("sync.branch") ?? ""), null);
+            if (r.Status == 404) return null;
+            if (r.Status != 200 || r.Json == null) throw Fail(r, "قائمة الأجهزة");
+            Dictionary<string, object> j = r.Json;
+            j["me"] = db.Local("sync.device") ?? "";
+            return j;
         }
 
         public Dictionary<string, object> Status()
@@ -254,7 +283,7 @@ namespace Qirtasiya.Engine
             ICloud cloud = cloudOf(url, key);
             try
             {
-                if (db.Replica) TickSecond(db, cloud);
+                if (db.Replica) TickSecond(db, cloud, force);
                 else TickMain(db, cloud, force);
                 Catalogs(db, cloud, force);
                 lock (stateGate)
@@ -312,8 +341,17 @@ namespace Qirtasiya.Engine
 
         void TickMain(ShopDb db, ICloud cloud, bool force)
         {
+            if (!HelloDue(force) && (db.Local("sync.chain") ?? "").Length > 0)
+            {
+                /* دورة سريعة: ما تغيّر هنا يُرفع، وأوامر الأجهزة الثانية تُنفَّذ — بلا تسليم */
+                PushLog(db, cloud);
+                RunCommands(db, cloud);
+                PushLog(db, cloud);
+                return;
+            }
             Phase("التسليم");
             Dictionary<string, object> h = Hello(db, cloud, "main", false);
+            lastHello = DateTime.UtcNow;
             string chain = db.Local("sync.chain") ?? "";
             Dictionary<string, object> snap = Json.Obj(h, "snap");
             if (chain.Length == 0 || Json.Str(h, "chain") != chain || snap == null)
@@ -447,22 +485,30 @@ namespace Qirtasiya.Engine
 
         /* ---------- الجهاز الثاني ---------- */
 
-        void TickSecond(ShopDb db, ICloud cloud)
+        void TickSecond(ShopDb db, ICloud cloud, bool force)
         {
-            Phase("التسليم");
-            Dictionary<string, object> h = Hello(db, cloud, "second", false);
+            bool hello = HelloDue(force);
+            Dictionary<string, object> h = null;
+            if (hello)
+            {
+                Phase("التسليم");
+                h = Hello(db, cloud, "second", false);
+                lastHello = DateTime.UtcNow;
+            }
             PushOutbox(db, cloud);
             string chain = db.Local("sync.chain") ?? "";
-            if (Json.Str(h, "chain") != chain)
+            if (hello && Json.Str(h, "chain") != chain)
             {
                 lock (stateGate) needRejoin = true;
                 throw new SyncException("rejoin", "جهاز المحل بدأ نسخة جديدة: يُعاد تحميلها على هذا الجهاز.");
             }
-            long logTo = Json.Long(h, "logTo", -1);
+            /* بلا تسليم لا نعرف آخر موضع: نجلب حتى يقول الخادم «لا جديد» (204)، و«الباقي» من آخر تسليم */
+            long logTo = hello ? Json.Long(h, "logTo", -1) : long.MaxValue;
+            if (hello) lock (stateGate) behindTo = logTo;
             while (true)
             {
                 long applied = db.LocalLong("sync.applied", -1);
-                lock (stateGate) behind = Math.Max(0, logTo - applied);
+                lock (stateGate) behind = behindTo < 0 ? 0 : Math.Max(0, behindTo - applied);
                 if (applied >= logTo) break;
                 Phase("تطبيق تغييرات جهاز المحل");
                 CloudReply r = cloud.Call("GET", "v2/log", Q("branch", db.Local("sync.branch"), "chain", chain, "after", S(applied)), null);

@@ -308,6 +308,13 @@ async function v2(request, env, op, q) {
     return json({ ok: true, id: r.id });
   }
 
+  /* أجهزة الفرع وآخر تسليم لكل جهاز (للمدير: كم جهازاً مربوطاً، ومتى آخر تحديث) — قراءة فقط */
+  if (op === "devices" && request.method === "GET") {
+    const b = await v2Branch(db, branch);
+    const r = await db.prepare("SELECT device, role, name, seen FROM v2_device WHERE branch = ? ORDER BY seen DESC LIMIT 50").bind(branch).all();
+    return json({ ok: true, now, main: b ? b.main : null, devices: r.results || [] });
+  }
+
   if (op === "cmds" && request.method === "GET") {
     const after = v2Int(q, "after", 0), limit = Math.min(Math.max(v2Int(q, "limit", 50), 1), 200);
     const r = await db.prepare("SELECT id, device, n, at, data FROM v2_cmd WHERE branch = ? AND id > ? ORDER BY id LIMIT ?").bind(branch, after, limit).all();

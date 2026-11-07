@@ -371,11 +371,12 @@ var App = (function () {
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && String(a.value || "").length) return;
     x3.busy = true;
     var edits = x3.edits;
+    bar("run", 0, "يحدّث البيانات…");
     if (x3p.on && x3p.snap && x3p.rev === x3.rev) {
       return api("/api/x3/since", { headers: { "X-X3-Rev": x3.rev } }).then(function (r) {
         var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
         return r.text().then(function (t) {
-          x3.busy = false;
+          x3.busy = false; bar(null);
           if (edits !== x3.edits || saving || dirty) return;
           var p = null;
           try { p = JSON.parse(t); } catch (e) { }
@@ -388,12 +389,12 @@ var App = (function () {
           x3.stale = false;
           rerender();
         });
-      }).catch(function () { x3.busy = false; });
+      }).catch(function () { x3.busy = false; bar(null); });
     }
     return api("/api/load").then(function (r) {
       var rev = r.headers.get("X-X3-Rev"), gen = r.headers.get("X-X3-Gen");
       return r.text().then(function (t) {
-        x3.busy = false;
+        x3.busy = false; bar(null);
         if (edits !== x3.edits || saving || dirty) return;      // عُدّل شيء أثناء التحميل: المرة القادمة
         var parsed = null;
         try { parsed = JSON.parse(t); } catch (e) { }
@@ -406,7 +407,7 @@ var App = (function () {
         rerender();
         setTimeout(warmSearch, 400);
       });
-    }).catch(function () { x3.busy = false; });
+    }).catch(function () { x3.busy = false; bar(null); });
   }
 
   function block(reason) {
@@ -657,13 +658,45 @@ var App = (function () {
         if (res && res.notOwner && res.free) reclaimAndSave();      // المحرك أُعيد تشغيله
         else if (res && res.notOwner) lostOwnership();
         else if (res && typeof res.gen === "number" && !saving && res.gen !== x3.gen) x3.stale = true;
+        if (res && catchUp(+res.behind || 0)) return;       // يلحق جهاز المحل: التحميل مرة واحدة بعد اكتماله
         x3Idle();
       })
       .catch(function () { });
   }
   function startHeartbeat() {
     if (hbTimer) clearInterval(hbTimer);
-    hbTimer = setInterval(beat, 5000);
+    /* طرابلس: تغيير جهاز آخر يظهر خلال ثوانٍ (البرنامج يتبادل كل 4 ثوانٍ) */
+    hbTimer = setInterval(beat, isX4() ? 2000 : 5000);
+  }
+
+  /* ---------- شريط التحميل (طرابلس) ----------
+     جهاز ثانٍ يلحق جهاز المحل بعد غياب: الشريط يمتلئ بما بقي، والشاشة تعيد التحميل مرة واحدة
+     في آخره (كانت تعيده مع كل قطعة فيبدو الوقت يتقدّم قفزةً قفزة). وإعادة التحميل نفسها شريط متحرّك */
+  var barEl = null, catchMax = 0;
+  function bar(mode, pct, label) {
+    if (!isX4()) return;
+    if (!mode) { if (barEl) { barEl.remove(); barEl = null; } return; }
+    if (!barEl) {
+      barEl = document.createElement("div");
+      barEl.id = "qiBar"; barEl.className = "qi-bar";
+      barEl.innerHTML = "<i></i><span></span>";
+      document.body.appendChild(barEl);
+    }
+    barEl.classList.toggle("run", mode === "run");
+    barEl.querySelector("i").style.width = mode === "run" ? "" : Math.max(4, Math.min(100, pct)) + "%";
+    var sp = barEl.querySelector("span");
+    sp.textContent = label || "";
+    sp.hidden = !label;
+  }
+  function catchUp(n) {
+    if (n > 0) {
+      catchMax = Math.max(catchMax, n);
+      var pct = Math.round(100 * (1 - n / catchMax));
+      bar("fill", pct, "يلحق جهاز المحل… " + pct + "%");
+      return true;
+    }
+    if (catchMax) { catchMax = 0; bar(null); }
+    return false;
   }
   /* ويندوز يبطّئ مؤقّتات النافذة المصغّرة إلى مرة كل دقيقة ويوقفها عند
      السكون. عند العودة إليها ننبض فوراً بدل انتظار الدورة القادمة. */

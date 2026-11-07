@@ -93,6 +93,9 @@ jobs:
           mkdir -p shots-x3
           node tools/test-x3.js suites
 
+      - name: طرابلس — التحديث بين الأجهزة خلال ثوانٍ، و«الأجهزة المربوطة»
+        run: node tools/test-x4-sync.js
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
