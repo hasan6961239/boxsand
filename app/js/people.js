@@ -29,9 +29,11 @@ var People = (function () {
      ============================================================ */
 
   function debtTabs() {
+    /* طرابلس: بلغة الحسابات — الزبون مدين للمكتبة، والمورد دائن لها */
+    var x4 = App.isX4 && App.isX4();
     return '<div class="seg" style="margin-bottom:16px">' +
-      '<button class="' + (tab === "cust" ? "on" : "") + '" onclick="People.setTab(\'cust\')">ديون الزبائن — لنا</button>' +
-      '<button class="' + (tab === "sup" ? "on" : "") + '" onclick="People.setTab(\'sup\')">ديون الموردين — علينا</button></div>';
+      '<button class="' + (tab === "cust" ? "on" : "") + '" onclick="People.setTab(\'cust\')">' + (x4 ? "الزبائن — مدين" : "ديون الزبائن — لنا") + "</button>" +
+      '<button class="' + (tab === "sup" ? "on" : "") + '" onclick="People.setTab(\'sup\')">' + (x4 ? "الموردون — دائن" : "ديون الموردين — علينا") + "</button></div>";
   }
 
   function setTab(t) { tab = t; App.rerender(); }
