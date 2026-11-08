@@ -890,8 +890,9 @@ var Stock = (function () {
     var bid = rv.id;
     host.innerHTML = App.table([
       { h: "الكتاب", c: function (x) {
-        return '<div class="name">' + App.esc(x.n) + '</div><div class="sub">' + (x.t === "book" ? "" : "قرطاسية · ") + App.esc(x.a || (x.t === "book" ? "بدون مؤلف" : "")) +
-          (x.code ? ' · <span class="num">' + App.esc(x.code) + "</span>" : "") + "</div>";
+        var sub = [x.t === "book" ? App.esc(x.a || "بدون مؤلف") : "قرطاسية" + (x.a ? " · " + App.esc(x.a) : "")];
+        if (x.code) sub.push('<span class="num">' + App.esc(x.code) + "</span>");
+        return '<div class="name">' + App.esc(x.n) + '</div><div class="sub">' + sub.join(" · ") + "</div>";
       } },
       { h: "التخصص", c: function (x) { return x.c ? '<span class="badge cat" title="' + App.esc(x.c) + '">' + App.esc(x.c) + "</span>" : '<span class="muted">—</span>'; } },
       { h: "الموقع", c: function (x) { return x.t === "book" ? locOf(x.ri) : App.esc(x.ri.loc || "—"); } },
