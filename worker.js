@@ -55,6 +55,22 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type,X-Shop-Key",
 };
 
+/* فهرس ملفات KV (رموز الفروع والهواتف). أول مرة بلا فهرس: يُبنى من list مرة واحدة */
+const KV_INDEX = "index:branches";
+async function kvIndex(env) {
+  const raw = await env.SHOP.get(KV_INDEX);
+  if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a)) return a; } catch { } }
+  const ids = [];
+  let cursor;
+  do {
+    const listed = await env.SHOP.list({ prefix: "branch:", cursor });
+    for (const k of listed.keys) ids.push(k.name.slice(7));
+    cursor = listed.list_complete ? undefined : listed.cursor;
+  } while (cursor);
+  await env.SHOP.put(KV_INDEX, JSON.stringify(ids));
+  return ids;
+}
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -396,19 +412,30 @@ export default {
       await env.SHOP.put("branch:" + id.toLowerCase(), JSON.stringify(snap), {
         expirationTtl: 60 * 60 * 24 * 120,   // يُنظَّف تلقائياً بعد 120 يوماً بلا تحديث
       });
+      /* فهرس الملفات: /all يقرؤه بدل SHOP.list (الخطة المجانية: ألف list في اليوم فقط،
+         ومئة ألف قراءة). يُكتب حين يظهر ملف جديد فقط (فرع أو هاتف جديد) */
+      const ids = await kvIndex(env);
+      if (ids.indexOf(id.toLowerCase()) < 0) {
+        ids.push(id.toLowerCase());
+        await env.SHOP.put(KV_INDEX, JSON.stringify(ids));
+      }
       return json({ ok: true });
     }
 
     // قراءة لقطات كل الفروع
+    /* v: 3 = بالفهرس (المنظومة والتطبيق يحدّثان كل دقيقة بلا خوف من حدّ list).
+       الملفات كما كُتبت (JSON صالح من /put) بلا تحليل: أقل وقت حساب */
     if (path.endsWith("/all") && request.method === "GET") {
-      const listed = await env.SHOP.list({ prefix: "branch:" });
-      const branches = [];
-      for (const k of listed.keys) {
-        const raw = await env.SHOP.get(k.name);
-        if (!raw) continue;
-        try { branches.push(JSON.parse(raw)); } catch { }
+      const ids = await kvIndex(env);
+      const raws = [], live = [];
+      for (const id of ids) {
+        const raw = await env.SHOP.get("branch:" + id);
+        if (!raw) continue;                       // انتهى عمره (120 يوماً بلا تحديث)
+        raws.push(raw); live.push(id);
       }
-      return json({ ok: true, branches });
+      if (live.length !== ids.length) await env.SHOP.put(KV_INDEX, JSON.stringify(live));
+      return new Response('{"ok":true,"v":3,"branches":[' + raws.join(",") + "]}",
+        { headers: { "Content-Type": "application/json; charset=utf-8", ...CORS } });
     }
 
     return json({ ok: false, error: "المسار غير معروف" }, 404);
