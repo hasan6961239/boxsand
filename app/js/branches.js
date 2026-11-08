@@ -15,10 +15,16 @@ var Stock = (function () {
      اللقطة المنشورة للفروع الأخرى
      ============================================================ */
 
-  function snapshot() {
+  /* light: فرع كبير بشاشات 3.x (فوق 5000 صنف، طرابلس): بلا أصنافه ولا أصناف مخازنه ولا
+     زبائنه. المحرك كان يحذفها على أي حال قبل الرفع (SyncClient.OldMaxItems)، لكن الشاشة كانت
+     تبنيها أولاً على خيط الرسم: 17 ميغا لكل «تحديث الآن». كتب الفرع الكبير تصل الفروع
+     والتلفون من قائمته في المحرك (v2/catalog) */
+  var BIG = 5000;
+  function bigShop() { return App.isX3 && App.isX3() && (S().books.length + S().stationery.length) > BIG; }
+  function snapshot(light) {
     var staleMap = {};
     try {
-      if (typeof Stale !== "undefined") Stale.rows().forEach(function (r) { staleMap[r.type + ":" + r.it.id] = r.idle; });
+      if (!light && typeof Stale !== "undefined") Stale.rows().forEach(function (r) { staleMap[r.type + ":" + r.it.id] = r.idle; });
     } catch (e) { }
     return {
       branch: {
@@ -26,7 +32,7 @@ var Stock = (function () {
         city: S().branch.city, phone: S().branch.phone
       },
       at: App.nowStamp(),
-      items: App.allItems().map(function (x) {
+      items: light ? [] : App.allItems().map(function (x) {
         var it = x.it;
         return {
           k: it.code || "", t: x.type, n: App.itemName(it), a: it.author || "",
@@ -49,7 +55,7 @@ var Stock = (function () {
       whs: (S().warehouses || []).map(function (w) {
         return {
           id: w.id, name: w.name || "", place: w.place || "", phone: w.phone || "",
-          items: (w.stock || []).map(function (st) {
+          items: light ? [] : (w.stock || []).map(function (st) {
             var it = App.findItem(st.type, st.itemId);
             return {
               n: it ? App.itemName(it) : "(صنف محذوف)",
@@ -64,7 +70,7 @@ var Stock = (function () {
       /* لتطبيق التلفون: لوحة اليوم (مبيعات بلا أرباح ولا تكلفة)، والزبائن
          وديونهم، وتأكيد فواتير التلفون التي سُجّلت هنا. */
       dash: dashSummary(),
-      cust: S().customers.map(function (c) {
+      cust: light ? undefined : S().customers.map(function (c) {
         return { id: c.id, n: c.name || "", ph: c.phone || "", b: App.r3(App.num(c.balance)) };
       }),
       acks: phoneAcks(),
@@ -302,7 +308,7 @@ var Stock = (function () {
     syncing = true;
     paintSyncState("جارٍ التحديث…");
 
-    var snap = snapshot();
+    var snap = snapshot(bigShop());
     var body = JSON.stringify(snap);
     var h = hash(body);
     // لا نرفع إن لم يتغير شيء — يوفّر الحصة والباقة
@@ -672,9 +678,8 @@ var Stock = (function () {
 
     h += "</div>";
 
-    /* طرابلس: الربط في «الإعدادات ← الأجهزة والفروع»، وهنا سطر يدلّ عليه */
-    if (!x4) h += linkBlock(true);
-    else if (!configured()) {
+    /* الربط في «الإعدادات ← الأجهزة والفروع» (مصراتة وطرابلس)، وهنا سطر يدلّ عليه */
+    if (!configured()) {
       h += '<div class="row" style="margin-top:16px;gap:10px"><span class="badge">الربط غير مفعّل</span>' +
         '<span class="muted small">ربط الفروع ومشاهدة المخزون من التلفون: من الإعدادات ← الأجهزة والفروع</span>' +
         '<button class="btn sm ghost" onclick="location.hash=\'#/settings?tab=devices\'">فتح</button></div>';
@@ -812,8 +817,107 @@ var Stock = (function () {
   function openRequests() { view.where = "requests"; App.rerender(); }
   function setV(k, v) { view[k] = v; App.rerender(); }
 
+  /* ---------- فرع مربوط: جدول كتب مثل «عرض وتعديل» ----------
+     طلب المستخدم (فرع مصراتة داخل طرابلس): الكتب في جدول، بحث كبير، تخصص وحالة،
+     100 كتاب كل ما تنزل، وبلا مبالغ («قيمته بيعاً»). البحث يرسم الجدول وحده لا الصفحة،
+     وصفوف الفرع تُحسب مرة لكل قائمة تصل (فرع بـ61 ألف كتاب) */
+  var rv = { id: "", q: "", cat: "", st: "", sort: "name" }, rvCache = { r: null, at: "", rows: null, cats: null };
+
+  function remoteRows(r) {
+    if (rvCache.r === r && rvCache.at === r.at && rvCache.rows) return rvCache;
+    var by = {};
+    var rows = (r.items || []).map(function (i) {
+      var c = String(i.c || "").trim();
+      by[c] = (by[c] || 0) + 1;
+      return { n: i.n || "", a: i.a || "", t: i.t, c: c, q: App.num(i.q), p: App.num(i.p), code: i.b || i.k || "", ri: i };
+    });
+    rows.sort(function (a, b) { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; });
+    var cats = Object.keys(by).filter(Boolean).sort(function (a, b) { return by[b] - by[a]; }).map(function (c) { return { c: c, n: by[c] }; });
+    rvCache = { r: r, at: r.at, rows: rows, cats: cats, none: by[""] || 0 };
+    return rvCache;
+  }
+
+  function remotePage(id, r) {
+    if (rv.id !== id) rv = { id: id, q: "", cat: "", st: "", sort: "name" };
+    var c = remoteRows(r), rows = c.rows;
+    var pieces = 0, out = 0;
+    rows.forEach(function (x) { if (x.q > 0) pieces += x.q; else out++; });
+    var books = rows.filter(function (x) { return x.t === "book"; }).length;
+    setTimeout(paintRemote, 0);
+    return '<div class="row" style="margin-bottom:12px;align-items:center">' +
+      '<button class="btn ghost" onclick="Stock.back()">→ كل المخازن</button>' +
+      '<div style="font-family:var(--font-head);font-size:22px;font-weight:700">' + App.esc(branchName(id)) + "</div>" + freshness(r.at) +
+      '<div class="spacer"></div><button class="btn primary" onclick="Stock.sync(true)">↻ تحديث</button></div>' +
+      '<p class="muted" style="margin:0 0 12px"><b class="num">' + books.toLocaleString("en") + "</b> كتاب" +
+      (rows.length > books ? " و<b class=\"num\">" + (rows.length - books).toLocaleString("en") + "</b> صنف قرطاسية" : "") +
+      ' · <b class="num">' + pieces.toLocaleString("en") + '</b> نسخة · <b class="num">' + out.toLocaleString("en") + "</b> نفد عندهم" +
+      ' <span class="muted small">— قائمة الفرع تصل كل نصف ساعة إن تغيّرت، و«↻ تحديث» يطلب الأحدث الآن</span></p>' +
+      '<div class="search-big"><span class="mag">⌕</span><input class="inp" id="rbq" autocomplete="off" ' +
+      'placeholder="ابحث في كتب ' + App.esc(branchName(id)) + ': العنوان، المؤلف، الباركود…" value="' + App.esc(rv.q) + '" oninput="Stock.rSet(\'q\',this.value)"></div>' +
+      '<div class="row" style="margin-bottom:14px">' +
+      '<select class="inp" style="width:auto;max-width:260px" onchange="Stock.rSet(\'cat\',this.value)"><option value="">كل التخصصات</option>' +
+      c.cats.map(function (x) { return '<option value="' + App.esc(x.c) + '"' + (rv.cat === x.c ? " selected" : "") + ">" + App.esc(x.c) + " (" + x.n.toLocaleString("en") + ")</option>"; }).join("") +
+      (c.none ? '<option value="__none"' + (rv.cat === "__none" ? " selected" : "") + ">بلا تخصص (" + c.none.toLocaleString("en") + ")</option>" : "") + "</select>" +
+      '<select class="inp" style="width:auto" onchange="Stock.rSet(\'st\',this.value)">' +
+      '<option value="">كل الحالات</option><option value="have"' + (rv.st === "have" ? " selected" : "") + ">المتوفر عندهم</option>" +
+      '<option value="out"' + (rv.st === "out" ? " selected" : "") + ">نفد عندهم</option></select>" +
+      '<select class="inp" style="width:auto" onchange="Stock.rSet(\'sort\',this.value)">' +
+      '<option value="name"' + (rv.sort === "name" ? " selected" : "") + ">حسب الاسم</option>" +
+      '<option value="qty"' + (rv.sort === "qty" ? " selected" : "") + ">الأكثر كمية</option>" +
+      '<option value="low"' + (rv.sort === "low" ? " selected" : "") + ">الأقل كمية</option></select>" +
+      '<div class="spacer"></div><span class="muted small" id="rbCount"></span></div>' +
+      '<div class="card"><div id="rbBody"></div></div>';
+  }
+
+  function paintRemote() {
+    var host = document.getElementById("rbBody");
+    if (!host) return;
+    var r = null;
+    remotes().forEach(function (x) { if (x.id === rv.id) r = x; });
+    if (!r) return;
+    var all = remoteRows(r).rows;
+    var rows = all.filter(function (x) {
+      if (rv.cat === "__none") { if (x.c) return false; }
+      else if (rv.cat && x.c !== rv.cat) return false;
+      if (rv.st === "have" && x.q <= 0) return false;
+      if (rv.st === "out" && x.q > 0) return false;
+      return true;
+    });
+    if (rv.sort === "qty") rows = rows.slice().sort(function (a, b) { return b.q - a.q; });
+    else if (rv.sort === "low") rows = rows.slice().sort(function (a, b) { return a.q - b.q; });
+    rows = App.rank(rows, rv.q, function (x) { return [x.n, x.a, x.code, x.c]; });
+    lastRows = rows;
+    var bid = rv.id;
+    host.innerHTML = App.table([
+      { h: "الكتاب", c: function (x) {
+        return '<div class="name">' + App.esc(x.n) + '</div><div class="sub">' + (x.t === "book" ? "" : "قرطاسية · ") + App.esc(x.a || (x.t === "book" ? "بدون مؤلف" : "")) +
+          (x.code ? ' · <span class="num">' + App.esc(x.code) + "</span>" : "") + "</div>";
+      } },
+      { h: "التخصص", c: function (x) { return x.c ? '<span class="badge cat" title="' + App.esc(x.c) + '">' + App.esc(x.c) + "</span>" : '<span class="muted">—</span>'; } },
+      { h: "الموقع", c: function (x) { return x.t === "book" ? locOf(x.ri) : App.esc(x.ri.loc || "—"); } },
+      { h: "الكمية", cls: "num", c: function (x) { return x.q > 0 ? "<b>" + x.q + "</b>" : '<span class="badge bad">نفد</span>'; } },
+      { h: "السعر", cls: "num", c: function (x) { return x.p > 0 ? App.money0(x.p) : '<span class="muted">—</span>'; } },
+      { h: "", cls: "act", c: function (x, i) {
+        return x.q > 0 ? '<button class="btn sm primary" onclick="Stock.askRow(\'' + App.esc(bid) + '\',' + i + ')">طلب تحويل</button>' : "";
+      } }
+    ], rows, {
+      lazy: 100, rowClass: function (x) { return x.q <= 0 ? "out" : ""; },
+      emptyIcon: "books", emptyTitle: all.length ? "لا نتيجة" : "لم تصل كتب هذا الفرع بعد",
+      emptyText: all.length ? "جرّب كلمة أخرى أو غيّر التخصص." : "اضغط «تحديث»، أو راجع «قوائم الفروع» في الإعدادات ← الأجهزة والفروع."
+    });
+    var cn = document.getElementById("rbCount");
+    if (cn) cn.textContent = rows.length.toLocaleString("en") + " من " + all.length.toLocaleString("en");
+  }
+
+  function rSet(k, v) { rv[k] = v; paintRemote(); }
+
   function branchPage(id) {
     var isMine = (id === S().branch.id) || !id;
+    if (!isMine) {
+      var rr = null;
+      remotes().forEach(function (x) { if (x.id === id) rr = x; });
+      if (rr) return remotePage(id, rr);
+    }
     var name = isMine ? (S().branch.name || S().meta.shopName || "مخزني") : branchName(id);
     var rows, at = "";
 
@@ -1575,6 +1679,6 @@ var Stock = (function () {
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,
     workerSetup: workerSetup, copyWorker: copyWorker,
-    snapshot: snapshot, linkBlock: linkBlock, phones: phones
+    snapshot: snapshot, linkBlock: linkBlock, phones: phones, rSet: rSet
   };
 })();

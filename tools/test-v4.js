@@ -89,7 +89,7 @@ function ok(cond, name, detail) {
     ok(await page.$eval('#demoTag', e => !e.hidden), 'علامة «نسخة تجربة» ظاهرة');
     ok(await text('#brandName') === 'مكتبة التجربة', 'اسم المحل في الأعلى', await text('#brandName'));
     ok(await text('#branchTag') === 'فرع طرابلس', 'وشارة الفرع', await text('#branchTag'));
-    const ver = (fs.readFileSync(path.join(E.ROOT, 'src', 'Program.cs'), 'utf8').match(/AppVersion = "([^"]+)"/) || [])[1];
+    const ver = (fs.readFileSync(path.join(E.ROOT, 'src', 'Program.cs'), 'utf8').match(/AppVersionTripoli = "([^"]+)"/) || [])[1];
     ok(await page.waitForFunction(v => document.getElementById('ver').textContent === 'v' + v, ver, { timeout: 5000 }).then(() => true, () => false),
       'ورقم النسخة في الشريط الجانبي', ver);
     await page.waitForSelector('#dashStats .stat');
@@ -937,7 +937,7 @@ function ok(cond, name, detail) {
       pg3.on('pageerror', e => err3.push(e.message));
       await pg3.goto('http://127.0.0.1:' + pM2 + '/');
       await pg3.waitForFunction(() => window.App && App.S && App.S.meta && App.S.meta.setupDone, null, { timeout: 20000 });
-      await pg3.evaluate(() => { location.hash = '#/settings'; });
+      await pg3.evaluate(() => { location.hash = '#/settings?tab=devices'; });
       /* قرار 0025: شاشات 3.x تبقى، فلا زر نقل لـ 4.0 في إعداداتها بل «ربط الأجهزة» */
       await pg3.waitForSelector('#lnkBody button:has-text("هذا جهاز المحل")', { timeout: 10000 });
       ok(await pg3.$('#view button:has-text("انقل للنظام الجديد 4.0")') === null && await pg3.$('#lnkBody button:has-text("اربطه جهازاً ثانياً")') !== null,

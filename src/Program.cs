@@ -25,7 +25,11 @@ namespace Qirtasiya
         static readonly bool Tripoli = BuildInfo.Edition == "tripoli";
         static readonly string AppTitle = Tripoli ? "منظومة طرابلس" : "منظومة مصراتة";
         static readonly string DataName = Tripoli ? "Qirtasiya-Tripoli" : "Qirtasiya";
-        const string AppVersion = "4.0-test";   // ملف التثبيت: الرقم لويندوز، و«-test» في اسمه
+        /* لكل تطبيق إصداره (tools/build-linux.sh يقرأ سطر تطبيقه): مصراتة رسمية،
+           وطرابلس تجريبية حتى يعتمدها المحل. ملف التثبيت: الرقم لويندوز، و«-test» في اسمه */
+        const string AppVersionMisrata = "4.0";
+        const string AppVersionTripoli = "4.0-test";
+        static readonly string AppVersion = Tripoli ? AppVersionTripoli : AppVersionMisrata;
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
            في مجلد يكتب فيه المستخدم — فمن يضع app\index.html معدّلاً يتخطّى

@@ -236,7 +236,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await closePage(pg); writeStore(mixed); pg = await open();
 
     const before = await pg.evaluate(() => App.S.invoices.length);
-    await pg.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(700);
+    await pg.evaluate(() => { location.hash = '#/settings?tab=data'; App.route(); }); await sleep(700);
     const hasBtn = await pg.$$eval('#view button', e => e.some(x => x.textContent.includes('أرشف سنة 2025')));
     check('زر أرشفة السنة الماضية ظاهر', hasBtn);
 
@@ -832,10 +832,15 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     const navTxt = await pg.$$eval('.nav-item', bs => bs.map(b2 => b2.textContent.trim()));
     ['لوحة اليوم','نقطة البيع','الفواتير','الجرد','المخزون والفروع','إدخال بضاعة',
      'التنبيهات','البضاعة الراكدة','طباعة اللاصقات','الزبائن والديون','كتب على المباع',
-     'الموردون ودور النشر','الأرباح والتقارير','الإشعارات','الإعدادات'].forEach(function (t) {
+     'الموردون ودور النشر','الأرباح والتقارير','الإعدادات'].forEach(function (t) {
       check('تبويب «' + t + '» موجود',
         navTxt.some(function (x) { return x.indexOf(t) >= 0; }), navTxt.join(' | '));
     });
+    /* «الإشعارات» صارت تبويباً داخل الإعدادات (مصراتة 4.0 كطرابلس) */
+    await pg.evaluate(() => { location.hash = '#/notify'; App.route(); }); await sleep(400);
+    const setTabsTxt = await pg.$$eval('.set-seg button', bs => bs.map(b2 => b2.textContent.trim()));
+    check('«الإشعارات» تبويب في الإعدادات، ورابطها القديم يفتحه', setTabsTxt.indexOf('الإشعارات') >= 0 &&
+      await pg.evaluate(() => (document.querySelector('.set-seg button.on') || {}).textContent) === 'الإشعارات', setTabsTxt.join(' | '));
   }
 
   console.log('\n== 14د. الأيقونات أشكال متجهة لا رموز خطّية ==');
@@ -1387,7 +1392,11 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     /* الخلل الذي وقع فعلاً: أزرار الربط كانت تظهر فقط بعد ضبط الربط،
        فلا يجدها من لم يضبطه بعد — وهو بالضبط من يحتاجها. */
     await closePage(pg); writeStore(seed()); pg = await open();
+    /* مصراتة 4.0: «اربط فرعك» انتقل للإعدادات ← الأجهزة والفروع، وفي المخزون سطر يدلّ عليه */
     await pg.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(700);
+    check('المخزون: سطر «الربط غير مفعّل» يدلّ على الإعدادات', await pg.$('#view button:has-text("فتح")') !== null &&
+      /الأجهزة والفروع/.test(await pg.evaluate(() => document.getElementById('view').textContent)));
+    await pg.click('#view button:has-text("فتح")'); await sleep(700);
     const unconfigured = await pg.evaluate(() => Stock.configured());
     check('الحالة: الربط غير مضبوط', unconfigured === false);
     const startBtn = await pg.$('#view button:has-text("ابدأ — خطوات الربط")');
@@ -1443,7 +1452,7 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
       App.S.sync.key = 'sirr-alrabt';
       App.saveNow();
     }); await sleep(400);
-    await pg.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(600);
+    await pg.evaluate(() => { location.hash = '#/settings?tab=devices'; App.route(); }); await sleep(600);
     const btn = await pg.$('button:has-text("المشاهدة من التلفون")');
     check('الزر يظهر بعد ضبط الربط', !!btn);
     await btn.click(); await sleep(600);
@@ -1617,9 +1626,14 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await sleep(500);
     const first = await pg.evaluate(() => document.querySelectorAll('#invBody tbody tr').length);
     check('أول رسم أقل من كل الصفوف', first >= 60 && first < 400, String(first));
-    for (let i = 0; i < 8; i++) { await pg.evaluate(() => { const v = document.getElementById('view'); v.scrollTop = v.scrollHeight; }); await sleep(250); }
-    const all = await pg.evaluate(() => document.querySelectorAll('#invBody tbody tr').length);
-    check('وكلها تظهر عند التمرير', all === 400, String(all));
+    /* بلا تمرير لا يُرسم شيء آخر (كانت العلامة تحت صندوق الجدول فيُرسم الكل في الخلفية) */
+    await sleep(1200);
+    const still = await pg.evaluate(() => document.querySelectorAll('#invBody tbody tr:not(.lazy-row)').length);
+    check('وبلا تمرير يبقى كما هو (لا رسم في الخلفية)', still === first - 1, still + ' / ' + first);
+    /* التمرير داخل صندوق الجدول نفسه، كما يفعل المستخدم */
+    for (let i = 0; i < 8; i++) { await pg.evaluate(() => { const w = document.querySelector('#invBody .table-wrap'); w.scrollTop = w.scrollHeight; }); await sleep(250); }
+    const all = await pg.evaluate(() => document.querySelectorAll('#invBody tbody tr:not(.lazy-row)').length);
+    check('وكلها تظهر عند التمرير، 100 كل مرة', all === 400, String(all));
     await pg.fill('#bq', 'كتاب 399'); await sleep(300);
     const found = await pg.evaluate(() => [...document.querySelectorAll('#invBody tbody .name')].map(e => e.textContent.trim()));
     check('والبحث يجد ما لم يُرسم بعد', found.some(t => t.includes('كتاب 399')), JSON.stringify(found.slice(0, 3)));

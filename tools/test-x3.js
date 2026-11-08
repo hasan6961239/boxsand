@@ -136,7 +136,7 @@ function device(tmp, name) {
     ok(info.db === false && !info.x3 && !fs.existsSync(A.data('qirtasiya.db')), 'بلا قاعدة: البرنامج على store.json', info);
     await sellCash(pA, '111');
     ok(A.store().invoices.length === 1 && book(A.store(), 'b1').qty === 19, 'بيعة قبل الربط تُكتب في store.json كما كانت');
-    await pA.evaluate(() => { location.hash = '#/settings'; App.route(); });
+    await pA.evaluate(() => { location.hash = '#/settings?tab=devices'; App.route(); });
     ok(await until(pA, () => /هذا جهاز المحل/.test((document.getElementById('lnkBody') || {}).textContent || '')), 'في الإعدادات: بطاقة «ربط الأجهزة»');
     await shot(pA, '1-shop-before');
 
@@ -167,14 +167,14 @@ function device(tmp, name) {
     const cat = cloud.env.DB.raw.prepare("SELECT * FROM v2_catalog WHERE branch = 'misrata'").get();
     ok(cat && cat.n === 3, 'وقائمة كتبه للفروع الأخرى من بيانات 3.x (3 أصناف)', cat && cat.n);
     ok(!cloud.env.SHOP.map.has('branch:misrata'), 'ولقطة التلفون لا يرفعها المحرك (شاشات 3.x ترفعها كما كانت)');
-    await pA.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(900);
+    await pA.evaluate(() => { location.hash = '#/settings?tab=devices'; App.route(); }); await sleep(900);
     await shot(pA, '2-shop-linked');
 
     console.log('\n== اللابتوب: «اربطه جهازاً ثانياً» ==');
     B.write(laptopStore(cloud.url));
     await B.start();
     let pB = await open(B);
-    await pB.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(900);
+    await pB.evaluate(() => { location.hash = '#/settings?tab=devices'; App.route(); }); await sleep(900);
     await pB.click('#lnkBody button:has-text("اربطه جهازاً ثانياً")'); await sleep(500);
     await pB.fill('#f_name', 'لابتوب حسن');
     await pB.click('.modal button:text-is("اربط")'); await sleep(1500);
@@ -192,7 +192,7 @@ function device(tmp, name) {
       if (!/^backup-.*\.json$/.test(f)) return false;
       try { return /كتاب قديم على اللابتوب/.test(fs.readFileSync(B.data('backups/' + f), 'utf8')); } catch (e) { return false; }
     }), 'وبياناته القديمة محفوظة في backups');
-    await pB.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(900);
+    await pB.evaluate(() => { location.hash = '#/settings?tab=devices'; App.route(); }); await sleep(900);
     await shot(pB, '3-laptop-linked');
 
     console.log('\n== بيعة في الجهازين في الوقت نفسه ==');
@@ -373,7 +373,7 @@ function device(tmp, name) {
 
     ok(errs.length === 0, 'بلا أخطاء في الصفحات', errs.slice(0, 5));
     if (SHOTS) {
-      await pA.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(900);
+      await pA.evaluate(() => { location.hash = '#/settings?tab=devices'; App.route(); }); await sleep(900);
       await shot(pA, '4-shop-after');
     }
     await pA.close(); await pB.close();
@@ -793,9 +793,11 @@ async function branches() {
     ok(await until(pK, () => /طبعة طرابلس/.test((document.getElementById('findResults') || {}).textContent || '') &&
       /مكتبة طرابلس/.test(document.getElementById('findResults').textContent)), 'البحث في كل الفروع يجد كتاب طرابلس، ومكتوب عنده «مكتبة طرابلس»');
     await pK.evaluate(() => { Stock.setFind(''); Stock.open('branch', 'tripoli'); }); await sleep(800);
-    await pK.evaluate(() => Stock.setQ('طبعة طرابلس')); await sleep(800);
-    const bp = await pK.evaluate(() => ({ text: document.getElementById('view').textContent, rows: document.querySelectorAll('#view table tbody tr').length }));
-    ok(/مكتبة طرابلس/.test(bp.text) && /طبعة طرابلس/.test(bp.text) && bp.rows >= 1 && bp.rows < 5, 'صفحة فرع طرابلس، والبحث داخلها', { rows: bp.rows });
+    /* جدول كتب الفرع (remotePage): بحثه يرسم الجدول وحده */
+    await pK.waitForSelector('#rbq');
+    await pK.fill('#rbq', 'طبعة طرابلس'); await sleep(800);
+    const bp = await pK.evaluate(() => ({ text: document.getElementById('view').textContent, rows: document.querySelectorAll('#rbBody tbody tr:not(.lazy-row)').length }));
+    ok(/مكتبة طرابلس/.test(bp.text) && /طبعة طرابلس/.test(bp.text) && bp.rows >= 1 && bp.rows < 5 && !/قيمته بيعاً/.test(bp.text), 'صفحة فرع طرابلس جدول كتب بلا مبالغ، والبحث داخلها', { rows: bp.rows });
     await shotOf(pK, 'branches-misrata-sees-tripoli');
 
     console.log('\n== ملف مصراتة لا يثقل بكتب طرابلس ==');

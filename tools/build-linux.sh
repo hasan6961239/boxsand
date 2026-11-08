@@ -6,7 +6,7 @@
 #  يحتاج: mono-mcs mono-devel libmono-system-windows-forms4.0-cil
 #         libmono-system-drawing4.0-cil nsis
 #
-#    tools/build-linux.sh                    مصراتة، والإصدار من AppVersion في Program.cs
+#    tools/build-linux.sh                    مصراتة، والإصدار من AppVersionMisrata في Program.cs
 #    EDITION=tripoli tools/build-linux.sh    طرابلس (تطبيق منفصل، قرار 0022)
 #    tools/build-linux.sh 3.4                إصدار محدد
 #
@@ -16,12 +16,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${1:-$(grep -oP 'AppVersion = "\K[^"]+' src/Program.cs)}"
+EDITION="${EDITION:-misrata}"
+# لكل تطبيق سطره في Program.cs: AppVersionMisrata / AppVersionTripoli
+VERSION="${1:-$(grep -oP "AppVersion${EDITION^} = \"\K[^\"]+" src/Program.cs)}"
 # ويندوز يقبل رقماً فقط في خصائص الملف (4.0)، و«-test» يبقى في الاسم
 NUM="${VERSION%%-*}"
 TAG="${VERSION#"$NUM"}"
 STAMP="${STAMP:-$(date -u +%Y-%m-%d)}"
-EDITION="${EDITION:-misrata}"
 case "$EDITION" in
   misrata) NUMBER=1; ICO=app/app.ico;         PNG=app/icon.png ;;
   tripoli) NUMBER=2; ICO=app/app-tripoli.ico; PNG=app/icon-tripoli.png ;;

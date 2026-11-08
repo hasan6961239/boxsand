@@ -539,6 +539,22 @@ namespace Qirtasiya.Data
             lock (gate) return db.Text("SELECT ver FROM remote_branches WHERE branch = ?", branchId);
         }
 
+        /* لبطاقة الربط في الإعدادات: الفروع التي جلبنا قوائمها، بلا جمع الكميات (61 ألف سطر) */
+        public List<Dictionary<string, object>> RemoteBranchesBrief()
+        {
+            lock (gate)
+            {
+                List<Dictionary<string, object>> l = new List<Dictionary<string, object>>();
+                foreach (object[] r in db.Rows("SELECT branch, name, city, n, snap_at, fetched FROM remote_branches ORDER BY name"))
+                {
+                    Dictionary<string, object> d = new Dictionary<string, object>();
+                    d["id"] = r[0]; d["name"] = r[1]; d["city"] = r[2]; d["items"] = r[3]; d["at"] = r[4]; d["fetched"] = r[5];
+                    l.Add(d);
+                }
+                return l;
+            }
+        }
+
         public List<Dictionary<string, object>> RemoteBranches()
         {
             lock (gate)

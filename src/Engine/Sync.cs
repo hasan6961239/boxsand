@@ -114,6 +114,8 @@ namespace Qirtasiya.Engine
            وكل فرع آخر ينزّلها: كل عشر دقائق كانت 50 ميغا في اليوم مع البيع، ونصف دقيقة من كل عشر
            على رفع بطيء. «حدّث الآن» يرسلها في الحال */
         public static int CatalogEveryMin = 30;
+        /* قائمة لم تُنشر أو لم تُجلب: تُعاد بعد دقيقتين، لا مع كل دورة (طرابلس: كل 4 ثوانٍ، والقائمة ميغا) */
+        public static int CatalogRetryMin = 2, CatalogPubRetryMin = 10;
         public static int SnapshotEveryHours = 24;
 
         readonly Func<ShopDb> dbOf;
@@ -141,7 +143,11 @@ namespace Qirtasiya.Engine
 
         /* ما بقي على هذا الجهاز الثاني من تغييرات جهاز المحل (الشاشة تنتظره قبل أن تعيد التحميل) */
         public long Behind { get { lock (stateGate) return behind; } }
-        DateTime lastCatalog = DateTime.MinValue;
+        /* قوائم الفروع: موعد الدورة القادمة، وآخر جلب ناجح، وخطأ النشر وخطأ الجلب كلٌّ وحده —
+           حتى لا يمنع فشلُ نشر قائمتنا جلبَ قوائم الفروع الأخرى (مصراتة لا ترى طرابلس) */
+        DateTime nextCatalog = DateTime.MinValue;
+        string catAt = "", catPubErr = "", catGetErr = "";
+        long catSeen, catWant;
 
         public SyncClient(Func<ShopDb> db, Func<Api> api, Func<string, string, ICloud> cloud, Action<string> logger, string machineFp, string temp)
         {
@@ -179,7 +185,7 @@ namespace Qirtasiya.Engine
 
         public void ClearState()
         {
-            lock (stateGate) { lastOk = lastError = lastCode = mainName = phase = ""; mainSeen = behind = 0; behindTo = -1; needRejoin = false; lastCatalog = DateTime.MinValue; lastHello = DateTime.MinValue; }
+            lock (stateGate) { lastOk = lastError = lastCode = mainName = phase = ""; mainSeen = behind = 0; behindTo = -1; needRejoin = false; nextCatalog = DateTime.MinValue; lastHello = DateTime.MinValue; catAt = catPubErr = catGetErr = ""; catSeen = catWant = 0; }
         }
 
         /* أجهزة الفرع وآخر تسليم لكل جهاز (v2/devices). خادم قديم بلا هذا المسار: null */
@@ -231,6 +237,15 @@ namespace Qirtasiya.Engine
                 o["behind"] = behind;
                 o["phase"] = phase;
                 o["rejoin"] = needRejoin;
+                o["catAt"] = catAt;
+                o["catPubError"] = catPubErr;
+                o["catError"] = catGetErr;
+            }
+            if (db != null)
+            {
+                o["catPub"] = db.Local("sync.cat_at") ?? "";
+                o["catN"] = db.LocalLong("sync.cat_n", 0);
+                o["remotes"] = db.RemoteBranchesBrief();
             }
             return o;
         }
@@ -281,11 +296,12 @@ namespace Qirtasiya.Engine
                 return;
             }
             ICloud cloud = cloudOf(url, key);
+            bool tickOk = false;
             try
             {
                 if (db.Replica) TickSecond(db, cloud, force);
                 else TickMain(db, cloud, force);
-                Catalogs(db, cloud, force);
+                tickOk = true;
                 lock (stateGate)
                 {
                     lastOk = ShopDb.Stamp(db.Now);
@@ -298,6 +314,26 @@ namespace Qirtasiya.Engine
             catch (IOException e) { Failed("net", "انقطع الاتصال: " + e.Message); }
             catch (FormatException e) { Failed("", "رد غير مفهوم من الخادم: " + e.Message); }
             finally { Phase(""); }
+            /* قوائم الفروع خارج الدورة: تُجلب حتى لو فشل التسليم أو النشر (جهاز آخر أخذ مكان
+               جهاز المحل، أو الخادم رفض قائمتنا)، ولها خطؤها في الإعدادات */
+            try { Catalogs(db, cloud, force, tickOk); }
+            finally { Phase(""); }
+        }
+
+        static string ErrText(Exception e)
+        {
+            WebException we = e as WebException;
+            if (we != null) return NetError(we);
+            if (e is IOException) return "انقطع الاتصال: " + e.Message;
+            if (e is FormatException) return "رد غير مفهوم من الخادم: " + e.Message;
+            return e.Message;
+        }
+
+        /* التسليم يقول متى نُشرت آخر قائمة فرع آخر: أحدث مما جلبنا = نجلبها الآن، لا بعد نصف ساعة */
+        void NoteCatalogs(Dictionary<string, object> h)
+        {
+            long at = h == null ? 0 : Json.Long(h, "catalogsAt", 0);
+            lock (stateGate) if (at > catSeen) catWant = at;
         }
 
         void Failed(string code, string msg)
@@ -352,6 +388,7 @@ namespace Qirtasiya.Engine
             Phase("التسليم");
             Dictionary<string, object> h = Hello(db, cloud, "main", false);
             lastHello = DateTime.UtcNow;
+            NoteCatalogs(h);
             string chain = db.Local("sync.chain") ?? "";
             Dictionary<string, object> snap = Json.Obj(h, "snap");
             if (chain.Length == 0 || Json.Str(h, "chain") != chain || snap == null)
@@ -494,6 +531,7 @@ namespace Qirtasiya.Engine
                 Phase("التسليم");
                 h = Hello(db, cloud, "second", false);
                 lastHello = DateTime.UtcNow;
+                NoteCatalogs(h);
             }
             PushOutbox(db, cloud);
             string chain = db.Local("sync.chain") ?? "";
@@ -555,17 +593,58 @@ namespace Qirtasiya.Engine
 
         /* ---------- قوائم الكتب بين الفروع ---------- */
 
-        void Catalogs(ShopDb db, ICloud cloud, bool force)
+        /* canPublish: التسليم في هذه الدورة نجح (هذا جهاز المحل فعلاً). جهاز أُخذ مكانه لا يرفع
+           قائمته (ميغا ونصف تُرفض كل مرة)، لكنه يبقى يجلب قوائم الفروع */
+        void Catalogs(ShopDb db, ICloud cloud, bool force, bool canPublish)
         {
-            if (!force && db.Now - lastCatalog < TimeSpan.FromMinutes(CatalogEveryMin)) return;
-            if (!db.Replica)
+            bool due = force || db.Now >= nextCatalog;
+            long want;
+            lock (stateGate) want = catWant;
+            if (!due && want == 0) return;
+            string pubErr = "", getErr = "";
+            List<object> list = null;
+            try { list = ListCatalogs(db, cloud); }
+            catch (Exception e) { getErr = ErrText(e); }
+            if (due && canPublish && !db.Replica && list != null)
             {
-                PublishCatalog(db, cloud);
-                /* بواجهة 3.x شاشاتها ترفع لقطة التلفون بنفسها كما كانت (وتأخذ طلباته) */
-                if (!db.X3Mode) PublishOld(db, cloud, force);
+                try
+                {
+                    /* قائمتنا ليست على الخادم (خادم أو قاعدة D1 جديدة، أو نشر انقطع): تُنشر ولو لم تتغيّر */
+                    PublishCatalog(db, cloud, !Listed(list, db.Local("sync.branch") ?? ""));
+                    /* بواجهة 3.x شاشاتها ترفع لقطة التلفون بنفسها كما كانت (وتأخذ طلباته) */
+                    if (!db.X3Mode) PublishOld(db, cloud, force);
+                }
+                catch (Exception e) { pubErr = ErrText(e); }
             }
-            FetchCatalogs(db, cloud);
-            lastCatalog = db.Now;
+            if (list != null)
+            {
+                try { FetchCatalogs(db, list, cloud); }
+                catch (Exception e) { getErr = ErrText(e); }
+            }
+            lock (stateGate)
+            {
+                if (getErr.Length == 0) { catAt = ShopDb.Stamp(db.Now); if (want > catSeen) catSeen = want; }
+                if (catWant <= catSeen) catWant = 0;
+                if (due || pubErr.Length > 0) catPubErr = pubErr;
+                catGetErr = getErr;
+            }
+            if (pubErr.Length > 0) log("المزامنة: " + pubErr);
+            if (getErr.Length > 0) log("المزامنة: " + getErr);
+            /* جلب فشل: بعد دقيقتين. نشر فشل (الخادم رفض القائمة): بعد عشر، لا تُرفع ميغا كل دقيقتين.
+               التسليم فشل فلم ننشر: الدورة التالية الناجحة تنشر */
+            if (due && !canPublish && !db.Replica) nextCatalog = db.Now + TimeSpan.FromMinutes(CatalogRetryMin);
+            else if (due) nextCatalog = db.Now + TimeSpan.FromMinutes(getErr.Length > 0 ? CatalogRetryMin : pubErr.Length > 0 ? CatalogPubRetryMin : CatalogEveryMin);
+            else if (getErr.Length > 0) lock (stateGate) catWant = 0;   // يُعاد مع الدورة أو التسليم القادم
+        }
+
+        static bool Listed(List<object> list, string branch)
+        {
+            foreach (object o in list)
+            {
+                Dictionary<string, object> c = o as Dictionary<string, object>;
+                if (c != null && Json.Str(c, "branch") == branch) return true;
+            }
+            return false;
         }
 
         /* التطبيق في التلفون وموقع المكتبة يقرآن لقطة 3.x من مخزن KV القديم: تُكتب كل
@@ -594,13 +673,13 @@ namespace Qirtasiya.Engine
             db.SetLocals(st);
         }
 
-        void PublishCatalog(ShopDb db, ICloud cloud)
+        void PublishCatalog(ShopDb db, ICloud cloud, bool missing)
         {
             int n;
             string json = db.CatalogJson(out n);
             int at = json.IndexOf("\"items\":", StringComparison.Ordinal);
             string hash = Hash(json.Substring(at < 0 ? 0 : at) + "|" + json.Substring(0, Math.Max(0, json.IndexOf(",\"at\":", StringComparison.Ordinal))));
-            if (hash == db.Local("sync.cat_hash")) return;
+            if (hash == db.Local("sync.cat_hash") && !missing) return;
             Phase("نشر قائمة الكتب");
             string packed = ShopDb.Pack(json);
             string ver = NewToken();
@@ -614,37 +693,54 @@ namespace Qirtasiya.Engine
                     packed.Substring(i * MaxPart, Math.Min(MaxPart, packed.Length - i * MaxPart)));
                 if (r.Status != 200) throw Fail(r, "نشر قائمة الكتب");
             }
-            db.SetLocal("sync.cat_hash", hash);
+            Dictionary<string, string> st = new Dictionary<string, string>();
+            st["sync.cat_hash"] = hash;
+            st["sync.cat_at"] = ShopDb.Stamp(db.Now);
+            st["sync.cat_n"] = S(n);
+            db.SetLocals(st);
             log("المزامنة: نُشرت قائمة الكتب (" + n + " صنف)");
         }
 
-        void FetchCatalogs(ShopDb db, ICloud cloud)
+        List<object> ListCatalogs(ShopDb db, ICloud cloud)
         {
-            string mine = db.Local("sync.branch") ?? "";
-            CloudReply r = cloud.Call("GET", "v2/catalogs", Q("branch", mine), null);
+            Phase("قوائم الفروع");
+            CloudReply r = cloud.Call("GET", "v2/catalogs", Q("branch", db.Local("sync.branch") ?? ""), null);
             Dictionary<string, object> j = r.Json;
             if (r.Status != 200 || j == null) throw Fail(r, "قوائم الفروع");
-            foreach (object o in Json.Arr(j, "catalogs"))
+            return Json.Arr(j, "catalogs");
+        }
+
+        /* كل فرع وحده: فشل قائمة فرع لا يمنع الباقي، والخطأ الأول يُرمى بعدها */
+        void FetchCatalogs(ShopDb db, List<object> list, ICloud cloud)
+        {
+            string mine = db.Local("sync.branch") ?? "";
+            Exception first = null;
+            foreach (object o in list)
             {
                 Dictionary<string, object> c = o as Dictionary<string, object>;
                 if (c == null) continue;
                 string b = Json.Str(c, "branch"), ver = Json.Str(c, "ver");
-                if (b == mine || ver == db.RemoteCatalogVer(b)) continue;
-                Phase("جلب قائمة فرع " + Json.Str(c, "name"));
-                StringBuilder all = new StringBuilder();
-                long parts = Json.Long(c, "parts", 1);
-                bool gone = false;
-                for (int i = 0; i < parts; i++)
+                if (b.Length == 0 || b == mine || ver == db.RemoteCatalogVer(b)) continue;
+                try
                 {
-                    CloudReply p = cloud.Call("GET", "v2/catalog-part", Q("branch", b, "ver", ver, "part", S(i)), null);
-                    if (p.Status == 410) { gone = true; break; }   // نُشرت أحدث منها في الأثناء: الدورة القادمة
-                    if (p.Status != 200) throw Fail(p, "قائمة فرع");
-                    all.Append(p.Text);
+                    Phase("جلب قائمة فرع " + Json.Str(c, "name"));
+                    StringBuilder all = new StringBuilder();
+                    long parts = Json.Long(c, "parts", 1);
+                    bool gone = false;
+                    for (int i = 0; i < parts; i++)
+                    {
+                        CloudReply p = cloud.Call("GET", "v2/catalog-part", Q("branch", b, "ver", ver, "part", S(i)), null);
+                        if (p.Status == 410) { gone = true; break; }   // نُشرت أحدث منها في الأثناء: الدورة القادمة
+                        if (p.Status != 200) throw Fail(p, "قائمة فرع " + Json.Str(c, "name"));
+                        all.Append(p.Text);
+                    }
+                    if (gone) continue;
+                    int got = db.SetRemoteCatalog(b, Json.Str(c, "name"), Json.Str(c, "city"), ver, Json.Long(c, "at", 0), ShopDb.Unpack(all.ToString()));
+                    log("المزامنة: قائمة فرع " + Json.Str(c, "name") + " (" + got + " صنف)");
                 }
-                if (gone) continue;
-                int got = db.SetRemoteCatalog(b, Json.Str(c, "name"), Json.Str(c, "city"), ver, Json.Long(c, "at", 0), ShopDb.Unpack(all.ToString()));
-                log("المزامنة: قائمة فرع " + Json.Str(c, "name") + " (" + got + " صنف)");
+                catch (Exception e) { if (first == null) first = e; }
             }
+            if (first != null) throw first;
         }
 
         static string Hash(string s)

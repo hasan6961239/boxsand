@@ -204,7 +204,8 @@ textarea.inp { resize: vertical; min-height: 62px; }
 select.inp { cursor: pointer; }
 
 .search-wrap { position: relative; flex: 1; max-width: 420px; }
-.search-wrap .inp { padding-inline-start: 32px; }
+/* body: يغلب حجم الواجهة (body.ui-lg .inp) الذي كان يمسح مكان العدسة فتغطي أول الكلام */
+body .search-wrap .inp { padding-inline-start: 32px; }
 .search-wrap .mag { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; pointer-events: none; }
 
 /* شارات */
@@ -1723,6 +1724,9 @@ body.th-coral  #rail { background:#2A1512; }
   display: flex; align-items: center; justify-content: center; gap: 10px;
   padding: 18px; color: var(--muted); font-size: 13px; font-weight: 700;
 }
+/* علامة «المزيد» صفاً داخل الجدول: بلا خلفية الصفوف وخطوطها */
+.tbl tr.lazy-row td { padding: 0; background: transparent; border-bottom: 0; }
+.tbl tr.lazy-row:hover td { background: transparent; }
 
 /* زر ✕ في سطر السلة كان زرّ المتصفح الرمادي بلا تنسيق */
 .cart-line .x {
@@ -1896,3 +1900,9 @@ tr.near td:first-child { box-shadow: inset -3px 0 0 var(--accent-wash); }
 @keyframes qi-run { 0% { margin-inline-start: -35%; } 100% { margin-inline-start: 100%; } }
 .qi-bar span { position: absolute; top: 8px; inset-inline-start: 50%; transform: translateX(50%); background: var(--night, #12212B); color: #fff;
   font-size: 12.5px; font-weight: 600; padding: 4px 12px; border-radius: 99px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+
+/* حقل البحث الكبير: سطر كامل فوق المرشّحات في «عرض وتعديل» */
+.search-big { position: relative; margin-bottom: 12px; }
+body .search-big .inp { height: 52px; font-size: 17px; padding-inline-start: 44px; border-radius: 14px; border-width: 1.5px; }
+.search-big .inp:focus { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
+.search-big .mag { position: absolute; inset-inline-start: 16px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 18px; pointer-events: none; }

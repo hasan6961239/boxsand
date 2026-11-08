@@ -724,36 +724,8 @@ var Rep = (function () {
      الإعدادات
      ============================================================ */
 
-  function settings() {
-    if (App.isX4 && App.isX4()) return settingsX4();
-    var m = S().meta;
-    var h = '<div class="grid g2">';
-
-    h += '<div class="card"><div class="card-head"><h3>بيانات المحل</h3></div><div class="card-body">' +
-      '<div class="form-grid">' +
-      inp("shopName", "اسم المحل", m.shopName, true) +
-      inp("phone", "رقم الهاتف", m.phone) +
-      inp("address", "العنوان", m.address, true) +
-      inp("currency", "رمز العملة", m.currency) +
-      receiptFields(m) +
-      inp("footer", "عبارة أسفل الإيصال", m.footer, true) +
-      inp("cardName", "اسم البطاقة على التقارير", m.cardName) +
-      lookFields(m) +
-      "</div></div></div>";
-
-    h += libsCard();
-    h += backupCard();
-
-    /* ربط الأجهزة (قرار 0025): جهاز المحل الأساسي، وجهاز ثانٍ يتزامن معه */
-    h += linkCard();
-    h += dangerCard();
-    h += logCard();
-
-    h += "</div>";
-
-    setTimeout(function () { loadBackups(); loadInfo(); loadLink(); }, 0);
-    return h;
-  }
+  /* الإعدادات تبويبات في مصراتة وطرابلس: كل إعداد في مكانه */
+  function settings() { return settingsTabs(); }
 
   function receiptFields(m) {
     return '<div class="field"><label>مقاس الإيصال</label><select class="inp" onchange="Rep.setMeta(\'receiptWidth\',this.value)">' +
@@ -842,25 +814,28 @@ var Rep = (function () {
       ], S().log.slice(0, 40), { emptyIcon: "books", emptyTitle: "لا حركات بعد", emptyText: "" }) + "</div>";
   }
 
-  /* ---------- إعدادات طرابلس (X4): تبويبات ----------
+  /* ---------- الإعدادات: تبويبات ----------
      كل إعداد في مكانه: ربط الفروع (كان في «المخزون والفروع») والإشعارات
-     والموظفون والأجهزة (كانت صفحات في الشريط) صارت تبويبات هنا.
-     «السجلات» تبقى صفحة في الشريط. مصراتة على الصفحة الواحدة كما كانت */
+     (كانت صفحة في الشريط) صارت تبويبات هنا، وفي طرابلس الموظفون والأجهزة أيضاً.
+     «السجلات» في طرابلس صفحة في الشريط؛ في مصراتة «سجل الحركات» في تبويب البيانات */
   var setTab = "general";
   var SET_TABS = [
     { k: "general", t: "عام", perm: "settings" },
     { k: "print", t: "الطباعة واللاصقات", perm: "settings" },
-    { k: "staff", t: "الموظفون والصلاحيات", perm: "staff" },
+    { k: "staff", t: "الموظفون والصلاحيات", perm: "staff", x4: true },
     { k: "devices", t: "الأجهزة والفروع", perm: ["settings", "devices"] },
     { k: "notify", t: "الإشعارات", perm: "settings" },
     { k: "data", t: "النسخ الاحتياطي والبيانات", perm: "settings" }
   ];
 
-  function setTabs() { return SET_TABS.filter(function (t) { return App.can(t.perm); }); }
+  function setTabs() {
+    var x4 = App.isX4 && App.isX4();
+    return SET_TABS.filter(function (t) { return (x4 || !t.x4) && App.can(t.perm); });
+  }
 
   function goSetTab(k) { setTab = k; App.rerender(); }
 
-  function settingsX4() {
+  function settingsTabs() {
     /* #/settings?tab=devices: من زر في صفحة أخرى، أو من رابط صفحة قديمة (#/notify) */
     var q = /[?&]tab=([a-z]+)/.exec(location.hash || "");
     if (q) {
@@ -936,7 +911,7 @@ var Rep = (function () {
         '<div class="spacer"></div><span id="syncState"></span></div><div class="card-body">' + Stock.linkBlock() + "</div></div></div>";
       setTimeout(function () { loadLink(); loadDevs(); if (Stock.afterRender) Stock.afterRender(); }, 0);
     }
-    if (App.can("devices")) h += Staff.devicesPage();
+    if (App.isX4 && App.isX4() && App.can("devices")) h += Staff.devicesPage();
     return h;
   }
 
@@ -988,7 +963,8 @@ var Rep = (function () {
   }
 
   function setData() {
-    var h = '<div class="grid" style="grid-template-columns:1fr">' + backupCard() + dangerCard() + "</div>";
+    var h = '<div class="grid" style="grid-template-columns:1fr">' + backupCard() + dangerCard() +
+      (App.isX4 && App.isX4() ? "" : logCard()) + "</div>";
     setTimeout(function () { loadBackups(); loadInfo(); }, 0);
     return h;
   }
@@ -1561,9 +1537,33 @@ var Rep = (function () {
     if (!main && link.failed) rows.push('<span style="color:var(--stamp)">رفض جهاز المحل ' + link.failed + " عملية</span>");
     if (link.error) rows.push('<span style="color:var(--stamp)">' + App.esc(link.error) + "</span>");
     if (st) st.textContent = link.error ? "يحاول…" : "مربوط";
-    host.innerHTML = '<div style="line-height:2">' + rows.join("<br>") + "</div>" +
+    host.innerHTML = '<div style="line-height:2">' + rows.join("<br>") + "</div>" + branchLists(main) +
       '<div class="row" style="margin-top:10px"><button class="btn primary" id="lnkNow" onclick="Rep.linkNow()">حدّث الآن</button>' +
       (main ? '<button class="btn" onclick="Rep.linkStop()">أوقف الربط</button>' : "") + "</div>";
+  }
+
+  /* «قوائم الفروع»: ما نشرناه نحن، وكل فرع جلبنا قائمته ومتى — فإن لم يظهر فرع
+     في «المخزون والفروع» يبان السبب هنا بدل التخمين */
+  function branchLists(main) {
+    var red = function (t) { return '<div style="color:var(--stamp)">' + App.esc(t) + "</div>"; };
+    var n = function (v) { return '<b class="num">' + Number(v || 0).toLocaleString("en") + "</b>"; };
+    var t = function (v) { return '<span class="num">' + App.esc(v || "") + "</span>"; };
+    var h = '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);line-height:2">' +
+      '<b>قوائم الفروع</b> <span class="muted small">— كتب كل فرع للفروع الأخرى، تتجدّد كل نصف ساعة وفي «حدّث الآن»</span>';
+    if (main) {
+      h += "<div>قائمة كتبنا: " + (link.catPub ? "نُشرت " + t(link.catPub) + " (" + n(link.catN) + " صنف)" : "لم تُنشر بعد") + "</div>";
+      if (link.catPubError) h += red("لم تُنشر قائمتنا: " + link.catPubError);
+    }
+    var rs = link.remotes || [];
+    if (!rs.length) h += '<div class="muted">لم تصل قائمة أي فرع آخر بعد.</div>';
+    rs.forEach(function (r) {
+      h += "<div>فرع " + App.esc(r.name || r.id) + ": " + n(r.items) + " صنف" +
+        (r.at ? ' <span class="muted small">· قائمتهم من ' + t(r.at) + "</span>" : "") +
+        (r.fetched ? ' <span class="muted small">· وصلت ' + t(r.fetched) + "</span>" : "") + "</div>";
+    });
+    if (link.catError) h += red("تعذّر جلب قوائم الفروع: " + link.catError);
+    else if (link.catAt) h += '<div class="muted small">آخر سؤال عن قوائم الفروع: ' + t(link.catAt) + "</div>";
+    return h + "</div>";
   }
 
   function linkForm(role) {

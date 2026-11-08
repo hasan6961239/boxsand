@@ -75,6 +75,10 @@ var People = (function () {
       return [c.name, c.phone];
     });
 
+    /* عدد فواتير كل زبون مرة واحدة: كان كل صف يمرّ على الفواتير كلها (3000 زبون × 3000 فاتورة
+       = ثانيتان لفتح الصفحة)، والجدول يرسم 100 ثم 100 كلما نزلت */
+    var nInv = {};
+    S().invoices.forEach(function (v) { if (v.customerId) nInv[v.customerId] = (nInv[v.customerId] || 0) + 1; });
     host.innerHTML = App.table([
       {
         h: "الزبون", c: function (c) {
@@ -90,9 +94,7 @@ var People = (function () {
         }
       },
       {
-        h: "عدد الفواتير", cls: "num", c: function (c) {
-          return S().invoices.filter(function (v) { return v.customerId === c.id; }).length;
-        }
+        h: "عدد الفواتير", cls: "num", c: function (c) { return nInv[c.id] || 0; }
       },
       { h: "ملاحظة", c: function (c) { return App.esc(c.note || "—"); } },
       {
@@ -104,6 +106,7 @@ var People = (function () {
         }
       }
     ], rows, {
+      lazy: 100,
       rowClass: function (c) { return App.num(c.balance) > 0 ? "low" : ""; },
       emptyIcon: "people",
       emptyTitle: S().customers.length ? "لا نتيجة مطابقة" : "لا يوجد زبائن مسجّلون",

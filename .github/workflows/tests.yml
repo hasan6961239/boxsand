@@ -96,6 +96,9 @@ jobs:
       - name: طرابلس — التحديث بين الأجهزة خلال ثوانٍ، و«الأجهزة المربوطة»
         run: node tools/test-x4-sync.js
 
+      - name: الفرعان يرى كلٌّ منهما الآخر (طرابلس بـ61 ألف كتاب)
+        run: node tools/test-branches.js
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -109,6 +112,7 @@ jobs:
           for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:17845/ && break; sleep 0.5; done
           node tools/test.js
           node tools/test-money.js
+          node tools/test-big.js
 
       - name: تطبيق التلفون
         run: node tools/test-site.js

@@ -158,7 +158,7 @@ http.createServer((req, res) => {
     /* تقليد /api/info في النواة: الإصدار وختم البناء */
     if (p === '/api/info') {
       const ver = (fs.readFileSync(path.join(ROOT, 'src', 'Program.cs'), 'utf8')
-        .match(/AppVersion\s*=\s*"([^"]+)"/) || [])[1] || '?';
+        .match(/AppVersionMisrata\s*=\s*"([^"]+)"/) || [])[1] || '?';
       const stamp = (fs.readFileSync(path.join(ROOT, 'src', 'BuildInfo.cs'), 'utf8')
         .match(/Stamp\s*=\s*"([^"]*)"/) || [])[1] || '';
       return json(res, { ok: true, version: ver, build: stamp, dataDir: DATA, port: PORT });

@@ -801,9 +801,22 @@ const check = (name, ok, got) => {
     });
     await pg.evaluate(() => { location.hash = '#/stock'; App.route(); }); await sleep(500);
     let tx = await S(pg, () => document.getElementById('view').textContent);
-    check('مصراتة: «قيمة الجملة» و«اربط فرعك» في المخزون كما كانا', tx.indexOf('قيمة الجملة') >= 0 && tx.indexOf('اربط فرعك') >= 0);
+    check('مصراتة: «قيمة الجملة» في المخزون كما كانت، و«اربط فرعك» سطر يدلّ على الإعدادات', tx.indexOf('قيمة الجملة') >= 0 && tx.indexOf('اربط فرعك') < 0 && tx.indexOf('الأجهزة والفروع') >= 0);
     await pg.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(400);
-    check('مصراتة: الإعدادات صفحة واحدة بلا تبويبات، وفيها «ربط الأجهزة»', !(await pg.$('.set-seg')) && !!(await pg.$('#lnkBody')));
+    let mt = await S(pg, () => [...document.querySelectorAll('.set-seg button')].map(b => b.textContent));
+    check('مصراتة: الإعدادات تبويبات أيضاً (بلا الموظفين)، و«عام» أولاً', mt.join('|') === 'عام|الطباعة واللاصقات|الأجهزة والفروع|الإشعارات|النسخ الاحتياطي والبيانات' &&
+      await S(pg, () => document.querySelector('.set-seg button.on').dataset.tab) === 'general', mt.join('|'));
+    check('مصراتة: الإشعارات ليست في الشريط الجانبي (صارت تبويباً)', !(await pg.$('#nav .nav-item[data-k="notify"]')));
+    await pg.evaluate(() => Rep.setTab('devices')); await sleep(400);
+    tx = await S(pg, () => document.getElementById('view').textContent);
+    check('مصراتة «الأجهزة والفروع»: ربط الأجهزة و«اربط فرعك»، بلا أجهزة الموظفين', !!(await pg.$('#lnkBody')) && tx.indexOf('اربط فرعك') >= 0 && !(await pg.$('#dvName')));
+    await pg.evaluate(() => Rep.setTab('data')); await sleep(300);
+    tx = await S(pg, () => document.getElementById('view').textContent);
+    check('مصراتة «النسخ الاحتياطي والبيانات»: النسخ ومنطقة الخطر وسجل الحركات', !!(await pg.$('#bkList')) && tx.indexOf('منطقة الخطر') >= 0 && tx.indexOf('سجل الحركات') >= 0);
+    await pg.evaluate(() => { location.hash = '#/notify'; App.route(); }); await sleep(500);
+    check('مصراتة: رابط «الإشعارات» القديم يفتح تبويبها', await S(pg, () => location.hash) === '#/settings' &&
+      await S(pg, () => document.querySelector('.set-seg button.on').dataset.tab) === 'notify');
+    await pg.evaluate(() => Rep.setTab('general')); await sleep(200);
 
     await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); App.rebuildNav(); location.hash = '#/settings'; App.route(); }); await sleep(500);
     const tabs = await S(pg, () => [...document.querySelectorAll('.set-seg button')].map(b => b.textContent));

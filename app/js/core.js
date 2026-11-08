@@ -1238,10 +1238,29 @@ var App = (function () {
 
   function itemName(it) { return it ? (it.title || it.name || "") : ""; }
 
+  /* البحث عن صنف برقمه: فهرس (رقم ← موضع) لكل قائمة، يُبنى مرة ويُتحقق من الموضع
+     مع كل سؤال. كان يمرّ على القائمة كلها في كل سؤال: لقطة «تحديث الآن» تسأل عن
+     31 ألف سطر في المخازن، كل سؤال يمرّ على 63 ألف صنف = 14 ثانية متجمّدة. القائمة
+     تغيّرت (جديدة، أو صنف حُذف أو أُضيف قبله): يُعاد بناء الفهرس. رقم غير موجود:
+     مرور كامل كما كان (نادر: صنف محذوف بقي في مخزن) */
+  var fidx = {};
   function findItem(type, id) {
     var a = listOf(type);
-    for (var i = 0; i < a.length; i++) if (a[i].id === id) return a[i];
-    return null;
+    if (!a) return null;
+    var c = fidx[type];
+    if (c && c.a === a) {
+      var at = c.m[id];
+      if (at !== undefined && a[at] && a[at].id === id) return a[at];
+      if (at === undefined && c.n === a.length) {
+        for (var i = 0; i < a.length; i++) if (a[i].id === id) { c.n = -1; return a[i]; }   // الفهرس قديم: يُبنى في السؤال القادم
+        return null;
+      }
+    }
+    var m = Object.create(null);
+    for (var j = 0; j < a.length; j++) { var x = a[j]; if (x && m[x.id] === undefined) m[x.id] = j; }
+    fidx[type] = { a: a, m: m, n: a.length };
+    var k = m[id];
+    return k !== undefined ? a[k] : null;
   }
 
   function allItems() {
@@ -1646,15 +1665,19 @@ var App = (function () {
     cols.forEach(function (c) { h += "<th>" + esc(c.h) + "</th>"; });
     h += "</tr></thead><tbody>";
     shown.forEach(function (r, i) { h += rowHtml(r, i); });
-    h += "</tbody></table></div>";
+    /* علامة «المزيد» صف داخل الجدول نفسه، لا تحته: الجدول في صندوق تمرير بارتفاع ثابت
+       (.table-wrap)، فكانت العلامة تحته تبقى ظاهرة دائماً فتُلحق الدفعات بلا توقف حتى
+       تُرسم الـ61 ألف كتاب كلها في الخلفية — وهو اللاج الذي رآه المستخدم. صار يُلحق 100
+       فقط حين تنزل لآخر الجدول */
     if (rest) {
       var at = shown.length;
-      h += lazyMore(function (n) {
+      h += lazyRow(function (n) {
         var part = rest.splice(0, n), out = "";
         part.forEach(function (r) { out += rowHtml(r, at++); });
         return { html: out, left: rest.length };
-      }, "tbody", rest.length);
+      }, cols.length, rest.length, rows.length - hidden);
     }
+    h += "</tbody></table></div>";
     if (hidden > 0) {
       h += '<div class="row" style="padding:14px 16px;align-items:center;gap:12px">' +
         '<span class="muted small">معروض ' + shown.length + " من " + rows.length + " — " +
@@ -1666,32 +1689,69 @@ var App = (function () {
   }
 
   /* ---------- الرسم التدريجي ----------
-     علامة صغيرة بعد القائمة؛ حين تقترب من الشاشة تُلحق الدفعة التالية
-     بالعنصر الذي قبلها (tbody الجدول، أو شبكة البطاقات). */
-  var lazySeq = 0, lazyFns = {}, lazyObs = null;
-  function lazyMore(next, into, left) {
+     علامة صغيرة آخر القائمة؛ حين تصلها بالتمرير تُلحق الدفعة التالية (100).
+     في الجدول العلامة صف داخل tbody فتنزل مع كل دفعة؛ وفي شبكة البطاقات
+     ("self") بعد الشبكة. المراقب على صندوق التمرير الذي فيه القائمة نفسه
+     (.table-wrap أو #view)، لا على النافذة: صندوق داخل الصفحة كان يُخفي
+     عن المراقب أين تقف القائمة فعلاً */
+  var LAZY_STEP = 100;
+  var lazySeq = 0, lazyFns = {}, lazyObs = [];
+  function lazyNote(left, total) {
+    return total
+      ? "معروض " + (total - left).toLocaleString("en") + " من " + total.toLocaleString("en") + " — انزل لعرض " + Math.min(LAZY_STEP, left) + " أخرى"
+      : "انزل لعرض " + left.toLocaleString("en") + " صنفاً آخر";
+  }
+  function lazyMore(next, into, left, total) {
     var id = "lz" + (++lazySeq);
-    lazyFns[id] = { next: next, into: into };
+    lazyFns[id] = { next: next, into: into, total: total || 0 };
     setTimeout(function () { watchLazy(id); }, 0);
-    return '<div class="lazy-more" data-lazy="' + id + '"><span class="lz-spin"></span>' +
-      "<span>يحمّل " + left + " صنفاً آخر…</span></div>";
+    return '<div class="lazy-more" data-lazy="' + id + '"><span>' + lazyNote(left, total) + "</span></div>";
+  }
+  function lazyRow(next, colspan, left, total) {
+    var id = "lz" + (++lazySeq);
+    lazyFns[id] = { next: next, into: "row", total: total || 0 };
+    setTimeout(function () { watchLazy(id); }, 0);
+    return '<tr class="lazy-row" data-lazy="' + id + '"><td colspan="' + colspan + '"><div class="lazy-more"><span>' +
+      lazyNote(left, total) + "</span></div></td></tr>";
   }
   function lazyStep(el) {
     var id = el.getAttribute("data-lazy"), job = lazyFns[id];
     if (!job) return;
-    var prev = el.previousElementSibling;
-    var host = prev && (job.into === "self" ? prev : prev.querySelector(job.into));
-    if (!host) return;
-    var res = job.next(120);
-    host.insertAdjacentHTML("beforeend", res.html);
+    var res = job.next(LAZY_STEP);
+    if (job.into === "row") el.insertAdjacentHTML("beforebegin", res.html);
+    else {
+      var prev = el.previousElementSibling;
+      var host = prev && (job.into === "self" ? prev : prev.querySelector(job.into));
+      if (!host) return;
+      host.insertAdjacentHTML("beforeend", res.html);
+    }
     if (res.left > 0) {
-      el.lastChild.textContent = "يحمّل " + res.left + " صنفاً آخر…";
-      if (lazyObs) { lazyObs.unobserve(el); lazyObs.observe(el); }   // إن بقيت ظاهرة تُلحق دفعة أخرى
+      var tx = el.querySelector(".lazy-more span") || el.querySelector("span");
+      if (tx) tx.textContent = lazyNote(res.left, job.total);
     } else {
       delete lazyFns[id];
-      if (lazyObs) lazyObs.unobserve(el);
+      unwatch(el);
       el.parentNode.removeChild(el);
     }
+  }
+  function unwatch(el) { lazyObs.forEach(function (o) { o.io.unobserve(el); }); }
+  /* مراقب لكل صندوق تمرير: يُلحق الدفعة قبل الوصول للآخر بقليل (400 بكسل) */
+  function obsFor(root) {
+    for (var i = 0; i < lazyObs.length; i++) if (lazyObs[i].root === root) return lazyObs[i].io;
+    var io = new IntersectionObserver(function (ents) {
+      ents.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var t = en.target;
+        /* بعد الإلحاق: إن بقيت العلامة ظاهرة (شاشة طويلة) نتحقق ثانية في الإطار التالي */
+        setTimeout(function () {
+          if (!t.isConnected) return;
+          lazyStep(t);
+          if (t.isConnected) { io.unobserve(t); io.observe(t); }
+        }, 0);
+      });
+    }, { root: root, rootMargin: "0px 0px 400px 0px" });
+    lazyObs.push({ root: root, io: io });
+    return io;
   }
   function watchLazy(id) {
     var el = document.querySelector('[data-lazy="' + id + '"]');
@@ -1700,17 +1760,17 @@ var App = (function () {
       while (lazyFns[id]) lazyStep(el);
       return;
     }
-    if (!lazyObs) {
-      lazyObs = new IntersectionObserver(function (ents) {
-        ents.forEach(function (en) {
-          if (en.isIntersecting) setTimeout(function () { if (en.target.isConnected) lazyStep(en.target); }, 0);
-        });
-      }, { rootMargin: "0px 0px 900px 0px" });
-    }
-    lazyObs.observe(el);
-    // تنظيف ما بقي من قوائم رُسمت فوقها صفحة أخرى
+    var root = (el.closest && el.closest(".table-wrap")) || document.getElementById("view") || null;
+    if (root && !root.contains(el)) root = null;
+    obsFor(root).observe(el);
+    // تنظيف ما بقي من قوائم رُسمت فوقها صفحة أخرى، ومراقبي صناديق لم تعد في الصفحة
     Object.keys(lazyFns).forEach(function (k) {
       if (k !== id && !document.querySelector('[data-lazy="' + k + '"]')) delete lazyFns[k];
+    });
+    lazyObs = lazyObs.filter(function (o) {
+      if (!o.root || o.root.isConnected) return true;
+      o.io.disconnect();
+      return false;
     });
   }
 
@@ -2038,7 +2098,7 @@ var App = (function () {
     { k: "suppliers", perm: "debts", t: "الموردون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
     { g: "أخرى" },
     { k: "profits", perm: "profits", t: "الأرباح والتقارير", ic: "chart", f: function () { return Rep.profits(); } },
-    /* inSet: في طرابلس صارت تبويباً داخل الإعدادات (الرابط القديم يفتح التبويب) */
+    /* inSet: صارت تبويباً داخل الإعدادات (الرابط القديم يفتح التبويب) */
     { k: "notify", perm: "settings", inSet: "notify", t: "الإشعارات", ic: "signal", f: function () { return Notify.page(); } },
     { k: "settings", perm: ["settings", "staff", "devices"], t: "الإعدادات", ic: "gear", f: function () { return Rep.settings(); } },
     /* X4 (طرابلس) */
@@ -2054,11 +2114,11 @@ var App = (function () {
       if (p.g) {
         /* عنوان مجموعة لا صفحة مسموحة تحته لا يظهر */
         var any = false;
-        for (var j = i + 1; j < PAGES.length && !PAGES[j].g; j++) if (pageOk(PAGES[j]) && !(PAGES[j].inSet && isX4())) any = true;
+        for (var j = i + 1; j < PAGES.length && !PAGES[j].g; j++) if (pageOk(PAGES[j]) && !PAGES[j].inSet) any = true;
         if (any) h += '<div class="group-label">' + esc(p.g) + "</div>";
         return;
       }
-      if (!pageOk(p) || (p.inSet && isX4())) return;
+      if (!pageOk(p) || p.inSet) return;
       h += '<button class="nav-item" data-k="' + p.k + '" onclick="location.hash=\'#/' + p.k + '\'">' +
         icon(p.ic, 19) + "<span>" + esc(p.t) + "</span>" +
         (p.badge ? '<span class="count" data-lowcount hidden></span>' : "") +
@@ -2431,7 +2491,7 @@ var App = (function () {
     var page = null;
     PAGES.forEach(function (p) { if (p.k === k) page = p; });
     if (!page) { location.hash = "#/dash"; return; }
-    if (page.inSet && isX4()) { location.replace("#/settings?tab=" + page.inSet); return; }
+    if (page.inSet) { location.replace("#/settings?tab=" + page.inSet); return; }
     if (!pageOk(page)) {
       var first = null;
       PAGES.forEach(function (p) { if (!first && !p.g && pageOk(p)) first = p; });

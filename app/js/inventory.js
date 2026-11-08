@@ -42,9 +42,10 @@ var Inv = (function () {
   function books() {
     f.view = f.view || "table";
     var libs = S().meta.libraries;
-    var h = '<div class="row" style="margin-bottom:14px">' +
-      '<div class="search-wrap"><span class="mag">⌕</span>' +
-      '<input class="inp" id="bq" placeholder="ابحث أو امسح الباركود…" value="' + App.esc(f.q) + '" oninput="Inv.setF(\'q\',this.value)"></div>' +
+    /* البحث سطر كامل وكبير فوق المرشّحات (طلب المستخدم: مع 61 ألف كتاب البحث هو الطريق) */
+    var h = '<div class="search-big"><span class="mag">⌕</span>' +
+      '<input class="inp" id="bq" placeholder="ابحث بالعنوان أو المؤلف أو دار النشر، أو امسح الباركود…" value="' + App.esc(f.q) + '" oninput="Inv.setF(\'q\',this.value)"></div>' +
+      '<div class="row" style="margin-bottom:14px">' +
 
       '<select class="inp" style="width:auto" onchange="Inv.setF(\'lib\',this.value)"><option value="">كل المكتبات</option>' +
       libs.map(function (l) { return '<option value="' + App.esc(l) + '"' + (f.lib === l ? " selected" : "") + ">مكتبة " + App.esc(l) + "</option>"; }).join("") + "</select>" +
@@ -150,6 +151,7 @@ var Inv = (function () {
     return '<div class="row" style="margin-bottom:14px">' +
       '<div class="search-wrap"><span class="mag">⌕</span><input class="inp" id="sjq" placeholder="ابحث عن تخصص…" value="' + App.esc(sj.fq) + '" oninput="Inv.sjFind(this.value)"></div>' +
       '<div class="spacer"></div><span class="muted small">' + sj.list.filter(function (x) { return x.name; }).length.toLocaleString("en") + " تخصص · " + tot.toLocaleString("en") + " كتاب</span></div>" +
+      (App.can("items") ? similarCard() : "") +
       '<div id="sjGrid" class="sj-grid">' + subjectCards() + "</div>";
   }
 
@@ -218,16 +220,84 @@ var Inv = (function () {
       onSave: function (v) {
         var nn = String(v.name || "").replace(/\s+/g, " ").trim();
         if (!nn || nn === old) return;
-        var merged = S().books.some(function (b) { return String(b.cat || "").trim() === nn; });
-        S().books.forEach(function (b) { if (String(b.cat || "").trim() === old) { b.cat = nn; b.updated = App.nowStamp(); } });
-        var cats = S().meta.bookCats;
-        if (Array.isArray(cats)) { var i = cats.indexOf(old); if (i >= 0) { if (cats.indexOf(nn) >= 0) cats.splice(i, 1); else cats[i] = nn; } }
-        App.log(merged ? "دمج تخصص" : "تعديل تخصص", old + " ← " + nn + " (" + n + " كتاب)");
+        renameCat(old, nn);
         sj.cat = nn;
-        App.save(); App.rerender();
-        App.toast((merged ? "دُمج «" + old + "» في «" : "صار اسم التخصص «") + nn + "».", "ok");
+        App.rerender();
       }
     });
+  }
+
+  function renameCat(old, nn) {
+    var n = 0, merged = S().books.some(function (b) { return String(b.cat || "").trim() === nn; });
+    S().books.forEach(function (b) { if (String(b.cat || "").trim() === old) { b.cat = nn; b.updated = App.nowStamp(); n++; } });
+    var cats = S().meta.bookCats;
+    if (Array.isArray(cats)) { var i = cats.indexOf(old); if (i >= 0) { if (cats.indexOf(nn) >= 0) cats.splice(i, 1); else cats[i] = nn; } }
+    App.log(merged ? "دمج تخصص" : "تعديل تخصص", old + " ← " + nn + " (" + n + " كتاب)");
+    App.save();
+    App.toast((merged ? "دُمج «" + old + "» في «" : "صار اسم التخصص «") + nn + "» (" + n.toLocaleString("en") + " كتاب).", "ok");
+  }
+
+  /* ---------- تخصصات متشابهة ----------
+     الاستيراد جاء بتخصصات مكتوبة أكثر من شكل: «زراعة» و«زرعة» و«زراعة_done»، «سياسية»
+     و«ساسية». تُقترح للدمج: نفس الاسم بعد التوحيد وحذف _done والفواصل، أو فرق حرف واحد
+     (اسم من 4 أحرف فأكثر). الأكثر كتباً يبقى. «ليست نفسها» يُحفظ فلا يُقترح ثانية */
+  function catKey(n) {
+    return App.norm(String(n).replace(/[_\-\s]*(done|تم)\s*$/i, "").replace(/[_\-.]+/g, " ")).replace(/\s+/g, "");
+  }
+  function oneEdit(a, b) {
+    if (a === b) return true;
+    var la = a.length, lb = b.length;
+    if (Math.abs(la - lb) > 1 || Math.min(la, lb) < 4) return false;
+    var i = 0, j = 0, d = 0;
+    while (i < la && j < lb) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++d > 1) return false;
+      if (la > lb) i++; else if (lb > la) j++; else { i++; j++; }
+    }
+    return d + (la - i) + (lb - j) <= 1;
+  }
+  function similarCats(list) {
+    var no = S().meta.catNotSame || [], out = [];
+    var named = list.filter(function (x) { return x.name; }).map(function (x) { return { x: x, k: catKey(x.name) }; });
+    for (var a = 0; a < named.length; a++) {
+      for (var b = a + 1; b < named.length; b++) {
+        var A = named[a], B = named[b];
+        if (!oneEdit(A.k, B.k)) continue;
+        var keep = A.x.n >= B.x.n ? A.x : B.x, drop = keep === A.x ? B.x : A.x;
+        if (no.indexOf(drop.name + "|" + keep.name) >= 0) continue;
+        out.push({ from: drop.name, to: keep.name, nf: drop.n, nt: keep.n });
+      }
+    }
+    return out.sort(function (p, q) { return q.nt - p.nt; }).slice(0, 40);
+  }
+  function similarCard() {
+    var list = similarCats(sj.list);
+    sj.sim = list;
+    if (!list.length) return "";
+    return '<div class="card" style="margin-bottom:14px;border-inline-start:3px solid var(--amber)"><div class="card-head"><h3>تخصصات متشابهة — قد تكون نفس التخصص</h3>' +
+      '<div class="spacer"></div><span class="muted small">' + list.length + " اقتراح · الدمج ينقل كتب الأقل للأكثر</span></div>" +
+      '<div class="card-body" style="display:grid;gap:8px">' + list.map(function (p, i) {
+        return '<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><span><b>«' + App.esc(p.from) + "»</b> " +
+          '<span class="muted small">(' + p.nf.toLocaleString("en") + ")</span> ← <b>«" + App.esc(p.to) + "»</b> " +
+          '<span class="muted small">(' + p.nt.toLocaleString("en") + ")</span></span><span class=\"spacer\"></span>" +
+          '<button class="btn sm primary" onclick="Inv.sjMerge(' + i + ')">ادمج</button>' +
+          '<button class="btn sm ghost" onclick="Inv.sjNotSame(' + i + ')">ليست نفسها</button></div>';
+      }).join("") + "</div></div>";
+  }
+  function sjMerge(i) {
+    var p = (sj.sim || [])[i];
+    if (!p || !App.allow("items", function () { sjMerge(i); })) return;
+    App.confirm("تنتقل " + p.nf.toLocaleString("en") + " كتاب من «" + p.from + "» إلى «" + p.to + "»، ويختفي «" + p.from + "». متأكد؟", function () {
+      renameCat(p.from, p.to);
+      App.rerender();
+    }, { yes: "ادمج" });
+  }
+  function sjNotSame(i) {
+    var p = (sj.sim || [])[i];
+    if (!p) return;
+    var no = S().meta.catNotSame || (S().meta.catNotSame = []);
+    no.push(p.from + "|" + p.to);
+    App.save(); App.rerender();
   }
 
   /* ---------- الرفوف والمخزن في الجداول ----------
@@ -340,7 +410,7 @@ var Inv = (function () {
         }
       }
     ]), rows, {
-      lazy: 60,
+      lazy: 100,
       rowClass: function (b) { var s = App.stockState(b); return s === "out" ? "out" : (s === "low" ? "low" : ""); },
       emptyIcon: "box",
       emptyTitle: S().books.length ? "لا نتيجة مطابقة" : "لم تُضف أي كتب بعد",
@@ -548,7 +618,11 @@ var Inv = (function () {
         /* كتاب كله في المخزن بلا رف: التعديل لا يعطيه المكتبة الأولى بصمت */
         { k: "lib", label: "المكتبة (الخزانة)", type: "select", options: b ? noPlace("بلا مكتبة (في المخزن)").concat(S().meta.libraries) : S().meta.libraries },
         { k: "shelf", label: "رقم الرف", type: "select", options: b ? noPlace("—").concat(shelfOptions()) : shelfOptions() },
-        { k: "cat", label: "التصنيف", type: "select", options: catOptions("book", lb.cat) },
+        /* يُكتب ويُبحث فيه (مئات التخصصات في طرابلس): القائمة تقترح ما يطابق ما تكتبه،
+           واسم جديد يصير تخصصاً جديداً. اسم مكتوب بشكل آخر (همزة، تاء مربوطة) يأخذ
+           كتابة التخصص الموجود (canonCat) فلا يتكرّر التخصص */
+        { k: "cat", label: App.isX4 && App.isX4() ? "التخصص" : "التصنيف", list: catOptions("book", lb.cat).filter(Boolean),
+          placeholder: "اكتب للبحث في التخصصات، أو اكتب تخصصاً جديداً…" },
         /* التصنيف قائمة قصيرة يُتصفَّح بها، والتخصص الدقيق نصٌّ حرّ
            يشرح الكتاب. فصلهما يجعل القائمة قابلة للاستعمال ولا يضيع
            التفصيل الذي كُتب أصلاً. */
@@ -605,6 +679,7 @@ var Inv = (function () {
           var auto = wholesaleFromPub(v.price, pb2);
           if (auto > 0) v.priceW = auto;
         }
+        v.cat = canonCat("book", v.cat);
         S().meta.lastBook = {
           lib: v.lib || lb.lib, shelf: v.shelf || lb.shelf, cat: v.cat, publisher: v.publisher,
           qty: App.num(v.qty) || 2, min: 0
@@ -1198,6 +1273,16 @@ var Inv = (function () {
     return out;
   }
 
+  /* التخصص كما يُكتب في قائمة التخصصات: نفس الاسم بهمزة أو تاء مربوطة أو مسافات مختلفة
+     يأخذ الكتابة الموجودة */
+  function canonCat(type, v) {
+    var t = String(v || "").replace(/\s+/g, " ").trim();
+    if (!t) return "";
+    var k = App.norm(t), hit = "";
+    catOptions(type).forEach(function (c) { if (!hit && c && App.norm(c) === k) hit = c; });
+    return hit || t;
+  }
+
   function authorList() { return uniq(S().books, "author"); }
 
   function uniq(arr, key) {
@@ -1214,9 +1299,9 @@ var Inv = (function () {
      ============================================================ */
 
   function stationery() {
-    var h = '<div class="row" style="margin-bottom:14px">' +
-      '<div class="search-wrap"><span class="mag">⌕</span>' +
-      '<input class="inp" id="sq" placeholder="ابحث أو امسح الباركود…" value="' + App.esc(g.q) + '" oninput="Inv.setG(\'q\',this.value)"></div>' +
+    var h = '<div class="search-big"><span class="mag">⌕</span>' +
+      '<input class="inp" id="sq" placeholder="ابحث بالاسم أو التصنيف، أو امسح الباركود…" value="' + App.esc(g.q) + '" oninput="Inv.setG(\'q\',this.value)"></div>' +
+      '<div class="row" style="margin-bottom:14px">' +
 
       '<select class="inp" style="width:auto" onchange="Inv.setG(\'cat\',this.value)"><option value="">كل التصنيفات</option>' +
       S().meta.statCats.map(function (c) { return '<option value="' + App.esc(c) + '"' + (g.cat === c ? " selected" : "") + ">" + App.esc(c) + "</option>"; }).join("") + "</select>" +
@@ -1280,7 +1365,7 @@ var Inv = (function () {
         }
       }
     ]), rows, {
-      lazy: 60,
+      lazy: 100,
       rowClass: function (p) { var s = App.stockState(p); return s === "out" ? "out" : (s === "low" ? "low" : ""); },
       emptyIcon: "box",
       emptyTitle: S().stationery.length ? "لا نتيجة مطابقة" : "لم تُضف أي أصناف قرطاسية بعد",
@@ -2839,6 +2924,7 @@ var Inv = (function () {
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
     oldImport: oldImport, __oldPlan: oldPlan, __oldApply: oldApply,
     subjectsPage: subjectsPage, sjFind: sjFind, sjOpen: sjOpen, sjBack: sjBack, sjSearch: sjSearch, sjRename: sjRename, subjectStats: subjectStats,
+    sjMerge: sjMerge, sjNotSame: sjNotSame, similarCats: similarCats, canonCat: canonCat,
     pubList: pubList, pubByName: pubByName, wholesaleFromPub: wholesaleFromPub, pubHint: pubHint, normRate: normRate,
     newPublisher: newPublisher, newSupplier: newSupplier,
     smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes,
