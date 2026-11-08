@@ -1553,6 +1553,20 @@ var Stock = (function () {
   /* الموقع يُرفع على Netlify باسم يختاره صاحب المحل، فلا عنوان
      ثابتاً نكتبه هنا: يُحفظ في بيانات المحل ويُعرض للنسخ. */
   function viewerUrl() { return String(S().sync.site || "").trim(); }
+  /* موقع تطبيق الهاتف لهذا الفرع (Netlify): المحفوظ، وإلا موقع الفرع المعروف */
+  function appSite() {
+    var u = viewerUrl();
+    if (u) return u.replace(/\/+$/, "");
+    var b = String((S().branch && S().branch.id) || "").toLowerCase();
+    return b === "tripoli" ? "https://dar-alhekma-tripoli.netlify.app" : b === "misrata" ? "https://dar-alhekma-misrata.netlify.app" : "";
+  }
+  /* رابط يفتح التطبيق مربوطاً: يُرسل للهاتف (واتساب) ويُفتح مرة */
+  function appLink() {
+    var site = appSite();
+    if (!site) return "";
+    return site + "/#u=" + encodeURIComponent(S().sync.url || "") + "&k=" + encodeURIComponent(S().sync.key || "") +
+      "&b=" + encodeURIComponent(String((S().branch && S().branch.id) || "").toLowerCase());
+  }
 
   function phoneView() {
     if (!configured()) {
@@ -1577,15 +1591,14 @@ var Stock = (function () {
       size: "wide",
       body:
         '<p class="muted small" style="line-height:1.9;margin:0 0 16px">' +
-        "موقعك الخاص: تفتحه من أي متصفح فتبحث في بضاعتك بالاسم أو المؤلف أو " +
-        "الباركود، وترى الكمية والسعر وأين الصنف في الفروع والمخازن. " +
-        "<b>للعرض فقط:</b> لا بيع ولا تعديل ولا حذف منه، ولا تظهر فيه أسعار " +
-        "الشراء ولا أرباحك.<br>" +
-        "ارفع مجلد <span class=\"num\">site</span> على " +
-        "<b>app.netlify.com/drop</b> (سحب وإفلات)، ثم افتح الرابط في التلفون " +
-        "والصق فيه العنوان وكلمة السر.</p>" +
-        fld("١. رابط موقعك (من Netlify)", viewerUrl(), "pvSite",
-          "ارفع مجلد site على Netlify والصق الرابط هنا ليُحفظ.", true) +
+        "تطبيق الهاتف لهذا الفرع: البيع، والبحث في الكتب، والتعديل، وتسجيل الأماكن والجرد. " +
+        "كل ما يبيعه أو يعدّله يمرّ على هذه المنظومة أولاً، ولا تظهر فيه أسعار الشراء ولا الأرباح. " +
+        "<b>أسهل طريقة:</b> أرسل «رابط التطبيق» للهاتف (واتساب) وافتحه هناك مرة — يفتح مربوطاً. " +
+        "في تطبيق أندرويد: الصق الرابط نفسه في أول شاشة.</p>" +
+        (appLink() ? fld("رابط التطبيق للهاتف (يفتح مربوطاً)", appLink(), "pvLink",
+          "الآيفون: افتحه في سفاري ← مشاركة ← «إضافة إلى الشاشة الرئيسية». فيه كلمة سر الربط: أرسله لهواتف المحل وحدها.") : "") +
+        fld("١. موقع التطبيق (Netlify)", appSite(), "pvSite",
+          "موقع تطبيق هذا الفرع. غيّره فقط إن رفعت التطبيق على موقع آخر.", true) +
         fld("٢. عنوان الربط", S().sync.url, "pvSync") +
         fld("٣. كلمة سر الربط", S().sync.key, "pvKey",
           "لا ترسلها في مجموعة عامة. من يملكها يرى مخزونك.") +

@@ -1458,7 +1458,10 @@ const writeStore = o => fs.writeFileSync(path.join(DATA, 'store.json'), JSON.str
     await btn.click(); await sleep(600);
     const vals = await pg.evaluate(() => ['pvSite', 'pvSync', 'pvKey'].map(
       i => { const e = document.getElementById(i); return e ? e.value : null; }));
-    check('حقل رابط الموقع فارغ قبل ضبطه', vals[0] === '', vals[0]);
+    const bid = await pg.evaluate(() => (App.S.branch && App.S.branch.id) || '');
+    check('موقع التطبيق: موقع الفرع المعروف قبل ضبطه', vals[0] === (bid === 'misrata' ? 'https://dar-alhekma-misrata.netlify.app' : bid === 'tripoli' ? 'https://dar-alhekma-tripoli.netlify.app' : ''), bid + ' ' + vals[0]);
+    const lnk = await pg.evaluate(() => (document.getElementById('pvLink') || {}).value || '');
+    check('ورابط التطبيق الجاهز للهاتف فيه العنوان وكلمة السر', !vals[0] || (lnk.indexOf(vals[0] + '/#u=' + encodeURIComponent('https://maktaba.example.workers.dev')) === 0 && /&k=sirr-alrabt/.test(lnk)), lnk);
     check('ويسلّمك عنوان الربط', vals[1] === 'https://maktaba.example.workers.dev', vals[1]);
     check('وكلمة السر', vals[2] === 'sirr-alrabt', vals[2]);
     const ro = await pg.evaluate(() => ({
