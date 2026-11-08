@@ -295,7 +295,10 @@ var Stock = (function () {
     }).catch(function () { return false; });
   }
 
-  function sync(manual) {
+  /* readOnly: سؤال خفيف عن طلبات التلفون وفروعه (بلا بناء اللقطة ولا رفعها). كل دقيقة ما دام
+     خادم الربط بالفهرس (v 3، kvFast)؛ الخادم القديم يعدّ كل /all من حدّ list اليومي (ألف) */
+  var kvFast = false, pollTimer = null;
+  function sync(manual, readOnly) {
     if (syncing) return Promise.resolve();
     if (App.outboundHeld && App.outboundHeld()) {
       if (manual) App.toast("الربط موقوف على هذا الجهاز لأن البيانات آتية من جهاز المحل — اضغط «هذا جهاز المحل الآن» إن كان كذلك.", "warn");
@@ -306,13 +309,13 @@ var Stock = (function () {
       return Promise.resolve();
     }
     syncing = true;
-    paintSyncState("جارٍ التحديث…");
+    if (!readOnly) paintSyncState("جارٍ التحديث…");
 
-    var snap = snapshot(bigShop());
-    var body = JSON.stringify(snap);
-    var h = hash(body);
+    var snap = readOnly ? null : snapshot(bigShop());
+    var body = snap ? JSON.stringify(snap) : "";
+    var h = snap ? hash(body) : "";
     // لا نرفع إن لم يتغير شيء — يوفّر الحصة والباقة
-    var skipUp = (h === S().sync.lastHash && !manual);
+    var skipUp = readOnly || (h === S().sync.lastHash && !manual);
 
     return App.api("/api/sync", {
       method: "POST",
@@ -331,6 +334,7 @@ var Stock = (function () {
         return;
       }
       if (!skipUp) S().sync.lastHash = h;
+      kvFast = (App.num(res.kvv) || App.num(res.v)) >= 3;
       var seenBefore = {};
       requests().forEach(function (r) { seenBefore[r.id] = 1; });
       mergeRemotes(res.branches || []);
@@ -394,6 +398,11 @@ var Stock = (function () {
     var every = Math.max(2, App.num(S().sync.everyMin) || 10);
     sync(false);
     autoTimer = setInterval(function () { sync(false); }, every * 60000);
+    /* بيع التلفون يصل خلال دقيقة: سؤال بلا رفع بين التحديثات (والتأكيد يُرفع بعده وحده) */
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(function () {
+      if (kvFast && S().meta.phoneSales !== false && !syncing) sync(false, true);
+    }, 60000);
   }
 
   function paintSyncState(txt) {
@@ -1680,6 +1689,7 @@ var Stock = (function () {
     manualExport: manualExport, manualImport: manualImport, exportStock: exportStock,
     phoneView: phoneView, copyBox: copyBox,
     workerSetup: workerSetup, copyWorker: copyWorker,
-    snapshot: snapshot, linkBlock: linkBlock, phones: phones, rSet: rSet
+    snapshot: snapshot, linkBlock: linkBlock, phones: phones, rSet: rSet,
+    kvFast: function () { return kvFast; }
   };
 })();

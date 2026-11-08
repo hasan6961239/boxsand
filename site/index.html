@@ -3,137 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0E6E62">
-<!-- الآيفون: يُضاف للشاشة الرئيسية فيفتح كتطبيق، بلا شريط سفاري -->
+<meta name="theme-color" content="#1F4597">
+<!-- الآيفون: يُضاف للشاشة الرئيسية فيفتح تطبيقاً بلا شريط سفاري -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="مخزون المكتبة">
-<!-- الباركود والأسعار أرقام لا أرقام هواتف: لا يحوّلها سفاري روابط اتصال -->
+<meta name="apple-mobile-web-app-title" content="دار الحكمة">
 <meta name="format-detection" content="telephone=no">
-<meta name="description" content="بحث في مخزون المكتبة — الكتب والقرطاسية، بالاسم أو المؤلف أو الباركود.">
-<title>مخزون المكتبة</title>
+<meta name="description" content="تطبيق المكتبة: البيع، والبحث في الكتب، وتسجيل الأماكن والجرد.">
+<title>دار الحكمة</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-
-<!-- ============ الشاشة الأولى: الربط ============ -->
-<section id="gate" class="gate" hidden>
-  <div class="gate-art" aria-hidden="true">
-    <svg viewBox="0 0 120 120" class="gate-mark">
-      <defs>
-        <linearGradient id="gm" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#16A08C"/><stop offset="1" stop-color="#0B564C"/>
-        </linearGradient>
-      </defs>
-      <rect x="20" y="30" width="20" height="62" rx="3" fill="url(#gm)"/>
-      <rect x="45" y="22" width="18" height="70" rx="3" fill="url(#gm)" opacity=".72"/>
-      <rect x="69" y="32" width="18" height="60" rx="3" fill="url(#gm)" opacity=".5"
-            transform="rotate(13 78 92)"/>
-      <rect x="14" y="92" width="92" height="7" rx="3.5" fill="#0B564C"/>
-    </svg>
-  </div>
-  <div class="gate-box">
-    <h1>مخزون المكتبة</h1>
-    <p class="gate-sub">ابحث في بضاعتك من أي مكان: بالاسم، أو المؤلف، أو الباركود.
-      اربطها مرة واحدة ببيانات الربط نفسها التي في البرنامج.</p>
-
-    <div class="ios-tip" id="gateIos" hidden>
-      <svg viewBox="0 0 24 24" class="ios-share" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M7 10H5v11h14V10h-2"
-        fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div><b>على الآيفون: أضفه للشاشة الرئيسية أولاً</b>
-        اضغط زر المشاركة أسفل سفاري، ثم «إضافة إلى الشاشة الرئيسية». افتحه بعدها من أيقونته
-        واربطه هناك، فيعمل كتطبيق: البيع والكاميرا، وبلا إنترنت.</div>
-    </div>
-
-    <form id="gateForm" novalidate>
-      <label class="fld">
-        <span>عنوان الربط</span>
-        <input class="inp ltr" id="gUrl" type="url" inputmode="url" autocomplete="off"
-               spellcheck="false" placeholder="https://maktaba-sync.xxx.workers.dev" required>
-      </label>
-      <label class="fld">
-        <span>كلمة سر الربط</span>
-        <input class="inp ltr" id="gKey" type="password" autocomplete="off"
-               spellcheck="false" required>
-      </label>
-      <p class="fld-note" id="gateErr" role="alert" hidden></p>
-      <button class="btn primary lg" id="gateBtn" type="submit">
-        <span class="btn-label">اتصل واعرض المخزون</span>
-      </button>
-    </form>
-
-    <p class="gate-where">تجدهما في البرنامج على الكمبيوتر:
-      <b>المخزون والفروع ← إعدادات الربط</b></p>
-    <p class="gate-priv">يُحفظان على هذا الجهاز وحده. لا حساب، ولا خادم لنا.
-      ولا تظهر هنا أسعار الشراء ولا الأرباح — لا تُرفع أصلاً.</p>
-  </div>
-</section>
-
-<!-- ============ التطبيق ============ -->
-<div id="app" hidden>
-
-  <header id="top">
-    <button class="top-brand" data-act="go" data-arg="home" aria-label="الصفحة الأولى">
-      <svg viewBox="0 0 120 120" class="brand-mark" aria-hidden="true">
-        <rect x="20" y="30" width="20" height="62" rx="3" fill="currentColor"/>
-        <rect x="45" y="22" width="18" height="70" rx="3" fill="currentColor" opacity=".72"/>
-        <rect x="69" y="32" width="18" height="60" rx="3" fill="currentColor" opacity=".48"
-              transform="rotate(13 78 92)"/>
-        <rect x="14" y="92" width="92" height="7" rx="3.5" fill="currentColor"/>
-      </svg>
-      <span class="brand-text">
-        <b id="shopName">مخزون المكتبة</b>
-        <small id="freshLine">—</small>
-      </span>
-    </button>
-    <button class="icon-btn" id="btnTheme" data-act="theme" aria-label="النمط"></button>
-    <button class="icon-btn" id="btnRefresh" data-act="refresh" aria-label="تحديث"></button>
-    <button class="icon-btn" id="btnSettings" data-act="go" data-arg="settings" aria-label="الإعدادات"></button>
-  </header>
-
-  <div id="searchWrap">
-    <div class="search">
-      <svg viewBox="0 0 24 24" class="search-ico" aria-hidden="true"><circle cx="11" cy="11" r="7"
-        fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round"/></svg>
-      <input id="q" class="search-inp" type="search" enterkeyhint="search"
-             placeholder="اسم الكتاب، أو المؤلف، أو الباركود…"
-             autocomplete="off" spellcheck="false" aria-label="بحث">
-      <button class="search-x" id="qx" hidden data-act="clearQ" aria-label="مسح"></button>
-    </div>
-    <div id="chips" class="chips"></div>
-  </div>
-
-  <main id="view"></main>
-
-  <footer id="foot"></footer>
-
-  <div id="iosBar" class="ios-bar" hidden>
-    <svg viewBox="0 0 24 24" class="ios-share" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M7 10H5v11h14V10h-2"
-      fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <div><b>أضفه للشاشة الرئيسية</b>زر المشاركة ثم «إضافة إلى الشاشة الرئيسية» — فيعمل كتطبيق، مع البيع والكاميرا.</div>
-    <button class="ios-x" data-act="iosTipOff" aria-label="إغلاق"><svg viewBox="0 0 24 24" aria-hidden="true"><path
-      d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
-  </div>
-
-  <nav id="tabs">
-    <button data-act="go" data-arg="home"   data-tab="home"></button>
-    <button data-act="go" data-arg="browse" data-tab="browse"></button>
-    <button data-act="go" data-arg="stats"  data-tab="stats"></button>
-    <button data-act="go" data-arg="settings" data-tab="settings"></button>
-  </nav>
-</div>
-
-<div id="toasts" aria-live="polite"></div>
-<div id="sheet" hidden></div>
-
+<div id="app" class="app"><div class="boot"><span class="spin"></span></div></div>
+<div id="sheet" class="sheet" hidden></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="printHost" class="print-host"></div>
+<noscript><p class="nojs">التطبيق يحتاج تفعيل JavaScript.</p></noscript>
 <script src="config.js"></script>
-<script src="phone.js"></script>
 <script src="scan.js"></script>
-<script src="app.js"></script>
+<script src="core.js"></script>
+<script src="ui.js"></script>
 </body>
 </html>

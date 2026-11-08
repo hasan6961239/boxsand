@@ -88,12 +88,15 @@ function d1(file) {
 
 function kv() {
   const m = new Map();
+  /* العدّادات كحدود الخطة المجانية: ألف list وألف كتابة ومئة ألف قراءة في اليوم */
+  const stats = { list: 0, get: 0, put: 0 };
   return {
-    map: m,
-    async get(k) { return m.has(k) ? m.get(k) : null; },
-    async put(k, v) { m.set(k, String(v)); },
+    map: m, stats,
+    async get(k) { stats.get++; return m.has(k) ? m.get(k) : null; },
+    async put(k, v) { stats.put++; m.set(k, String(v)); },
     async delete(k) { m.delete(k); },
     async list(o) {
+      stats.list++;
       const p = (o && o.prefix) || '';
       return { keys: [...m.keys()].filter(k => k.startsWith(p)).map(name => ({ name })) };
     }

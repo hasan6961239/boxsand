@@ -99,6 +99,9 @@ jobs:
       - name: الفرعان يرى كلٌّ منهما الآخر (طرابلس بـ61 ألف كتاب)
         run: node tools/test-branches.js
 
+      - name: تطبيق الهاتف مع منظومة طرابلس الحقيقية (بيع وتعديل ورقم الفاتورة)
+        run: node tools/test-phone-e2e.js
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -114,8 +117,8 @@ jobs:
           node tools/test-money.js
           node tools/test-big.js
 
-      - name: تطبيق التلفون
-        run: node tools/test-site.js
+      - name: تطبيق الهاتف (طرابلس بـ61 ألف كتاب، ومصراتة)
+        run: node tools/test-phone.js
 
       - name: البناء (تطبيقا مصراتة وطرابلس، قرار 0022)
         run: |

@@ -75,17 +75,28 @@ ix = site / "index.html"
 t = ix.read_text(encoding="utf-8")
 t = re.sub(r'(<meta name="apple-mobile-web-app-title" content=")[^"]*(">)', lambda mm: mm.group(1) + short + mm.group(2), t)
 t = re.sub(r"<title>[^<]*</title>", "<title>" + name + "</title>", t)
-# الشاشة الأولى (قبل الربط): الشعار والاسم بدل الرسم العام، وأين بيانات الربط في 4.0
+# التطبيق الجديد (2.0): الشعار والاسم واللون في config.js، فيظهر الشعار قبل أول تحديث
 on_white(256, 0.9, round_=True).save(site / "logo.png")
-t, n1 = re.subn(r'<svg viewBox="0 0 120 120" class="gate-mark">.*?</svg>', '<img class="gate-logo" src="logo.png" alt="">', t, count=1, flags=re.S)
-t, n2 = re.subn(r'(<div class="gate-box">\s*<h1>)[^<]*(</h1>)', lambda mm: mm.group(1) + name + mm.group(2), t, count=1)
-t = t.replace("<b>المخزون والفروع ← إعدادات الربط</b>", "<b>الإعدادات ← الأجهزة والفروع</b>")
-assert n1 == 1 and n2 == 1, "index.html: gate"
 ix.write_text(t, encoding="utf-8")
-if branch:
-    cf = site / "config.js"
-    t = cf.read_text(encoding="utf-8")
-    t, n = re.subn(r'branch:\s*""', 'branch: "' + re.sub(r"[^a-z0-9_-]", "", branch.lower()) + '"', t)
-    assert n == 1, "config.js: branch"
-    cf.write_text(t, encoding="utf-8")
+cf = site / "config.js"
+c = cf.read_text(encoding="utf-8")
+br = re.sub(r"[^a-z0-9_-]", "", branch.lower()) if branch else ""
+theme = "green" if br == "misrata" else "blue"
+city = {"misrata": "مصراتة", "tripoli": "طرابلس"}.get(br, "")
+def setf(c, k, v):
+    c2, n = re.subn(r'(\n\s*' + k + r':\s*)"[^"]*"', lambda m: m.group(1) + json.dumps(v, ensure_ascii=False), c, count=1)
+    assert n == 1, "config.js: " + k
+    return c2
+c = setf(c, "branch", br)
+c = setf(c, "theme", theme)
+c = setf(c, "name", short)
+c = setf(c, "city", city)
+c = setf(c, "logo", "logo.png")
+cf.write_text(c, encoding="utf-8")
+# لون الأيقونة في الآيفون وشريط أندرويد
+m["theme_color"] = "#0E6E62" if theme == "green" else "#1F4597"
+mf.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
+t = ix.read_text(encoding="utf-8")
+t = re.sub(r'(<meta name="theme-color" content=")[^"]*(">)', lambda mm: mm.group(1) + m["theme_color"] + mm.group(2), t)
+ix.write_text(t, encoding="utf-8")
 print("brand:", name, "/", short, ("/ branch " + branch) if branch else "")

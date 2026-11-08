@@ -2,15 +2,18 @@
    sw.js — يفتح التطبيق بلا إنترنت (الآيفون والمتصفح)
    ------------------------------------------------------------
    يحفظ ملفات الواجهة نفسها فقط، لا بيانات المحل: آخر لقطة في
-   localStorage كما كانت، وطلبات خادم الربط تمرّ مباشرة بلا لمس.
+   IndexedDB، وطلبات خادم الربط تمرّ مباشرة بلا لمس.
      • الصفحة والسكربتات: من الشبكة أولاً فيصل كل تحديث فوراً، وإن
        انقطعت أو تأخّرت أكثر من 3 ثوانٍ فالنسخة المحفوظة.
      • قارئ الباركود (vendor/): رقم نسخته في اسمه، فيُحفظ مرة واحدة.
    ============================================================ */
-var CACHE = "maktaba-app-1";
+var CACHE = "maktaba-app-2";
 var CORE = [
-  "./", "app.css", "app.js", "phone.js", "scan.js", "config.js", "manifest.json",
-  "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable.png",
+  "./", "app.css", "core.js", "ui.js", "scan.js", "config.js", "manifest.json",
+  "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable.png",
+  "fonts/plex-ar-400.woff2", "fonts/plex-ar-600.woff2", "fonts/plex-ar-700.woff2",
+  "fonts/plex-la-400.woff2", "fonts/plex-la-600.woff2", "fonts/plex-la-700.woff2",
+  "fonts/kufi-ar-700.woff2", "fonts/kufi-ar-800.woff2", "fonts/kufi-la-700.woff2", "fonts/kufi-la-800.woff2",
   "vendor/zxing-reader-3.1.4.js", "vendor/zxing_reader-3.1.4.wasm"
 ];
 
@@ -34,8 +37,8 @@ self.addEventListener("fetch", function (e) {
   var u = new URL(r.url), nav = r.mode === "navigate";
   if (u.origin !== self.location.origin) return;          // خادم الربط وغيره: مباشرة
   // ملفات الواجهة وحدها؛ أي طلب بيانات يمرّ كما هو ولا يُحفظ أبداً
-  if (!nav && !/\.(?:html|css|js|json|png|svg|ico|wasm)$/.test(u.pathname)) return;
-  if (u.pathname.indexOf("/vendor/") >= 0) { e.respondWith(cacheFirst(r)); return; }
+  if (!nav && !/\.(?:html|css|js|json|png|svg|ico|wasm|woff2)$/.test(u.pathname)) return;
+  if (u.pathname.indexOf("/vendor/") >= 0 || u.pathname.indexOf("/fonts/") >= 0) { e.respondWith(cacheFirst(r)); return; }
   e.respondWith(netFirst(r, nav));
 });
 

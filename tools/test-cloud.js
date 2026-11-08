@@ -42,6 +42,25 @@ function ok(cond, name, detail) {
     ok(r0.status === 501 && j0.code === 'no-d1', 'بلا D1 مربوطة: رسالة واضحة بخطوة الربط', j0);
     const old = await fetch(noD1.url + '/all', { headers: { 'X-Shop-Key': 'x' } });
     ok(old.status === 200, 'والمسارات القديمة (3.x والتلفون) تعمل كما كانت', old.status);
+
+    console.log('\n== لقطات KV: /all بالفهرس لا بـ list (الخطة المجانية: ألف list في اليوم) ==');
+    const kvPut = b => fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    await kvPut({ branch: { id: 'misrata', name: 'مصراتة' }, items: [{ n: 'كتاب' }] });
+    await kvPut({ branch: { id: 'tripoli', name: 'طرابلس' }, items: [] });
+    await kvPut({ kind: 'phone', branch: { id: 'phone-abc12345', name: 'هاتف' }, orders: [] });
+    await kvPut({ branch: { id: 'misrata', name: 'مصراتة' }, items: [{ n: 'كتاب ثانٍ' }] });
+    const st = noD1.env.SHOP.stats, l0 = st.list;
+    let all = null;
+    for (let i = 0; i < 20; i++) all = await (await fetch(noD1.url + '/all', { headers: { 'X-Shop-Key': 'x' } })).json();
+    ok(all.ok && all.v === 3 && all.branches.length === 3 && all.branches.find(b => b.branch.id === 'misrata').items[0].n === 'كتاب ثانٍ',
+      'الفروع والهاتف كلها في /all، وآخر لقطة لكل فرع، ومعها v: 3', all);
+    ok(st.list - l0 === 0, 'عشرون /all بلا أي list (كانت list في كل مرة)', st.list - l0);
+    const puts = st.put;
+    await kvPut({ branch: { id: 'misrata', name: 'مصراتة' }, items: [] });
+    ok(st.put - puts === 1, 'رفع لقطة فرع معروف: كتابة واحدة (لا يُكتب الفهرس ثانية)', st.put - puts);
+    noD1.env.SHOP.map.delete('branch:tripoli');
+    all = await (await fetch(noD1.url + '/all', { headers: { 'X-Shop-Key': 'x' } })).json();
+    ok(all.branches.length === 2 && JSON.parse(noD1.env.SHOP.map.get('index:branches')).indexOf('tripoli') < 0, 'لقطة انتهى عمرها تخرج من الفهرس');
     await noD1.close();
 
     console.log('\n== جهاز المحل ==');

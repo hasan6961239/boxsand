@@ -1612,6 +1612,8 @@ namespace Qirtasiya
            فرع ما زال على 3.x بلا ربط. فرع كبير (فوق SyncClient.OldMaxItems) يرفع لقطته
            بلا أصناف، فلا ينزّل كل فرع 5 ميغا كل 10 دقائق */
         static string X3Kv = "[]";
+        /* نسخة /all في خادم الربط: 3 = بالفهرس بلا SHOP.list، فتسأل الشاشة عن طلبات التلفون كل دقيقة */
+        static long X3KvV;
 
         static string BranchIdOf(Dictionary<string, object> snap)
         {
@@ -1626,7 +1628,7 @@ namespace Qirtasiya
             foreach (Dictionary<string, object> b in d.RemoteBranches()) v2[Convert.ToString(b["id"], CultureInfo.InvariantCulture)] = b;
             List<object> kv = (Json.Parse(X3Kv) as List<object>) ?? new List<object>();
             StringBuilder sb = new StringBuilder(1 << 16);
-            sb.Append("{\"ok\":true,\"branches\":[");
+            sb.Append("{\"ok\":true,\"kvv\":").Append(X3KvV.ToString(CultureInfo.InvariantCulture)).Append(",\"branches\":[");
             int n = 0;
             HashSet<string> done = new HashSet<string>(StringComparer.Ordinal);
             foreach (object o in kv)
@@ -1686,6 +1688,7 @@ namespace Qirtasiya
             string all = HttpSend(url + "/all", "GET", skey, null);
             Dictionary<string, object> res = Json.Parse(all) as Dictionary<string, object>;
             if (res == null || !Json.Bool(res, "ok")) return all;
+            X3KvV = Json.Long(res, "v", 0);
             ShopDb d = Db;
             string mine = (d.Local("sync.branch") ?? "").ToLowerInvariant();
             List<object> keep = new List<object>();
