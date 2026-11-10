@@ -147,7 +147,8 @@ static class X3Tests
         A(s["books"]).Insert(0, P("{\"id\":\"S2\",\"code\":\"K0006\",\"title\":\"من المحل\",\"qty\":1}"));
         D(s["counters"])["book"] = 6L;
         ShopDb.X3Result rs = db.X3Save(baseShop, Json.Write(s), 1);
-        Dictionary<string, object> fin = P(db.X3Export());
+        string finTxt = db.X3Export();
+        Dictionary<string, object> fin = P(finTxt);
         ok(Json.Long(Find(fin, "books", "b1"), "qty", 0) == q0 - 3, "الكمية: نسخة من اللابتوب ونسختان من المحل تُطرح الثلاث", Find(fin, "books", "b1")["qty"]);
         ok(Json.Long(Find(fin, "customers", "c1"), "balance", 0) == bal0 + 30, "ودين محمد من بيعة اللابتوب باقٍ بعد حفظ المحل");
         ok(Json.Long(Find(fin, "invoices", "S1"), "no", 0) == inv0 + 2 && Json.Long(D(fin["counters"]), "invoice", 0) == inv0 + 2,
@@ -168,6 +169,32 @@ static class X3Tests
         Dictionary<string, object> fr = P(db.X3Export());
         ok(Json.Long(Find(fr, "invoices", "L3"), "refNo", 0) == Json.Long(Find(fr, "invoices", "L1"), "no", 0),
             "إرجاعه يشير لرقم فاتورته هنا", Find(fr, "invoices", "L3"));
+
+        /* المحل على نسخة قبل إرجاع اللابتوب (عدّاده أقل بواحد) يحفظ ثلاث فواتير دفعة واحدة (ثلاثة طلبات
+           تلفون أُخذت معاً): الأولى أُخذ رقمها هنا. كانت تأخذ التالي والثانية تبقى برقمها وهو نفسه */
+        s = P(finTxt);
+        long c0 = Json.Long(D(s["counters"]), "invoice", 0);
+        for (int k = 1; k <= 3; k++)
+            A(s["invoices"]).Insert(0, P("{\"id\":\"P" + k + "\",\"no\":" + (c0 + k) + ",\"kind\":\"sale\",\"total\":10,\"source\":\"phone\"}"));
+        D(s["counters"])["invoice"] = c0 + 3;
+        ShopDb.X3Result rp = db.X3Save(finTxt, Json.Write(s), 1);
+        Dictionary<string, object> ph = P(db.X3Export());
+        List<string> nos = new List<string>();
+        HashSet<long> uniq = new HashSet<long>();
+        foreach (object o in A(ph["invoices"])) { long n = Json.Long(D(o), "no", 0); nos.Add(n.ToString()); uniq.Add(n); }
+        ok(uniq.Count == nos.Count, "ثلاث فواتير دفعة من المحل وأول رقم منها مأخوذ هنا: لا رقم مكرّر", string.Join(",", nos.ToArray()));
+        ok(Json.Long(Find(ph, "invoices", "P1"), "no", 0) == c0 + 2 && Json.Long(Find(ph, "invoices", "P2"), "no", 0) == c0 + 3 &&
+            Json.Long(Find(ph, "invoices", "P3"), "no", 0) == c0 + 4 && Json.Long(D(ph["counters"]), "invoice", 0) == c0 + 4 && rp.Merged,
+            "أخذت الأرقام التالية بترتيبها، والعدّاد بعدها، والمحل يعيد التحميل",
+            Find(ph, "invoices", "P1")["no"] + "/" + Find(ph, "invoices", "P2")["no"] + "/" + Find(ph, "invoices", "P3")["no"] + " عدّاد " + D(ph["counters"])["invoice"]);
+
+        /* فاتورة جديدة برقم أكبر من العدّاد والشاشة لم ترسل العدّاد: العدّاد يلحقها (فلا يُعطى رقمها لغيرها) */
+        string bq = db.X3Export();
+        s = P(bq);
+        long c1 = Json.Long(D(s["counters"]), "invoice", 0);
+        A(s["invoices"]).Insert(0, P("{\"id\":\"Q1\",\"no\":" + (c1 + 5) + ",\"kind\":\"sale\",\"total\":5}"));
+        db.X3Save(bq, Json.Write(s), 1);
+        ok(Json.Long(D(P(db.X3Export())["counters"]), "invoice", 0) == c1 + 5, "فاتورة برقم بعد العدّاد بلا عدّاد معها: العدّاد يصير رقمها");
 
         db.Dispose();
         Second(dir);

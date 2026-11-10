@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mono-mcs mono-devel libmono-system-windows-forms4.0-cil \
-            libmono-system-drawing4.0-cil nsis fonts-dejavu-core xvfb xauth
+            libmono-system-drawing4.0-cil nsis fonts-dejavu-core xvfb xauth poppler-utils imagemagick
 
       - name: playwright-core وChromium
         run: |
@@ -101,6 +101,36 @@ jobs:
 
       - name: تطبيق الهاتف مع منظومة طرابلس الحقيقية (بيع وتعديل ورقم الفاتورة)
         run: node tools/test-phone-e2e.js
+
+      - name: الجهاز الثاني — حفظ كبير لا يوقف المزامنة
+        run: node tools/test-bigcmd.js
+
+      - name: تعديل أثناء حفظ جارٍ، ونسخة نسيها البرنامج، ولا رقم فاتورة مكرّر
+        run: node tools/test-race.js
+
+      - name: محاكاة يوم كامل — فرعان، أربعة أجهزة، ثلاثة هواتف، 61 ألف كتاب، بأعطاله
+        run: node tools/simulate.js
+
+      - name: كل ما يُطبع — PDF بمقاس ورقته (إيصالات وفواتير وكشوف وتقارير ولاصقات وإيصال الهاتف)
+        env:
+          QI_SHOTS: shots-print
+        run: |
+          mkdir -p shots-print
+          node tools/test-print.js
+
+      - name: كل زر في المنظومتين وتطبيق الهاتف
+        env:
+          QI_REPORT: buttons-report.txt
+        run: node tools/test-buttons.js
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: print-and-buttons
+          path: |
+            shots-print
+            buttons-report.txt
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -271,6 +301,23 @@ jobs:
         run: |
           mkdir -p shots-x3-windows
           node tools/test-x3.js suites
+
+      - name: حفظ كبير من الجهاز الثاني، وتعديل أثناء حفظ جارٍ — على البرنامج المثبَّت
+        shell: bash
+        env:
+          QI_PROGRAM: C:\Program Files\Qirtasiya
+          QI_PROGRAM_TRIPOLI: C:\Program Files\Qirtasiya-Tripoli
+        run: |
+          node tools/test-bigcmd.js
+          node tools/test-race.js
+
+      - name: محاكاة يوم كامل على البرنامج المثبَّت (فرعان، أربعة أجهزة، ثلاثة هواتف)
+        shell: bash
+        env:
+          QI_PROGRAM: C:\Program Files\Qirtasiya
+          QI_PROGRAM_TRIPOLI: C:\Program Files\Qirtasiya-Tripoli
+          BOOKS: 20000
+        run: node tools/simulate.js
 
       - uses: actions/upload-artifact@v4
         if: always()

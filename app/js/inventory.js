@@ -1682,6 +1682,7 @@ var Inv = (function () {
         return s + need * App.num(x.it.cost);
       }, 0)) + '</div><div class="foot">تقدير بسعر الجملة</div></div></div>';
 
+    h += negCard();
     h += restockCard();
 
     h += '<div class="card"><div class="card-head"><h3>قائمة الشراء المقترحة</h3><div class="spacer"></div>' +
@@ -1719,6 +1720,29 @@ var Inv = (function () {
       emptyText: "لا يوجد صنف وصل حد التنبيه. تُحدَّث هذه الصفحة تلقائياً بعد كل عملية بيع."
     });
     return h + "</div>";
+  }
+
+  /* ---------- كمية بالسالب ----------
+     بيعت نسخ أكثر من المسجّل: آخر نسخة بِيعت من جهازين في اللحظة نفسها (كل جهاز يظن أنها
+     عنده — المحاكاة الكاملة)، أو بيعت نسخة لم تُسجَّل. البيعتان صحيحتان وتبقيان؛ الكمية هي التي
+     تُصحَّح بعدّ الرف. فوق التنبيهات لأنها خطأ في المخزون لا نقص يُشترى */
+  function negCard() {
+    var neg = App.allItems().filter(function (x) { return !x.it.uncounted && App.num(x.it.qty) < 0; });
+    if (!neg.length) return "";
+    return '<div class="card" style="margin-bottom:16px;border-color:var(--stamp)"><div class="card-head"><h3>كمية بالسالب — ' + neg.length +
+      ' صنف</h3></div><div class="card-body" style="padding-bottom:4px"><p class="muted" style="margin:0 0 10px;line-height:1.8">' +
+      "بيعت منها نسخ أكثر من المسجّل — غالباً آخر نسخة بِيعت من جهازين في اللحظة نفسها. الفواتير صحيحة وتبقى؛ " +
+      "عُدّ الرف واكتب العدد الصحيح من «صحّح».</p></div>" +
+      App.table([
+        { h: "الصنف", c: function (x) { return '<div class="name">' + App.esc(App.itemName(x.it)) + "</div>"; } },
+        { h: "الموقع", c: function (x) { return x.type === "book" ? App.locChip(x.it) : App.esc(x.it.loc || "—"); } },
+        { h: "المسجّل", cls: "num", c: function (x) { return '<b style="color:var(--stamp)">' + App.num(x.it.qty) + "</b>"; } },
+        {
+          h: "", cls: "act", c: function (x) {
+            return '<button class="btn sm primary" onclick="Inv.' + (x.type === "book" ? "editBook" : "editStat") + "('" + x.it.id + "')\">صحّح</button>";
+          }
+        }
+      ], neg, { emptyIcon: "check", emptyTitle: "", emptyText: "" }) + "</div>";
   }
 
   /* ---------- «املأ الرفوف» ----------

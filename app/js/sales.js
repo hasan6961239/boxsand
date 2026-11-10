@@ -1438,7 +1438,7 @@ var Sales = (function () {
     var m = S().meta;
     var c = People.customer(v.customerId);
     var wide = m.receiptWidth === "a4";
-    var h = '<div class="receipt' + (wide ? " a4" : "") + '">' +
+    var h = '<div class="receipt' + (wide ? " a4" : m.receiptWidth === "58" ? " w58" : "") + '">' +
       "<h2>" + App.esc(m.shopName || "المكتبة والقرطاسية") + "</h2>" +
       (m.phone ? '<div class="c">' + App.esc(m.phone) + "</div>" : "") +
       (m.address ? '<div class="c">' + App.esc(m.address) + "</div>" : "") +
@@ -1497,6 +1497,9 @@ var Sales = (function () {
     var F = "'Segoe UI', Tahoma, Arial, sans-serif";
 
     function font(size, bold) { g.font = (bold ? "bold " : "") + size + "px " + F; }
+    /* سطر بلا حرف عربي وفيه لاتيني (اسم صنف إنجليزي) يُكتب من اليسار: كان يُرسم بترتيب عربي
+       فتنتقل أرقامه لطرفه («HB Pencil Box of 2001» بدل «2001 HB Pencil Box of») */
+    function dir(str) { g.direction = !/[\u0600-\u06FF]/.test(str) && /[A-Za-z]/.test(str) ? "ltr" : "rtl"; }
 
     /* السطر الطويل يلتفّ على أكثر من سطر بدل أن يُقصّ من الجانبين،
        والكلمة الواحدة الأعرض من الورقة يصغر خطها حتى تدخل */
@@ -1505,6 +1508,7 @@ var Sales = (function () {
       var xp = opts.align === "right" ? RIGHT : (opts.align === "left" ? LEFT : W / 2);
       wrap(str, RIGHT - LEFT, size, opts.bold).forEach(function (part) {
         var sz = size;
+        dir(part);
         font(sz, opts.bold);
         while (sz > Math.round(size * 0.6) && g.measureText(part).width > RIGHT - LEFT) font(--sz, opts.bold);
         g.textAlign = opts.align || "center";
@@ -1540,6 +1544,7 @@ var Sales = (function () {
 
     function cell(str, xp, align, size, bold) {
       font(size, bold);
+      dir(String(str));
       g.textAlign = align;
       g.fillText(str, xp, y);
     }
@@ -1610,6 +1615,8 @@ var Sales = (function () {
     }
 
     sep(true);
+    /* فراغ قبل التذييل: الخط المتقطع كان يمرّ فوق سطره الأول (تنوين «شكراً» وما يعلو الحروف) */
+    y += Math.round(S1 * 0.5);
     if (m.footer) line(m.footer, S1);
     y += 20;
 
@@ -1642,7 +1649,8 @@ var Sales = (function () {
     var m = S().meta;
     var paper = (m.receiptWidth === "58") ? 58 : 80;
     var mm = (m.receiptWidth === "58") ? 48 : 72;
-    var tall = Math.ceil(cv.height * mm / cv.width) + 8;
+    /* لا أقصر من عرضه: الإيصال القصير (صنف واحد) كان أعرض من طوله فتقلبه الطابعة بالعرض */
+    var tall = Math.max(Math.ceil(cv.height * mm / cv.width) + 8, paper + 6);
     App.printHtml("<style>@page { size: " + paper + "mm " + tall + "mm; margin: 0; }" +
       "@media print { html, body { height: auto !important; } body > *:not(#printArea) { display: none !important; } }</style>" +
       '<img class="receipt-img" src="' + cv.toDataURL("image/png") +

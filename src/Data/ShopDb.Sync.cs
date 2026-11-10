@@ -191,8 +191,9 @@ namespace Qirtasiya.Data
         {
             bool x3 = false;
             long n = ApplyRemoteRows(rows, upTo, ref x3);
-            /* بيانات 3.x تغيّرت هنا، أو نفّذ جهاز المحل ما كان ينتظر: الواجهة تعيد التحميل */
-            if (x3) X3Touched();
+            /* بيانات 3.x تغيّرت هنا، أو نفّذ جهاز المحل ما كان ينتظر: الواجهة تعيد التحميل
+               (الرقم زاد داخل المعاملة قبل أن تُكتب: X3Bump) */
+            if (x3) X3Notify();
             return n;
         }
 
@@ -222,6 +223,7 @@ namespace Qirtasiya.Data
                     foreach (long id in items) IndexItemReplica(id);
                     db.Run("INSERT INTO local_state(key, value) VALUES('sync.applied', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                         Math.Max(cur, upTo).ToString(CultureInfo.InvariantCulture));
+                    if (x3) X3Bump();
                     db.Exec("COMMIT");
                     ok = true;
                 }
@@ -293,6 +295,72 @@ namespace Qirtasiya.Data
             }
         }
 
+        /* حفظ كبير من الجهاز الثاني مقسوماً أوامر: كلها أو لا شيء */
+        public long OutboxAddMany(long userId, string cmd, List<string> bodies, List<string> labels)
+        {
+            lock (gate)
+            {
+                if (Report.ReadOnly) throw new ShopException("لا يمكن الحفظ: " + Report.ReadOnlyReason);
+                db.Exec("BEGIN IMMEDIATE");
+                bool ok = false;
+                long last = 0;
+                try
+                {
+                    string at = Stamp(clock());
+                    for (int i = 0; i < bodies.Count; i++)
+                        last = db.Insert("INSERT INTO sync_outbox(at, user_id, cmd, body, label) VALUES(?, ?, ?, ?, ?)", at, userId, cmd, bodies[i], labels[i]);
+                    db.Exec("COMMIT");
+                    ok = true;
+                }
+                finally { if (!ok) Rollback(db); }
+                return last;
+            }
+        }
+
+        /* أمر ينتظر ورفضه الخادم لحجمه: يُقسم هو وكل ما بعده بالترتيب نفسه (الأرقام الجديدة تصاعدية).
+           split: يعطي قطع الأمر، أو null إن كان لا يُقسم. يرجع عدد الأوامر التي قُسمت */
+        public int OutboxResplit(long fromN, Func<OutboxRow, List<string>> split)
+        {
+            lock (gate)
+            {
+                if (Report.ReadOnly) return 0;
+                List<OutboxRow> rows = new List<OutboxRow>();
+                foreach (object[] r in db.Rows("SELECT n, at, user_id, cmd, body, label FROM sync_outbox WHERE sent_id = 0 AND n >= ? ORDER BY n", fromN))
+                {
+                    OutboxRow o = new OutboxRow();
+                    o.N = (long)r[0]; o.At = (string)r[1]; o.UserId = (long)r[2]; o.Cmd = (string)r[3]; o.Body = (string)r[4]; o.Label = (string)r[5];
+                    rows.Add(o);
+                }
+                List<List<string>> parts = new List<List<string>>();
+                int did = 0;
+                foreach (OutboxRow o in rows)
+                {
+                    List<string> p = split(o);
+                    if (p != null && p.Count > 1) did++; else p = null;
+                    parts.Add(p);
+                }
+                if (did == 0) return 0;
+                db.Exec("BEGIN IMMEDIATE");
+                bool ok = false;
+                try
+                {
+                    db.Run("DELETE FROM sync_outbox WHERE sent_id = 0 AND n >= ?", fromN);
+                    for (int i = 0; i < rows.Count; i++)
+                    {
+                        OutboxRow o = rows[i];
+                        if (parts[i] == null) { db.Insert("INSERT INTO sync_outbox(at, user_id, cmd, body, label) VALUES(?, ?, ?, ?, ?)", o.At, o.UserId, o.Cmd, o.Body, o.Label); continue; }
+                        for (int k = 0; k < parts[i].Count; k++)
+                            db.Insert("INSERT INTO sync_outbox(at, user_id, cmd, body, label) VALUES(?, ?, ?, ?, ?)", o.At, o.UserId, o.Cmd, parts[i][k],
+                                o.Label + " (" + (k + 1).ToString(CultureInfo.InvariantCulture) + "/" + parts[i].Count.ToString(CultureInfo.InvariantCulture) + ")");
+                    }
+                    db.Exec("COMMIT");
+                    ok = true;
+                }
+                finally { if (!ok) Rollback(db); }
+                return did;
+            }
+        }
+
         public sealed class OutboxRow
         {
             public long N, UserId, SentId;
@@ -319,6 +387,13 @@ namespace Qirtasiya.Data
             lock (gate) db.Run("UPDATE sync_outbox SET sent_id = ? WHERE n = ?", serverId, n);
         }
 
+        /* أمر لا يقبله الخادم لحجمه ولا يُقسم: sent_id = -1. لا يُعاد إرساله، ولا يبقى في ما تعرضه الشاشة
+           (X3ExportWithPending)، ويظهر «مرفوضاً» بسببه حتى يُزال */
+        public void OutboxUnsendable(long n)
+        {
+            lock (gate) db.Run("UPDATE sync_outbox SET sent_id = -1 WHERE n = ? AND sent_id = 0", n);
+        }
+
         /* ما أُرسل ولم يُنفَّذ بعد، وما رُفض: للواجهة. المنفَّذ بنجاح يُحذف بعد يوم */
         public List<Dictionary<string, object>> OutboxView()
         {
@@ -334,8 +409,9 @@ namespace Qirtasiya.Data
                 {
                     Dictionary<string, object> d = new Dictionary<string, object>();
                     d["n"] = r[0]; d["at"] = r[1]; d["cmd"] = r[2]; d["label"] = r[3];
-                    d["state"] = r[5] == null ? ((long)r[4] > 0 ? "sent" : "waiting") : ((long)r[5] == 1 ? "done" : "failed");
+                    d["state"] = r[5] == null ? ((long)r[4] > 0 ? "sent" : (long)r[4] < 0 ? "failed" : "waiting") : ((long)r[5] == 1 ? "done" : "failed");
                     if (r[6] != null && ((string)r[6]).Length > 0) d["error"] = r[6];
+                    else if (r[5] == null && (long)r[4] < 0) d["error"] = "أكبر من أن يُرسل لجهاز المحل: نفّذه من جهاز المحل.";
                     if (r[7] != null) d["doneAt"] = r[7];
                     l.Add(d);
                 }
@@ -349,7 +425,7 @@ namespace Qirtasiya.Data
             lock (gate)
             {
                 string device = db.Text("SELECT value FROM local_state WHERE key = 'sync.device'") ?? "";
-                if (db.Run("DELETE FROM sync_outbox WHERE n = ? AND EXISTS (SELECT 1 FROM remote_cmds r WHERE r.device = ? AND r.n = ?)", n, device, n) == 0)
+                if (db.Run("DELETE FROM sync_outbox WHERE n = ? AND (sent_id < 0 OR EXISTS (SELECT 1 FROM remote_cmds r WHERE r.device = ? AND r.n = ?))", n, device, n) == 0)
                     throw new ShopException("لم ينفّذه جهاز المحل بعد: يبقى حتى يصله.");
             }
         }

@@ -27,8 +27,8 @@ namespace Qirtasiya
         static readonly string DataName = Tripoli ? "Qirtasiya-Tripoli" : "Qirtasiya";
         /* لكل تطبيق إصداره (tools/build-linux.sh يقرأ سطر تطبيقه): مصراتة رسمية،
            وطرابلس تجريبية حتى يعتمدها المحل. ملف التثبيت: الرقم لويندوز، و«-test» في اسمه */
-        const string AppVersionMisrata = "4.0";
-        const string AppVersionTripoli = "4.0-test";
+        const string AppVersionMisrata = "4.1";
+        const string AppVersionTripoli = "4.1-test";
         static readonly string AppVersion = Tripoli ? AppVersionTripoli : AppVersionMisrata;
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
@@ -1361,7 +1361,13 @@ namespace Qirtasiya
         /* patch: ما أرسلته الشاشة فرقٌ عن النسخة rev (/api/x3/patch، ShopDb.X3Patch): يُبنى منه
            الملف كله ثم يُحفظ كأنها أرسلته كله. نسخة لا يعرفها البرنامج، أو فرق لا يُفهم:
            {"full":true} فترسل الملف كله */
-        static string X3SaveUi(byte[] body, string rev, bool patch)
+        static string X3SaveUi(byte[] body, string rev, bool patch) { return X3SaveUi(body, rev, patch, false); }
+
+        /* canTeach: الشاشة عندها نص ما رأته (X-X3-Base). نسخة نسيها البرنامج (أُعيد تشغيله والنافذة
+           مفتوحة، أو حُمّل الملف مرات كثيرة من غيرها) كانت تُحفظ مقارنةً بما في القاعدة كله: ما غيّره
+           جهاز آخر في الأثناء يُحسب «تراجعاً» من الشاشة فيُمسح، وفواتيره تُحذف. الآن يُطلب منها أن
+           تذكّره بما رأته (‎/api/x3/base) ثم تعيد الحفظ، فيبقى فرقاً عما رأته هي */
+        static string X3SaveUi(byte[] body, string rev, bool patch, bool canTeach)
         {
             ShopDb d = Db;
             Stopwatch sw = Stopwatch.StartNew();
@@ -1379,6 +1385,11 @@ namespace Qirtasiya
                 catch (Exception ex) { Log("store.json من خارج البرنامج: " + ex.Message); }
                 X3Seen seen = X3Find(rev);
                 if (seen != null) seen.Used = DateTime.UtcNow;
+                else if (canTeach && !string.IsNullOrEmpty(rev))
+                {
+                    Log("حفظ من 3.x بنسخة لم تعد معروفة: الشاشة تذكّر البرنامج بما رأته ثم تعيد الحفظ");
+                    return "{\"ok\":false,\"forgot\":true}";
+                }
                 ShopDb.X3Doc nowDoc = null, baseDoc = null;
                 string full = null;
                 if (patch)
@@ -1437,7 +1448,22 @@ namespace Qirtasiya
                     }
                     if (ops.Count > 0)
                     {
-                        Dictionary<string, object> j = Json.Parse(V2.RunInternal("x3.apply", "{\"ops\":" + ShopDb.X3OpsJson(ops) + "}").Json) as Dictionary<string, object>;
+                        string opsJson = ShopDb.X3OpsJson(ops);
+                        /* سجل واحد أكبر مما يقبله خادم الربط (جرد كل المحل في جلسة واحدة مثلاً) لا يدخل الطابور:
+                           كان يُرفض هناك فيتوقف كل ما بعده. الحفظ الكبير من سجلات كثيرة يُقسم وحده (Api.CmdChunk) */
+                        if (opsJson.Length > Api.CmdChunk)
+                        {
+                            long max = d.LocalLong("sync.cmd_chars", 200000) - 4000;
+                            foreach (X3Op o in ops)
+                            {
+                                List<X3Op> one = new List<X3Op>(); one.Add(o);
+                                if (ShopDb.X3OpsJson(one).Length <= max) continue;
+                                string what = o.Coll == "countSession" ? "جلسة الجرد كبرت: أكمل الجرد من جهاز المحل، أو اجرد مكتبة مكتبة" :
+                                    "تغيير واحد أكبر من أن يُرسل لجهاز المحل (" + o.Coll + "): نفّذه من جهاز المحل";
+                                return "{\"ok\":false,\"reload\":true,\"error\":" + JsonStr("هذا جهاز ثانٍ: " + what + ".") + "}";
+                            }
+                        }
+                        Dictionary<string, object> j = Json.Parse(V2.RunInternal("x3.apply", "{\"ops\":" + opsJson + "}").Json) as Dictionary<string, object>;
                         if (j == null || !Json.Bool(j, "ok"))
                             return "{\"ok\":false,\"error\":" + JsonStr(j == null ? "تعذّر الحفظ." : Json.Str(j, "error")) + "}";
                     }
@@ -1472,6 +1498,23 @@ namespace Qirtasiya
                 if (gen != gen1) reload = true;     // أُخذ ملف من خارج أثناء الحفظ
                 string nrev = X3Remember(now, reload ? -1 : gen, true, nowDoc);
                 return "{\"ok\":true,\"rev\":" + JsonStr(nrev) + ",\"gen\":" + gen.ToString(CultureInfo.InvariantCulture) + (reload ? ",\"reload\":true" : "") + "}";
+            }
+        }
+
+        /* الشاشة تذكّر البرنامج بما رأته (نص الملف كما كان عندها بعد آخر تحميل أو حفظ نجح): يُحفظ
+           نسخةً «تعيد التحميل» (‎-1)، والحفظ بعدها فرقٌ عنها كأي حفظ */
+        static string X3Base(byte[] body)
+        {
+            string json;
+            try { json = new UTF8Encoding(false, true).GetString(body); }
+            catch (ArgumentException) { return "{\"ok\":false}"; }
+            string lead = json.TrimStart();
+            if (lead.Length == 0 || lead[0] != '{') return "{\"ok\":false}";
+            ShopDb.X3Doc doc = ShopDb.X3ScanOrNull(json);
+            if (doc == null) return "{\"ok\":false}";
+            lock (X3Gate)
+            {
+                return "{\"ok\":true,\"rev\":" + JsonStr(X3Remember(json, -1, true, doc)) + "}";
             }
         }
 
@@ -2332,7 +2375,7 @@ namespace Qirtasiya
                 }
 
                 // نداءات الكتابة تحتاج ملكية النافذة
-                bool needOwner = path == "/api/save" || path == "/api/x3/patch" || path == "/api/restore" ||
+                bool needOwner = path == "/api/save" || path == "/api/x3/patch" || path == "/api/x3/base" || path == "/api/restore" ||
                                  path == "/api/backup" || path == "/api/backup-dir" ||
                                  path == "/api/uninstall" || path == "/api/profit-code" ||
                                  path == "/api/archive";
@@ -2720,13 +2763,21 @@ namespace Qirtasiya
                 try
                 {
                     if (!X3On || Db == null) { SendJson(s, "{\"ok\":false,\"full\":true}"); return; }
-                    SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), true));
+                    SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), true, GetHeader(lines, "X-X3-Base") == "1"));
                     if (Tripoli) WakeSync(false);           // يُرفع الآن لا في الدورة القادمة
                 }
                 catch (Exception ex)
                 {
                     SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}");
                 }
+                return;
+            }
+
+            /* الشاشة تذكّر البرنامج بنسخة نسيها (X3SaveUi: forgot) */
+            if (path == "/api/x3/base" && method == "POST")
+            {
+                try { SendJson(s, X3On && Db != null ? X3Base(body) : "{\"ok\":false}"); }
+                catch (Exception ex) { SendJson(s, "{\"ok\":false,\"error\":" + JsonStr(ex.Message) + "}"); }
                 return;
             }
 
@@ -2737,7 +2788,7 @@ namespace Qirtasiya
                     /* بواجهة 3.x الفحص من الحفظ نفسه: نص UTF-8 سليم وملف 3.x مفهوم، وإلا لا يُكتب شيء */
                     if (X3On)
                     {
-                        SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), false));
+                        SendJson(s, X3SaveUi(body, GetHeader(lines, "X-X3-Rev"), false, GetHeader(lines, "X-X3-Base") == "1"));
                         if (Tripoli) WakeSync(false);
                         return;
                     }

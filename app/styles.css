@@ -518,16 +518,21 @@ body.br-two .brand .sub { color: #A48BC4; }
 #printArea { display: none; }
 
 @media print {
-  body { overflow: visible; background: #fff; }
+  /* html أيضاً: خلفيته كانت تملأ ما تحت الإيصال رمادياً (نقاط على الطابعة الحرارية) */
+  html, body { background: #fff !important; }
+  body { overflow: visible; }
   #app, #toasts, .overlay { display: none !important; }
   #printArea { display: block !important; }
 
   @page { margin: 4mm; }
+  /* بعرض ورق الطابعة حتى 72 مم: على لفة 58 مم كان يُقصّ نصفه الأيسر (المبالغ) */
   .receipt {
-    width: 72mm; margin: 0 auto; color: #000;
+    width: auto; max-width: 72mm; margin: 0 auto; color: #000;
     font-family: "Segoe UI", Tahoma, sans-serif; font-size: 11.5px;
   }
-  .receipt.a4 { width: 180mm; font-size: 13px; }
+  .receipt.w58 { max-width: 50mm; font-size: 10.5px; }
+  .receipt.w58 h2 { font-size: 15px; }
+  .receipt.a4 { width: 180mm; max-width: none; font-size: 13px; }
   .receipt h2 { text-align: center; margin: 0 0 2px; font-size: 17px; }
   .receipt .c { text-align: center; }
   .receipt hr { border: 0; border-top: 1px dashed #000; margin: 7px 0; }

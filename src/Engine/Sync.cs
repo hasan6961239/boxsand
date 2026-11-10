@@ -532,6 +532,9 @@ namespace Qirtasiya.Engine
                 h = Hello(db, cloud, "second", false);
                 lastHello = DateTime.UtcNow;
                 NoteCatalogs(h);
+                /* أقصى حجم لأمر واحد عند هذا الخادم (القديم لا يعلنه: 200 ألف) */
+                long cc = Json.Long(h, "cmdChars", 200000);
+                if (cc != db.LocalLong("sync.cmd_chars", 200000)) db.SetLocal("sync.cmd_chars", S(cc));
             }
             PushOutbox(db, cloud);
             string chain = db.Local("sync.chain") ?? "";
@@ -574,20 +577,35 @@ namespace Qirtasiya.Engine
         void PushOutbox(ShopDb db, ICloud cloud)
         {
             string name = db.Local("sync.name") ?? "";
-            foreach (ShopDb.OutboxRow o in db.OutboxUnsent())
+            for (int round = 0; round < 4; round++)
             {
-                Phase("إرسال ما ينتظر");
-                StringBuilder sb = new StringBuilder("{\"user\":").Append(S(o.UserId)).Append(",\"cmd\":");
-                Json.Quote(sb, o.Cmd);
-                sb.Append(",\"dname\":");
-                Json.Quote(sb, name);
-                sb.Append(",\"at\":");
-                Json.Quote(sb, o.At);
-                sb.Append(",\"body\":").Append(o.Body).Append('}');
-                CloudReply r = cloud.Call("POST", "v2/cmd", Q("branch", db.Local("sync.branch"), "device", db.Local("sync.device"), "n", S(o.N)), sb.ToString());
-                Dictionary<string, object> j = r.Json;
-                if (r.Status != 200 || j == null) throw Fail(r, "إرسال ما ينتظر");
-                db.OutboxSent(o.N, Json.Long(j, "id", 0));
+                bool again = false;
+                foreach (ShopDb.OutboxRow o in db.OutboxUnsent())
+                {
+                    Phase("إرسال ما ينتظر");
+                    StringBuilder sb = new StringBuilder("{\"user\":").Append(S(o.UserId)).Append(",\"cmd\":");
+                    Json.Quote(sb, o.Cmd);
+                    sb.Append(",\"dname\":");
+                    Json.Quote(sb, name);
+                    sb.Append(",\"at\":");
+                    Json.Quote(sb, o.At);
+                    sb.Append(",\"body\":").Append(o.Body).Append('}');
+                    CloudReply r = cloud.Call("POST", "v2/cmd", Q("branch", db.Local("sync.branch"), "device", db.Local("sync.device"), "n", S(o.N)), sb.ToString());
+                    Dictionary<string, object> j = r.Json;
+                    if (r.Status == 413)
+                    {
+                        /* أكبر مما يقبله الخادم. كان يُعاد إلى الأبد فيتوقف كل ما بعده (بيع الجهاز الثاني لا يصل
+                           المحل). الآن: يُقسم هو وما بعده بالترتيب نفسه ويُعاد؛ وسجل واحد لا يُقسم يُنحّى جانباً
+                           ويُقال للمستخدم، والباقي يكمل */
+                        if (db.OutboxResplit(o.N, delegate (ShopDb.OutboxRow x) { return Api.SplitBody(x.Cmd, x.Body, Api.CmdSafe); }) > 0) { again = true; break; }
+                        db.OutboxUnsendable(o.N);
+                        log("المزامنة: تغيير أكبر من أن يُرسل لجهاز المحل نُحّي جانباً: " + o.Label);
+                        continue;
+                    }
+                    if (r.Status != 200 || j == null) throw Fail(r, "إرسال ما ينتظر");
+                    db.OutboxSent(o.N, Json.Long(j, "id", 0));
+                }
+                if (!again) break;
             }
         }
 

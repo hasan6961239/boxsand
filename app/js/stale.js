@@ -45,6 +45,10 @@ var Stale = (function () {
   function backfill() {
     if (backfilled) return;
     backfilled = true;
+    /* الجهاز الثاني لا يثبّته: التثبيت يغيّر كل الأصناف مرة واحدة، فكان أول حفظ عليه أمراً
+       ضخماً (1.3 ميغا لـ1800 صنف) يرفضه خادم الربط ويوقف كل ما بعده. جهاز المحل يثبّته
+       عنده، ويصل الجهاز الثاني مع المزامنة */
+    if (App.isSecond && App.isSecond()) return;
     var seen = {}, sold = {};
     S().invoices.forEach(function (v) {
       if (v.kind === "return") return;
@@ -360,19 +364,25 @@ var Stale = (function () {
   function exportXls() {
     var list = filtered();
     if (!list.length) { App.toast("لا شيء للتصدير.", "warn"); return; }
-    var noMoney = x4();
-    var head = ["الصنف", "النوع", "المؤلف", "التصنيف", "المكان", "الباركود",
-      "الكمية", "سعر الشراء", "سعر البيع", "مال مجمّد", "راكد منذ (يوم)", "بِيع إجمالاً", "آخر بيع"];
-    /* طرابلس: بلا سعر الشراء ولا المال المجمّد */
-    var keep = function (row) { return noMoney ? row.filter(function (x, i) { return i !== 7 && i !== 9; }) : row; };
-    App.xls("البضاعة-الراكدة-" + App.today(), "البضاعة الراكدة", [keep(head)].concat(list.map(function (r) {
-      return keep([
-        r.name, r.type === "book" ? "كتاب" : "قرطاسية", r.it.author || "", r.it.cat || "",
-        (r.it.lib ? r.it.lib + " رف " + (r.it.shelf || "") : (r.it.loc || "")),
-        r.it.barcode || "", r.qty, App.num(r.it.cost), App.num(r.it.price),
-        r.frozen, r.idle, r.soldTotal, r.never ? "لم يُبَع قط" : (r.it.lastSold || "")
-      ]);
-    })));
+    /* App.xls يأخذ تعريف الأعمدة ثم الصفوف: كانت الصفوف تُمرَّر مكان الأعمدة فيتوقف الزر بخطأ
+       (تجربة كل الأزرار). طرابلس: بلا سعر الشراء ولا المال المجمّد */
+    var cols = [
+      { h: "الصنف", c: function (r) { return r.name; } },
+      { h: "النوع", c: function (r) { return r.type === "book" ? "كتاب" : "قرطاسية"; } },
+      { h: "المؤلف", c: function (r) { return r.it.author || ""; } },
+      { h: "التصنيف", c: function (r) { return r.it.cat || ""; } },
+      { h: "المكان", c: function (r) { return r.it.lib ? r.it.lib + " رف " + (r.it.shelf || "") : (r.it.loc || ""); } },
+      { h: "الباركود", c: function (r) { return r.it.barcode || ""; } },
+      { h: "الكمية", t: "i", sum: true, c: function (r) { return r.qty; } },
+      { h: "سعر الشراء", t: "n", money: 1, c: function (r) { return App.num(r.it.cost); } },
+      { h: "سعر البيع", t: "n", c: function (r) { return App.num(r.it.price); } },
+      { h: "مال مجمّد", t: "n", sum: true, money: 1, c: function (r) { return r.frozen; } },
+      { h: "راكد منذ (يوم)", t: "i", c: function (r) { return r.idle; } },
+      { h: "بِيع إجمالاً", t: "i", c: function (r) { return r.soldTotal; } },
+      { h: "آخر بيع", c: function (r) { return r.never ? "لم يُبَع قط" : (r.it.lastSold || ""); } }
+    ];
+    if (x4()) cols = cols.filter(function (c) { return !c.money; });
+    App.xls("البضاعة-الراكدة-" + App.today(), "البضاعة الراكدة", cols, list, (S().meta.shopName || "") + " · " + list.length + " صنف");
   }
 
   function print() {

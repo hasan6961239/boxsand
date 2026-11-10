@@ -42,9 +42,15 @@ namespace Qirtasiya.Data
         /* يُستدعى بعد كل تغيير محفوظ (البرنامج يكتب store.json منه) */
         public Action X3Changed;
 
-        void X3Touched()
+        /* الرقم يزيد داخل المعاملة قبل أن تُكتب (X3Bump)، والإشعار بعدها (X3Notify). كان يزيد بعد
+           الكتابة: حفظ من الشاشة في تلك اللحظة يقرأ الرقم القديم والقاعدة الجديدة (بيعة جهاز ثانٍ
+           دخلت للتو)، فلا يُطلب منها التحديث ويُذكر ما أرسلته على أنه ما في القاعدة (X3CHECK في
+           المحاكاة الكاملة). الآن من رأى الرقم القديم لم تُكتب المعاملة بعد، فما يطبّقه بعدها يجدها
+           ويرى الرقم وقد زاد. معاملة تُلغى بعد الزيادة: تحديث زائد لا يضر */
+        void X3Bump() { Interlocked.Increment(ref x3Gen); }
+
+        void X3Notify()
         {
-            Interlocked.Increment(ref x3Gen);
             Action a = X3Changed;
             if (a != null) { try { a(); } catch (Exception) { } }
         }
@@ -1207,7 +1213,11 @@ namespace Qirtasiya.Data
             {
                 Dictionary<string, object> v = (Dictionary<string, object>)o.Now;
                 long no = Json.Long(v, "no", 0);
-                if (!remote && (no > invBase || no <= 0)) { nextNo = Math.Max(nextNo, no); continue; }
+                /* من الشاشة: رقمها يبقى إن لم يُؤخذ — أكبر من العدّاد هنا ومن كل رقم أُعطي قبلها في الحفظ
+                   نفسه. كانت المقارنة بالعدّاد وحده: فاتورتان أو ثلاث في حفظ واحد (طلبات تلفون أُخذت معاً)
+                   وأولاها أُخذ رقمها هنا فأخذت التالي، والثانية بقيت برقمها وهو نفسه: رقمان متطابقان
+                   (المحاكاة الكاملة). والعدّاد بعدها لا يقلّ عن أكبرها ولو لم ترسله الشاشة */
+                if (!remote && (no > nextNo || no <= 0)) { if (no > 0) { nextNo = no; countersBumped = true; } continue; }
                 long fresh = ++nextNo;
                 if (fresh != no)
                 {
@@ -1266,7 +1276,7 @@ namespace Qirtasiya.Data
                 if (o.Coll == "counters" && countersBumped)
                 {
                     Dictionary<string, object> cv = val as Dictionary<string, object>;
-                    if (cv != null && Json.Long(cv, "invoice", 0) < nextNo) { cv = new Dictionary<string, object>(cv); cv["invoice"] = nextNo; val = cv; }
+                    if (cv != null && Json.Long(cv, "invoice", 0) < nextNo) { cv = new Dictionary<string, object>(cv); cv["invoice"] = nextNo; val = cv; res.Merged = true; }
                     countersBumped = false;
                 }
                 /* صنف جديد فقط: المصفوفة الفارغة (لا كتب أو لا قرطاسية) قسم واحد بلا معرّف */
@@ -1285,10 +1295,11 @@ namespace Qirtasiya.Data
             {
                 X3Row cr = st.Get("counters", "");
                 Dictionary<string, object> cv = cr == null ? null : Json.Parse(cr.Body) as Dictionary<string, object>;
-                if (cv != null)
+                if (cv != null && Json.Long(cv, "invoice", 0) < nextNo)
                 {
                     cv["invoice"] = nextNo;
                     st.Put("counters", "", cr.Ord, Json.Write(cv));
+                    res.Merged = true;
                 }
             }
             if (counters != null && counters.ContainsKey("$dirty"))
@@ -1370,9 +1381,10 @@ namespace Qirtasiya.Data
                 res.Changes = st.Changes;
                 c.Detail = X3Summary(ops);
                 if (!string.IsNullOrEmpty(device)) c.Device = device;
+                if (res.Changes > 0) X3Bump();           // قبل أن تُكتب المعاملة
                 return res;
             });
-            if (r.Changes > 0) X3Touched();
+            if (r.Changes > 0) X3Notify();
             return r;
         }
 
@@ -1558,7 +1570,7 @@ namespace Qirtasiya.Data
             lock (gate)
             {
                 string device = db.Text("SELECT value FROM local_state WHERE key = 'sync.device'") ?? "";
-                List<object[]> pend = db.Rows("SELECT o.body FROM sync_outbox o WHERE o.cmd = 'x3.apply' AND NOT EXISTS " +
+                List<object[]> pend = db.Rows("SELECT o.body FROM sync_outbox o WHERE o.cmd = 'x3.apply' AND o.sent_id >= 0 AND NOT EXISTS " +
                     "(SELECT 1 FROM remote_cmds r WHERE r.device = ? AND r.n = o.n) ORDER BY o.n", device);
                 if (pend.Count == 0) return X3ExportCore(db);
                 X3MemStore m = new X3MemStore();

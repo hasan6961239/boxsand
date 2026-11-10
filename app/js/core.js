@@ -133,7 +133,7 @@ var App = (function () {
         if (!r.ok) {
           throw new Error((d && d.error) ? d.error : ("تعذّرت العملية (رمز " + r.status + ")"));
         }
-        if (d && d.ok === false) {
+        if (d && d.ok === false && !d.forgot) {
           throw new Error(d.error || "تعذّرت العملية.");
         }
         return d;
@@ -193,7 +193,26 @@ var App = (function () {
   function saveHeaders() {
     var h = { "Content-Type": "application/json" };
     if (x3.rev) h["X-X3-Rev"] = x3.rev;
+    /* الشاشة عندها نص ما رآه البرنامج: إن نسي نسختها يطلبه (forgot) بدل أن يقارن بما في القاعدة */
+    if (canTeach()) h["X-X3-Base"] = "1";
     return h;
+  }
+
+  /* البرنامج نسي ما رأته هذه النافذة (أُعيد تشغيله وهي مفتوحة، أو حُمّل الملف مرات كثيرة من غيرها).
+     كان الحفظ بعدها يُقارن بما في القاعدة كله: ما غيّره جهاز آخر في الأثناء يُحسب «تراجعاً» من هذه
+     النافذة فيُمسح، وفواتيره تُحذف. الآن تذكّره الشاشة بما رأته (نصه عندها في x3p.snap)، فيبقى
+     حفظها فرقاً عنه. true: صار يعرفها (برقم جديد) */
+  function canTeach() { return !!(x3p.on && x3p.snap && x3.rev && x3p.rev === x3.rev && x3p.teach < 2); }
+  function teachBase() {
+    if (!canTeach()) return Promise.resolve(false);
+    x3p.teach++;
+    return api("/api/x3/base", { method: "POST", headers: { "Content-Type": "application/json" }, body: snapText(x3p.snap) })
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        if (!b || !b.ok || !b.rev) return false;
+        x3.rev = b.rev; x3p.rev = b.rev;
+        return true;
+      }).catch(function () { return false; });
   }
 
   /* ---------- الحفظ بالفرق (X4) ----------
@@ -203,7 +222,7 @@ var App = (function () {
      الملف كله (ShopDb.X3Patch) ويكمل كما كان. النواة تعلن أنها تفهمه (X-X3-Patch)، وأي
      رفض منها ({full:true}) يرجع للحفظ الكامل. السجلات: مصفوفة غير فارغة، كل عنصرها
      كائن بمعرّف (نص أو عدد صحيح) لا يتكرر — كما يعرّفها البرنامج (X3ScanRecords) */
-  var x3p = { on: false, verify: false, snap: null, rev: "" };
+  var x3p = { on: false, verify: false, snap: null, rev: "", teach: 0 };
 
   function snapId(r) {
     if (!r || typeof r !== "object" || Array.isArray(r)) return null;
@@ -361,6 +380,7 @@ var App = (function () {
   }
 
   function x3Took(req, res) {
+    if (res && res.ok) x3p.teach = 0;
     if (!req.snap) return;
     if (res && res.ok && res.rev) { x3p.snap = req.snap; x3p.rev = res.rev; }
   }
@@ -461,6 +481,7 @@ var App = (function () {
     saving = true;
     setState("saving");
     var req = saveBody(false);
+    var mark = x3.edits;                  // ما عُدّل حتى هذا الحفظ
     return api(req.path, {
       method: "POST",
       headers: saveHeaders(),
@@ -468,8 +489,21 @@ var App = (function () {
     }).then(function (r) { return r.json(); })
       .then(function (res) {
         saving = false;
-        if (res && res.ok) { dirty = false; firstDirtyAt = 0; setState("ok"); x3Took(req, res); x3Saved(res); return; }
-        /* البرنامج لم يقبل الفرق (نسخة نسيها، أو لم يفهمه): الملف كله الآن */
+        if (res && res.ok) {
+          x3Took(req, res);
+          if (savedMore(res, mark)) return saveNow();
+          dirty = false; firstDirtyAt = 0; setState("ok"); x3Saved(res); return;
+        }
+        /* البرنامج نسي ما رأته هذه النافذة: تذكّره به ثم تحفظ فرقاً عنه (لا مقارنةً بالقاعدة كلها) */
+        if (res && res.forgot) {
+          saving = true;
+          return teachBase().then(function (ok) {
+            saving = false;
+            if (!ok) { x3p.snap = null; x3p.rev = ""; }
+            return saveNow();
+          });
+        }
+        /* البرنامج لم يقبل الفرق (لم يفهمه): الملف كله الآن */
         if (res && res.full) { x3p.snap = null; x3p.rev = ""; return saveNow(); }
         /* الجهاز الثاني رفض حفظاً (مسح البيانات كلها مثلاً): ما في الشاشة يرجع لما في القاعدة */
         if (res && res.reload) {
@@ -495,6 +529,21 @@ var App = (function () {
       });
   }
 
+  /* عُدّل شيء والحفظ في الطريق (بيعة ثانية، «تأكيد استلام» تحويل، تسديد...): ما حُفظ ليس كل ما في
+     الشاشة. كانت «dirty» تُمسح مع ردّ الحفظ الأول، فإن قال الردّ «جهاز آخر غيّر شيئاً» أُعيد تحميل
+     ما في القاعدة فوق التعديل الذي لم يُكتب بعد وضاع (المحاكاة الكاملة: كمية تحويل مستلَم اختفت،
+     وبيعة سُجّلت والحفظ في الطريق لم تصل القاعدة). الآن يبقى «غير محفوظ» حتى يُكتب آخر تعديل،
+     ولا تحديث من القاعدة قبله. true: بقي ما يُحفظ (والمنادي يحفظه فوراً) */
+  function savedMore(res, mark) {
+    if (x3.edits === mark) return false;
+    if (res && res.rev) x3.rev = res.rev;
+    if (res && typeof res.gen === "number") x3.gen = res.gen;
+    if (res && res.reload) x3.stale = true;       // يُحدَّث بعد أن يُكتب الباقي
+    dirty = true;
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    return true;
+  }
+
   /* حفظ مؤكَّد قبل عملية تقرأ الملف من القرص (النقل لـ 4.0): ينتظر الحفظ الجاري،
      ثم يكتب الحالة كما هي الآن، ويرفض الوعد إن لم تُكتب. saveNow لا يكفي هنا:
      إن وجد حفظاً جارياً أجّل نفسه ورجع فوراً، ولا يرفض عند الفشل. */
@@ -507,11 +556,27 @@ var App = (function () {
       fixStores();
       saving = true;
       setState("saving");
-      var req = saveBody(true);
-      return apiWrite(req.path, { method: "POST", headers: saveHeaders(), body: req.body })
-        .then(function (res) { saving = false; dirty = false; firstDirtyAt = 0; setState("ok"); x3Took(req, res); x3Saved(res); },
-          function (e) { saving = false; setState("error"); throw e; });
+      return flushWrite();
     });
+  }
+  function flushWrite() {
+    var req = saveBody(true);
+    var mark = x3.edits;
+    return apiWrite(req.path, { method: "POST", headers: saveHeaders(), body: req.body })
+      .then(function (res) {
+        /* البرنامج نسي ما رأته هذه النافذة: تذكّره به ثم تحفظ (saveNow: forgot) */
+        if (res && res.forgot) {
+          return teachBase().then(function (ok) {
+            if (!ok) { x3p.snap = null; x3p.rev = ""; }
+            return flushWrite();
+          });
+        }
+        saving = false;
+        x3Took(req, res);
+        /* ما طُلب حفظه كُتب؛ وما عُدّل والحفظ في الطريق يُحفظ الآن، ولا يُمسح «غير محفوظ» قبله */
+        if (savedMore(res, mark)) { saveNow(); return; }
+        dirty = false; firstDirtyAt = 0; setState("ok"); x3Saved(res);
+      }, function (e) { saving = false; setState("error"); throw e; });
   }
 
   var disconnectedShown = false;
@@ -1287,6 +1352,8 @@ var App = (function () {
   function stockBadge(it) {
     if (it.uncounted) return '<span class="badge">لم يُجرد</span>';
     var st = stockState(it);
+    /* بالسالب: بيعت نسخ أكثر من المسجّل (آخر نسخة من جهازين في اللحظة نفسها) — يُعدّ الرف */
+    if (num(it.qty) < 0) return '<span class="badge bad" title="بيعت نسخ أكثر من المسجّل: عدّ الرف وصحّح الكمية">بالسالب: عدّ الرف</span>';
     if (st === "out") return '<span class="badge bad">نفدت</span>';
     if (st === "low") return '<span class="badge warn">قاربت على النفاد</span>';
     return '<span class="badge ok">متوفرة</span>';
@@ -2732,7 +2799,9 @@ var App = (function () {
   }
 
   function boot() {
-    load().then(function () {
+    /* دور الجهاز (جهاز المحل أو جهاز ثانٍ) يُعرف قبل أول رسم: ما يُثبَّت على كل الأصناف عند
+       الفتح (Stale.backfill) لا يكون من الجهاز الثاني */
+    load().then(function () { return deviceInfo(); }).then(function () {
       setTimeout(warmSearch, 1200);
       buildNav();
       if (typeof Staff !== "undefined") Staff.boot();
@@ -2749,9 +2818,7 @@ var App = (function () {
       });
 
       /* ملف تالف: لا نطلب الملكية ولا نكتب شيئاً */
-      var claimed = deviceInfo().then(function () {
-        return readOnly ? false : claim(false);
-      });
+      var claimed = readOnly ? Promise.resolve(false) : claim(false);
 
       claimed.then(function (ok) {
         if (!ok && !readOnly) {

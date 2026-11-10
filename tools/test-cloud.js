@@ -135,8 +135,9 @@ function ok(cond, name, detail) {
     ok(r.j.cmds.length === 1 && r.j.cmds[0].n === 2, 'وبعد آخر ما نفّذه فقط', r.j);
     r = await call('GET', 'hello', { branch: B, device: MAIN, role: 'main' });
     ok(r.j.cmdMax === r.j.cmdMax && r.j.cmdMax >= 2, 'التسليم يقول آخر رقم أمر', r.j.cmdMax);
-    r = await call('POST', 'cmd', { branch: B, device: SEC, n: 3 }, 'x'.repeat(200001));
-    ok(r.status === 413, 'أمر ضخم يُرفض', r.status);
+    ok(r.j.cmdChars === 900000, 'والحدّ الذي يقبله لأمر واحد (البرنامج يقسم ما فوق 150 ألفاً)', r.j.cmdChars);
+    r = await call('POST', 'cmd', { branch: B, device: SEC, n: 3 }, 'x'.repeat(900001));
+    ok(r.status === 413 && r.j && r.j.code === 'too-big', 'أمر أكبر من الحدّ يُرفض بـ413 (فيقسمه البرنامج)', r.status);
 
     console.log('\n== قوائم الفروع ==');
     await call('GET', 'hello', { branch: 'tripoli', device: OTHER, role: 'main', name: 'محل طرابلس' });

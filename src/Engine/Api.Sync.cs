@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using Qirtasiya.Data;
 
 namespace Qirtasiya.Engine
@@ -35,6 +36,49 @@ namespace Qirtasiya.Engine
             });
         }
 
+        /* حفظ كبير من الجهاز الثاني (تعديل آلاف الكتب دفعة) يُقسم أوامر لا يتجاوز الواحد CmdChunk حرفاً:
+           الخادم يرفض الأمر الكبير (كان 200 ألف)، والأمر المرفوض كان يوقف كل ما بعده للأبد.
+           السجل الواحد الأكبر من ذلك يبقى أمراً وحده (حدّه عند الخادم الجديد 900 ألف) */
+        public const int CmdSafe = 150000;
+        /* QIRTASIYA_CMD_CHUNK: للاختبار فقط (أمر ضخم كما كانت تصنعه نسخة قديمة، ليُجرَّب تقسيمه عند الرفض) */
+        public static readonly int CmdChunk = EnvChunk();
+        static int EnvChunk()
+        {
+            int v;
+            string e = Environment.GetEnvironmentVariable("QIRTASIYA_CMD_CHUNK");
+            return !string.IsNullOrEmpty(e) && int.TryParse(e, NumberStyles.Integer, CultureInfo.InvariantCulture, out v) && v > 1000 ? v : CmdSafe;
+        }
+
+        public static List<string> SplitOps(List<object> ops, int max)
+        {
+            List<string> parts = new List<string>();
+            StringBuilder sb = new StringBuilder("{\"ops\":[");
+            int count = 0;
+            foreach (object o in ops)
+            {
+                string js = Json.Write(o);
+                if (count > 0 && sb.Length + js.Length + 2 > max)
+                {
+                    sb.Append("]}"); parts.Add(sb.ToString());
+                    sb = new StringBuilder("{\"ops\":["); count = 0;
+                }
+                if (count++ > 0) sb.Append(',');
+                sb.Append(js);
+            }
+            if (count > 0) { sb.Append("]}"); parts.Add(sb.ToString()); }
+            return parts;
+        }
+
+        /* أمر x3.apply محفوظ: قطعه إن كان أكبر من max، وإلا null */
+        public static List<string> SplitBody(string cmd, string body, int max)
+        {
+            if (cmd != "x3.apply" || body == null || body.Length <= max) return null;
+            Dictionary<string, object> req = Json.Parse(body) as Dictionary<string, object>;
+            if (req == null) return null;
+            List<string> p = SplitOps(Json.Arr(req, "ops"), max);
+            return p.Count > 1 ? p : null;
+        }
+
         /* الجهاز الثاني: الأمر ينتظر جهاز المحل. البيعة تحمل وقتها هنا، لا وقت تنفيذها هناك */
         object Queue(Session s, string name, Dictionary<string, object> req)
         {
@@ -45,7 +89,17 @@ namespace Qirtasiya.Engine
                 req["date"] = ShopDb.Day(now);
             }
             string label = Label(name, req);
-            long n = db.OutboxAdd(s.UserId, name, Json.Write(req), label);
+            string body = Json.Write(req);
+            long n;
+            List<string> parts = name == "x3.apply" && body.Length > CmdChunk ? SplitOps(Json.Arr(req, "ops"), CmdChunk) : null;
+            if (parts != null && parts.Count > 1)
+            {
+                List<string> labels = new List<string>();
+                for (int i = 0; i < parts.Count; i++)
+                    labels.Add(label + " (" + (i + 1).ToString(CultureInfo.InvariantCulture) + "/" + parts.Count.ToString(CultureInfo.InvariantCulture) + ")");
+                n = db.OutboxAddMany(s.UserId, name, parts, labels);
+            }
+            else n = db.OutboxAdd(s.UserId, name, body, label);
             Action q = Queued;
             if (q != null) q();
             return O("queued", true, "n", n, "label", label);

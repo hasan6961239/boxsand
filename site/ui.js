@@ -566,7 +566,7 @@ var UI = (function () {
       (C.bioRec(C.staffInfo() ? w.id : "") ? "مفعّل على هذا الهاتف — اضغط لإيقافه" : "غير مفعّل — اضغط لتفعيله") + "</span></span></button>" +
       '<button class="li" data-a="refresh"><span class="lic">' + ic("refresh") + '</span><span class="m"><b>آخر تحديث</b><span>' + (S().at ? esc(C.ago(S().at)) : "لم يُحدَّث") + " · " + fmtN(C.info().n) + " صنف</span></span></button>" +
       item("settings", "gear", "الإعدادات", "اسم الهاتف، الربط، تجربة الطباعة") + "</div>" +
-      '<p class="note">' + esc(sh.name) + (sh.city ? " — فرع " + esc(sh.city) : "") + " · الإصدار 2.0" + (ANDROID && AndroidApp.version ? " (" + esc(AndroidApp.version()) + ")" : "") + "</p></div>";
+      '<p class="note">' + esc(sh.name) + (sh.city ? " — فرع " + esc(sh.city) : "") + " · الإصدار 2.1" + (ANDROID && AndroidApp.version ? " (" + esc(AndroidApp.version()) + ")" : "") + "</p></div>";
     return h;
   }
   function item(k, icon, t, sub) {
