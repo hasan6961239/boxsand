@@ -312,7 +312,14 @@ const check = (name, ok, got) => {
     await pg.evaluate(() => Sales.pick('credit')); await sleep(200);
     await pg.selectOption('#payCust', 'c1'); await pg.evaluate(() => Sales.confirmCredit());
     await sleep(80);                                      // يغلق النافذة فوراً بعد البيع
-    await pg.close({ runBeforeUnload: true }); await sleep(700);
+    await pg.close({ runBeforeUnload: true });
+    /* store.json نسخة يكتبها البرنامج بعد الحفظ بلحظة (حتى 3 ثوانٍ بالتصميم): ننتظر ظهورها بدل مهلة ثابتة.
+       على ويندوز في CI تأخرت مرة عن 700 م.ث والقاعدة فيها البيع (والتحقق بعد إعادة الفتح نجح) */
+    for (let i = 0; i < 80; i++) {
+      await sleep(50);
+      try { if (JSON.parse(fs.readFileSync(path.join(DATA, 'store.json'), 'utf8')).invoices.length >= 1) break; } catch (e) { }
+    }
+    await sleep(150);
     const disk = JSON.parse(fs.readFileSync(path.join(DATA, 'store.json'), 'utf8'));
     const it = disk.books.find(x => x.id === 'b1');
     check('البيع حُفظ على القرص رغم الإغلاق الفوري', disk.invoices.length === 1 && it.qty === 7, JSON.stringify({ n: disk.invoices.length, q: it.qty }));
