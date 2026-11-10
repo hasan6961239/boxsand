@@ -170,6 +170,11 @@ async function v2Init(db) {
   v2Ready = true;
 }
 
+/* أقصى حجم لأمر واحد من جهاز ثانٍ (بالحروف). صف D1 حتى 2 ميغابايت، والحرف العربي بايتان.
+   كان 200 ألف: حفظ كبير من جهاز ثانٍ (تعديل آلاف الكتب) كان يُرفض فيتوقف كل ما بعده.
+   البرنامج يقسم الحفظ الكبير أوامر صغيرة، وهذا الحدّ لسجل واحد كبير */
+const V2_CMD_MAX = 900000;
+
 function v2Text(text, headers) {
   return new Response(text, { headers: { "Content-Type": "text/plain; charset=utf-8", ...(headers || {}), ...CORS } });
 }
@@ -252,6 +257,7 @@ async function v2(request, env, op, q) {
       ok: true, now, main: main || null, chain: b.chain,
       snap: b.snap >= 0 && b.chain ? { id: b.snap, ver: b.snap_ver, parts: b.snap_parts, at: b.snap_at } : null,
       logTo: await v2LogTo(db, b), cmdMax: cmd && cmd.m !== null ? cmd.m : 0, catalogsAt: cat && cat.m !== null ? cat.m : 0,
+      cmdChars: V2_CMD_MAX,
     });
   }
 
@@ -318,7 +324,7 @@ async function v2(request, env, op, q) {
     const known = await db.prepare("SELECT 1 AS k FROM v2_device WHERE branch = ? AND device = ?").bind(branch, device).first();
     if (!known) return json({ ok: false, code: "unknown-device", error: "جهاز غير مسجّل" }, 409);
     const data = await v2Body(request);
-    if (data.length > 200000) throw Object.assign(new Error("الأمر أكبر من المسموح"), { status: 413 });
+    if (data.length > V2_CMD_MAX) return json({ ok: false, code: "too-big", error: "الأمر أكبر من المسموح" }, 413);
     await db.prepare("INSERT OR IGNORE INTO v2_cmd(branch, device, n, at, data) VALUES(?, ?, ?, ?, ?)").bind(branch, device, n, now, data).run();
     const r = await db.prepare("SELECT id FROM v2_cmd WHERE branch = ? AND device = ? AND n = ?").bind(branch, device, n).first();
     return json({ ok: true, id: r.id });
