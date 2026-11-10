@@ -1426,6 +1426,9 @@ namespace Qirtasiya
                 if (lap != null) lap.Append("، فحص ").Append(sw.ElapsedMilliseconds);
                 List<X3Op> delta = nowDoc != null && baseDoc != null ? ShopDb.X3Diff(baseDoc, nowDoc) : ShopDb.X3Diff(baseJson, now);
                 if (lap != null) lap.Append("، فرق ").Append(sw.ElapsedMilliseconds).Append(" (").Append(delta.Count).Append(" تغيير)");
+                /* رقم الجيل بعد ما كتبه هذا الحفظ وحده: أي زيادة بعده (جهاز ثانٍ طُبّق أثناء الحفظ) تعني
+                   أن القاعدة فيها ما لم تره الشاشة، فتعيد التحميل ولا يُذكر ما أرسلته بالرقم الجديد */
+                long gAfter = gen0;
                 if (d.Replica)
                 {
                     /* الجهاز الثاني لا يستبدل بيانات المحل كلها، ولا يمسحها */
@@ -1475,10 +1478,12 @@ namespace Qirtasiya
                     X3InSave = true;
                     try { r = d.X3Apply(delta, false, 1, ""); }
                     finally { X3InSave = false; }
-                    if (r.Merged || d.X3Gen != gen0 + (r.Changes > 0 ? 1 : 0)) reload = true;
+                    gAfter = d.X3Gen;
+                    if (r.Merged || gAfter != gen0 + (r.Changes > 0 ? 1 : 0)) reload = true;
                     if (X3Check && !reload)
                     {
                         List<X3Op> diff = ShopDb.X3Diff(d.X3Export(), now);
+                        if (d.X3Gen != gAfter) diff.Clear();        // جهاز ثانٍ طُبّق أثناء المقارنة: ليس خللاً
                         if (diff.Count > 0)
                         {
                             List<string> what = new List<string>();
@@ -1489,6 +1494,7 @@ namespace Qirtasiya
                 }
                 if (lap != null) lap.Append("، قاعدة ").Append(sw.ElapsedMilliseconds);
                 long gen1 = d.X3Gen;
+                if (gen1 != gAfter) reload = true;     // تغيّرت القاعدة بعد ما كتبه هذا الحفظ (جهاز ثانٍ)
                 /* بالفرق: store.json بعد الرد بلحظة (X3MirrorLater)، فلا تنتظر البيعة كتابة 47 ميغا */
                 if (patch) X3MirrorLater(!reload && !d.Replica ? now : null, gen1);
                 else if (!reload && !d.Replica) X3MirrorUi(d, body, gen1);
