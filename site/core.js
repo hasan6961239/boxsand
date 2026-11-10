@@ -190,17 +190,35 @@ var Core = (function () {
   function cur() { var m = mine(); return (m && m.dash && m.dash.cur) || "د.ل"; }
 
   /* لقطات الفروع: …/all (المخزن القديم KV) */
+  /* سبب آخر فشل في التحديث: BADKEY (كلمة السر) | NET (لا اتصال/عنوان خطأ) | TIMEOUT | HTTP nnn. تعرضه
+     شاشة الانتظار بدل أن تدور إلى الأبد بلا كلمة (الفشل الأول كان يبقيها «يحمّل بيانات الفرع…») */
+  var lastErr = "";
+  /* كلمة السر تُرسل في ترويسة HTTP: حرف غير إنجليزي فيها (عربي من لوحة المفاتيح، أو علامة «ذكية» يضعها الآيفون
+     مثل – بدل -) يجعل المتصفح يرفض الطلب كله برسالة تقنية، وكانت الشاشة تدور بلا سبب ظاهر */
+  function badKeyChars(k) { return /[^\x20-\x7E]/.test(String(k || "")); }
   function fetchAll() {
-    return fetch(base() + "/all", { headers: hdr(), cache: "no-store" }).then(function (r) {
+    if (badKeyChars(S.cfg.key)) return Promise.reject(new Error("BADCHARS"));
+    /* مهلة 30 ثانية: عنوان لا يردّ أو شبكة معلّقة لا تترك الشاشة تدور بلا نهاية */
+    var ctl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, 30000) : 0;
+    return fetch(base() + "/all", { headers: hdr(), cache: "no-store", signal: ctl ? ctl.signal : undefined }).then(function (r) {
       if (r.status === 401 || r.status === 403) throw new Error("BADKEY");
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     }).then(function (d) {
+      clearTimeout(timer);
       if (!d || !d.ok) throw new Error((d && d.error) || "رد غير مفهوم من خادم الربط");
       S.kvv = num(d.v);
       return d.branches || [];
+    }, function (e) {
+      clearTimeout(timer);
+      if (e && /^(BADKEY|BADCHARS|HTTP \d+)/.test(e.message || "")) throw e;
+      if (e && e.name === "AbortError") throw new Error("TIMEOUT");
+      if (e && e.message && !/Failed to fetch|NetworkError|Load failed|network/i.test(e.message)) throw e;
+      throw new Error("NET");
     });
   }
+
 
   /* قائمة فرع كبير: base64 لملف gzip مقسوماً قطعاً (ShopDb.Pack في المنظومة) */
   function unpack(b64) {
@@ -265,6 +283,7 @@ var Core = (function () {
         });
     }).then(function () {
       busy = false;
+      lastErr = "";
       var newly = takeAcks();
       refreshMe();
       save();
@@ -274,8 +293,9 @@ var Core = (function () {
       return true;
     }).catch(function (e) {
       busy = false;
+      lastErr = (e && e.message) || "NET";
       emit("busy", false);
-      emit("error", e && e.message === "BADKEY" ? "BADKEY" : "NET");
+      emit("error", e && (e.message === "BADKEY" || e.message === "BADCHARS") ? e.message : "NET");
       return false;
     });
   }
@@ -804,7 +824,7 @@ var Core = (function () {
     start: start, save: save, on: on, emit: emit,
     esc: esc, num: num, r3: r3, money: money, norm: norm, digits: digits, ago: ago, fmtN: fmtN,
     localToday: localToday, nowStamp: nowStamp, rand: rand,
-    configured: configured, parseLink: parseLink, setLink: setLink, unlink: unlink, refresh: refresh, isBusy: function () { return busy; },
+    configured: configured, parseLink: parseLink, setLink: setLink, unlink: unlink, refresh: refresh, isBusy: function () { return busy; }, lastError: function () { return lastErr; }, badKeyChars: badKeyChars,
     mine: mine, branches: branches, shop: shop, cur: cur, branchId: branchId,
     items: items, info: info, byKey: byKey, byCode: byCode, search: search, invalidate: invalidate,
     staffInfo: staffInfo, people: people, personOf: personOf, roleOf: roleOf, canP: canP, who: who,

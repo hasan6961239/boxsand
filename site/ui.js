@@ -157,6 +157,7 @@ var UI = (function () {
     }
     if (!l && f.l) { l = C.parseLink(f.l); if (!l) { setupMsg("الرابط غير صحيح: لازم فيه #u=… و&k=… — أو املأ الخانتين فوق."); return; } }
     if (!l) { setupMsg(!f.u ? "اكتب عنوان الربط أولاً (الخانة ١)." : "اكتب كلمة السر (الخانة ٢)."); return; }
+    if (C.badKeyChars(l.key)) { setupMsg("كلمة السر فيها حرف غير إنجليزي (عربي أو علامة ذكية مثل – بدل -). اكتبها بلوحة المفاتيح الإنجليزية."); return; }
     l.url = String(l.url).replace(/\/+$/, "");
     C.setLink(l);
     v.setup = "";
@@ -175,15 +176,24 @@ var UI = (function () {
     } catch (e) { }
   }
   /* فرع التطبيق لم يصل من خادم الربط بعد */
+  /* ما وصلت بعد بيانات الفرع: دوّارة فقط ما دام التحديث جارياً. إن فشل (كلمة سر خطأ، عنوان خطأ، لا إنترنت،
+     الخادم لا يردّ) يُقال السبب وفيه زر إعادة المحاولة وزر تعديل الربط — كانت الدوّارة تبقى للأبد بلا كلمة */
   function pWaiting() {
     var b = C.branchId(), nm = b === "tripoli" ? "طرابلس" : b === "misrata" ? "مصراتة" : b;
-    var busy = C.isBusy() || !S().at;
+    var err = C.lastError(), busy = C.isBusy() || (!S().at && !err);
+    var body;
+    if (busy) body = '<div class="empty"><span class="spin"></span><h3 class="mt">يحمّل بيانات الفرع…</h3><p>أول مرة فقط؛ بعدها يعمل بلا إنترنت.</p></div>';
+    else {
+      var again = '<button class="btn p" data-a="refresh">' + ic("refresh") + " إعادة المحاولة</button>" +
+        '<button class="btn o mt" data-a="unlink">فك الربط وإدخال العنوان وكلمة السر من جديد</button>';
+      var badChars = "كلمة السر فيها حرف غير إنجليزي — غالباً من لوحة المفاتيح العربية أو من علامة «ذكية» يضعها الآيفون (مثل – بدل -). افتح «فك الربط» واكتبها بلوحة المفاتيح الإنجليزية، أو انسخها من المنظومة كما هي.";
+      if (err === "BADCHARS") body = emptyBox("alert", "كلمة السر فيها حرف غير مقبول", badChars) + again;
+      else if (err === "BADKEY") body = emptyBox("alert", "كلمة سر الربط غير صحيحة", "الكلمة اللي أدخلتها ليست كلمة سر هذا الخادم. افتح «فك الربط» وأعد كتابتها كما في المنظومة (الإعدادات ← الأجهزة والفروع ← «المشاهدة من التلفون»).") + again;
+      else if (err) body = emptyBox("alert", "تعذّر الاتصال بخادم الربط", "تأكد من الإنترنت ومن عنوان الربط، ثم أعد المحاولة. السبب: " + esc(err === "NET" ? "لا اتصال أو العنوان خطأ" : err === "TIMEOUT" ? "الخادم لا يردّ" : err)) + again;
+      else body = emptyBox("alert", "فرع " + nm + " لم يصل بعد", "منظومة الفرع لم تُربط بخادم الربط، أو لم ترفع لقطتها بعد. في المنظومة: «المخزون والفروع» ← «تحديث الآن»، ثم حدّث هنا.") + again;
+    }
     return '<div class="login"><div class="brand">' + logo("logo") + "<h2>" + esc(C.shop().name) + "</h2></div>" +
-      '<div class="lcard">' + (busy
-        ? '<div class="empty"><span class="spin"></span><h3 class="mt">يحمّل بيانات الفرع…</h3><p>أول مرة فقط؛ بعدها يعمل بلا إنترنت.</p></div>'
-        : emptyBox("alert", "فرع " + nm + " لم يصل بعد", "منظومة الفرع لم تُربط بخادم الربط، أو لم ترفع لقطتها بعد. في المنظومة: «المخزون والفروع» ← «تحديث الآن»، ثم حدّث هنا.") +
-          '<button class="btn p" data-a="refresh">' + ic("refresh") + " تحديث</button>" +
-          '<button class="btn o mt" data-a="unlink">فك الربط وإدخال رابط آخر</button>') + "</div></div>";
+      '<div class="lcard">' + body + "</div></div>";
   }
 
   /* ---------- الدخول ---------- */
@@ -599,7 +609,7 @@ var UI = (function () {
       (C.bioRec(C.staffInfo() ? w.id : "") ? "مفعّل على هذا الهاتف — اضغط لإيقافه" : "غير مفعّل — اضغط لتفعيله") + "</span></span></button>" +
       '<button class="li" data-a="refresh"><span class="lic">' + ic("refresh") + '</span><span class="m"><b>آخر تحديث</b><span>' + (S().at ? esc(C.ago(S().at)) : "لم يُحدَّث") + " · " + fmtN(C.info().n) + " صنف</span></span></button>" +
       item("settings", "gear", "الإعدادات", "اسم الهاتف، الربط، تجربة الطباعة") + "</div>" +
-      '<p class="note">' + esc(sh.name) + (sh.city ? " — فرع " + esc(sh.city) : "") + " · الإصدار 2.2" + (ANDROID && AndroidApp.version ? " (" + esc(AndroidApp.version()) + ")" : "") + "</p></div>";
+      '<p class="note">' + esc(sh.name) + (sh.city ? " — فرع " + esc(sh.city) : "") + " · الإصدار 2.3" + (ANDROID && AndroidApp.version ? " (" + esc(AndroidApp.version()) + ")" : "") + "</p></div>";
     return h;
   }
   function item(k, icon, t, sub) {
@@ -855,7 +865,11 @@ var UI = (function () {
       var a = document.activeElement;
       if (!(a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) && el("sheet").hidden) render();
     }
-    else if (type === "error" && arg === "BADKEY") toast("كلمة سر الربط غير صحيحة — راجع الربط.", "bad");
+    else if (type === "error") {
+      if (arg === "BADKEY" || arg === "BADCHARS") toast("كلمة سر الربط غير صحيحة — راجع الربط.", "bad");
+      /* لا فرع بعد: الشاشة تعرض السبب بدل الدوّارة */
+      if (C.configured() && !C.mine()) render();
+    }
     else if (type === "relock") { toast(arg, "warn"); render(); }
     else if (type === "oldphone") toast("حدّث نظام الهاتف لتصل قائمة كتب الفرع كاملة.", "warn");
   });

@@ -117,7 +117,7 @@ function site(cfg) {
     const page = async (s, ctx) => {
       const p = await ctx.newPage();
       p.on('pageerror', e => errs.push(e.message));
-      p.on('console', m => { if (m.type() === 'error' && !/favicon|ERR_|net::/.test(m.text())) errs.push('console: ' + m.text()); });
+      p.on('console', m => { if (m.type() === 'error' && !/favicon|ERR_|net::|status of 401/.test(m.text())) errs.push('console: ' + m.text()); });
       return p;
     };
     const shot = async (p, n) => { if (!SHOTS) return; await sleep(450); await p.evaluate(() => { document.getElementById('toasts').innerHTML = ''; }); await p.screenshot({ path: path.join(SHOTS, n + '.png') }); };
@@ -249,8 +249,11 @@ function site(cfg) {
       ok(/اكتب كلمة السر/.test(await z.textContent('#stErr')), 'العنوان بلا كلمة سر: «اكتب كلمة السر»');
       await z.fill('#stKey', 'كلمة-غلط');
       await z.click('[data-a="link"]');
+      ok(/حرف غير إنجليزي/.test(await z.textContent('#stErr')), 'كلمة سر بحروف عربية: يقول «فيها حرف غير إنجليزي» قبل أي اتصال');
+      await z.fill('#stKey', 'wrong-key');
+      await z.click('[data-a="link"]');
       await z.waitForFunction(() => /تعذّر الاتصال/.test((document.getElementById('stErr') || {}).textContent || ''), null, { timeout: 30000 });
-      ok(await z.inputValue('#stUrl') === cloud.url && await z.inputValue('#stKey') === 'كلمة-غلط', 'كلمة السر الخطأ: يقول «تعذّر الاتصال» وما كتبتَه يبقى في الخانتين لتصحّحه');
+      ok(await z.inputValue('#stUrl') === cloud.url && await z.inputValue('#stKey') === 'wrong-key', 'كلمة السر الخطأ: يقول «تعذّر الاتصال» وما كتبتَه يبقى في الخانتين لتصحّحه');
       await z.fill('#stKey', KEY);
       await z.click('[data-a="link"]');
       await z.waitForSelector('#pw2', { timeout: 30000 });
@@ -269,6 +272,37 @@ function site(cfg) {
       await y.waitForSelector('#pw2', { timeout: 30000 });
       ok(await y.evaluate(() => Core.branchId()) === 'misrata', 'والربط به يعمل ومعه فرع الرابط');
       await cy.close();
+    }
+
+    console.log('\n== فتح من رابط جاهز وفيه خطأ: الشاشة تقول السبب ولا تدور للأبد ==');
+    {
+      const open = async (hash, expect, name) => {
+        const cx = await browser.newContext({ ...devices['iPhone 13'] });
+        const z = await page(sM, cx);
+        await z.goto(sM.url + hash);
+        const hit = await z.waitForFunction(re => new RegExp(re).test(document.body.innerText), expect, { timeout: 20000 }).then(() => true, () => false);
+        ok(hit, name, hit ? '' : (await z.evaluate(() => document.body.innerText)).slice(0, 200));
+        if (hit) {
+          ok(!(await z.$('.spin')) && !!(await z.$('[data-a="refresh"]')) && !!(await z.$('[data-a="unlink"]')), '   وفيها «إعادة المحاولة» و«فك الربط» (لا دوّارة)');
+        }
+        await shot(z, 't0c-' + (expect.indexOf('كلمة') >= 0 ? 'badkey' : expect.indexOf('الاتصال') >= 0 ? 'net' : 'nobranch'));
+        await cx.close();
+      };
+      await open('#u=' + encodeURIComponent(cloud.url) + '&k=' + encodeURIComponent('wrong-key') + '&b=misrata', 'كلمة سر الربط غير صحيحة', 'كلمة سر خطأ (إنجليزية) في الرابط الجاهز: تُعرض «كلمة سر الربط غير صحيحة»');
+      await open('#u=' + encodeURIComponent(cloud.url) + '&k=' + encodeURIComponent('كلمة-غلط') + '&b=misrata', 'فيها حرف غير مقبول', 'كلمة سر فيها حروف عربية: تُعرض «فيها حرف غير مقبول» بدل دوّارة أو رسالة تقنية');
+      await open('#u=' + encodeURIComponent(cloud.url) + '&k=' + encodeURIComponent('abc–def') + '&b=misrata', 'فيها حرف غير مقبول', 'وكذلك علامة الآيفون الذكية (– بدل -)');
+      await open('#u=' + encodeURIComponent('http://127.0.0.1:1') + '&k=' + KEY + '&b=misrata', 'تعذّر الاتصال بخادم الربط', 'عنوان لا يردّ: تُعرض «تعذّر الاتصال بخادم الربط» مع السبب');
+      /* تطبيق فرعه ghost (مثبّت في إعداد الموقع) على خادم ليس فيه هذا الفرع */
+      const sG = await site({ url: '', key: '', branch: 'ghost', theme: 'green', name: 'دار الحكمة', city: '' });
+      {
+        const cx = await browser.newContext({ ...devices['iPhone 13'] });
+        const z = await page(sG, cx);
+        await z.goto(sG.url + link);
+        const hit = await z.waitForFunction(() => /لم يصل بعد/.test(document.body.innerText), null, { timeout: 20000 }).then(() => true, () => false);
+        ok(hit && !(await z.$('.spin')) && !!(await z.$('[data-a="refresh"]')), 'خادم سليم لكن فرع التطبيق غير مرفوع فيه: «فرع ghost لم يصل بعد» مع زر «إعادة المحاولة» لا دوّارة');
+        await cx.close();
+      }
+      sG.srv.close();
     }
 
     console.log('\n== تطبيق مصراتة (أخضر، بلا موظفين) ==');
