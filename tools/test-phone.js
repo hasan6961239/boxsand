@@ -230,6 +230,47 @@ function site(cfg) {
     ok(await p.evaluate(() => Core.info().n) === items.length, 'بلا إنترنت: الكتب كلها من الهاتف نفسه');
     await ctx.close();
 
+    console.log('\n== شاشة الربط: خانتان ظاهرتان (عنوان وكلمة سر منفصلتان) ==');
+    {
+      const cx = await browser.newContext({ ...devices['iPhone 13'] });
+      const z = await page(sM, cx);
+      await z.goto(sM.url);
+      await z.waitForSelector('#stUrl');
+      const vis = await z.evaluate(() => ['stUrl', 'stKey', 'stLink'].map(i => { const e = document.getElementById(i); const r = e.getBoundingClientRect(); return r.width > 100 && r.height > 20 && !e.closest('details'); }));
+      ok(vis.every(Boolean), 'خانة العنوان وخانة كلمة السر وخانة الرابط الجاهز كلها ظاهرة (لا شيء مطوي)', vis);
+      ok(await z.getAttribute('#stKey', 'type') === 'password', 'كلمة السر مخفية');
+      await z.click('[data-a="eye"]');
+      ok(await z.getAttribute('#stKey', 'type') === 'text' && /إخفاء/.test(await z.textContent('[data-a="eye"]')), 'زر «إظهار» يكشفها ثم يصير «إخفاء»');
+      await z.click('[data-a="eye"]');
+      await z.click('[data-a="link"]');
+      ok(/اكتب عنوان الربط/.test(await z.textContent('#stErr')), 'اضغط «اربط» بلا شيء: «اكتب عنوان الربط أولاً»');
+      await z.fill('#stUrl', cloud.url);
+      await z.click('[data-a="link"]');
+      ok(/اكتب كلمة السر/.test(await z.textContent('#stErr')), 'العنوان بلا كلمة سر: «اكتب كلمة السر»');
+      await z.fill('#stKey', 'كلمة-غلط');
+      await z.click('[data-a="link"]');
+      await z.waitForFunction(() => /تعذّر الاتصال/.test((document.getElementById('stErr') || {}).textContent || ''), null, { timeout: 30000 });
+      ok(await z.inputValue('#stUrl') === cloud.url && await z.inputValue('#stKey') === 'كلمة-غلط', 'كلمة السر الخطأ: يقول «تعذّر الاتصال» وما كتبتَه يبقى في الخانتين لتصحّحه');
+      await z.fill('#stKey', KEY);
+      await z.click('[data-a="link"]');
+      await z.waitForSelector('#pw2', { timeout: 30000 });
+      ok(true, 'وبكلمة السر الصحيحة (مكتوبة يدوياً في خانتها) يرتبط ويطلب رمز الهاتف');
+      await cx.close();
+      /* رابط جاهز يُلصق: يملأ الخانتين ويحفظ فرعه */
+      const cy = await browser.newContext({ ...devices['iPhone 13'] });
+      const y = await page(sM, cy);
+      await y.goto(sM.url);
+      await y.waitForSelector('#stLink');
+      await y.fill('#stLink', sM.url + link + '&b=misrata');
+      ok(await y.inputValue('#stUrl') === cloud.url && await y.inputValue('#stKey') === KEY, 'لصق الرابط الجاهز يملأ خانتي العنوان وكلمة السر وحده');
+      ok(/ملأتُ الخانتين/.test(await y.textContent('#stErr')), 'ويقول «ملأتُ الخانتين»');
+      await shot(y, 't0b-setup-filled');
+      await y.click('[data-a="link"]');
+      await y.waitForSelector('#pw2', { timeout: 30000 });
+      ok(await y.evaluate(() => Core.branchId()) === 'misrata', 'والربط به يعمل ومعه فرع الرابط');
+      await cy.close();
+    }
+
     console.log('\n== تطبيق مصراتة (أخضر، بلا موظفين) ==');
     const ctx2 = await browser.newContext({ ...devices['iPhone 13'] });
     const q = await page(sM, ctx2);

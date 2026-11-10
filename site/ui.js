@@ -76,7 +76,7 @@ var UI = (function () {
   /* ---------- الرسم ---------- */
   function render() {
     var app = el("app");
-    if (!C.configured()) { app.innerHTML = pSetup(); return; }
+    if (!C.configured()) { app.innerHTML = pSetup(); afterSetup(); return; }
     var m = C.mine();
     if (!m) { app.innerHTML = pWaiting(); return; }
     if (C.locked()) { app.innerHTML = pLock(); afterLock(); return; }
@@ -104,33 +104,66 @@ var UI = (function () {
     render();
   }
 
-  /* ---------- الربط (أول مرة) ---------- */
+  /* ---------- الربط (أول مرة) ----------
+     خانتان ظاهرتان دائماً: عنوان الربط وكلمة السر منفصلتين (كانتا داخل «تفاصيل» مطويّة لا يُعرف أنها تُفتح،
+     فكان المستخدم يركّب الرابط يدوياً ويدوخ). والرابط الجاهز اختياري: إن لُصق ملأ الخانتين وحده.
+     والخطأ لا يمسح ما كُتب: الخانات تبقى كما هي */
   function pSetup() {
-    var sh = C.shop();
+    var sh = C.shop(), f = v.sf || {};
     return '<div class="login"><div class="brand">' + logo("logo") +
       "<h2>" + esc(sh.name) + "</h2>" + (sh.city ? '<div class="br">فرع ' + esc(sh.city) + "</div>" : "") + "</div>" +
       '<div class="lcard"><div class="t">' + ic("link") + " اربط التطبيق بمنظومة المكتبة</div>" +
-      '<p class="hint">في المنظومة على كمبيوتر المحل: الإعدادات ← الأجهزة والفروع ← «المشاهدة من التلفون». انسخ رابط الربط والصقه هنا، أو اكتب عنوان الربط وكلمة سره.</p>' +
-      '<label class="fld mt"><span>رابط الربط</span><input class="inp ltr" id="stLink" placeholder="https://…#u=…&amp;k=…" autocomplete="off"></label>' +
-      '<details class="mt"><summary class="hint">أو اكتب العنوان وكلمة السر</summary>' +
-      '<label class="fld mt"><span>عنوان خادم الربط</span><input class="inp ltr" id="stUrl" placeholder="https://….workers.dev" autocomplete="off"></label>' +
-      '<label class="fld"><span>كلمة سر الربط</span><input class="inp ltr" id="stKey" type="password" autocomplete="off"></label></details>' +
+      '<p class="hint">في المنظومة على كمبيوتر المحل: الإعدادات ← الأجهزة والفروع ← «المشاهدة من التلفون». منها تأخذ العنوان وكلمة السر.</p>' +
+      '<label class="fld mt"><span>١) عنوان الربط</span><input class="inp ltr" id="stUrl" inputmode="url" placeholder="https://….workers.dev" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(f.u || "") + '"></label>' +
+      '<label class="fld"><span>٢) كلمة السر</span><div class="pwrow"><input class="inp ltr" id="stKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(f.k || "") + '">' +
+      '<button type="button" class="eye" data-a="eye">إظهار</button></div></label>' +
+      '<label class="fld"><span>أو الصق الرابط الجاهز كاملاً (يملأ الخانتين وحده)</span><input class="inp ltr" id="stLink" placeholder="https://…#u=…&amp;k=…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(f.l || "") + '"></label>' +
       '<div class="err" id="stErr">' + esc(v.setup) + "</div>" +
       '<button class="btn p" data-a="link">' + ic("check") + " اربط</button></div>" +
       '<p class="lfoot">التطبيق لا يغيّر شيئاً في المنظومة إلا ما تبيعه وتعدّله أنت، وكل شيء يمرّ عليها أولاً.</p></div>';
   }
-  function doLink() {
-    var t = (el("stLink") || {}).value || "", l = C.parseLink(t);
-    if (!l) {
-      var u = ((el("stUrl") || {}).value || "").trim(), k = ((el("stKey") || {}).value || "").trim();
-      if (u && k) l = { url: /^https?:\/\//i.test(u) ? u : "https://" + u, key: k };
+  function afterSetup() {
+    var lk = el("stLink"), u = el("stUrl"), k = el("stKey");
+    /* رابط جاهز (لصق أو كتابة): الخانتان تُملآن منه */
+    function fill() {
+      var l = C.parseLink(lk.value);
+      if (!l) return;
+      u.value = l.url; k.value = l.key;
+      setupMsg("ملأتُ الخانتين من الرابط ✓ اضغط «اربط».", true);
     }
-    if (!l) { v.setup = "الصق رابط الربط كاملاً، أو اكتب العنوان وكلمة السر."; render(); return; }
+    if (lk) { lk.addEventListener("input", fill); lk.addEventListener("change", fill); }
+    /* الرابط كله لُصق في خانة العنوان: يُفهم أيضاً */
+    if (u) u.addEventListener("input", function () {
+      if (/#/.test(u.value) && /\bu=/.test(u.value)) { var l = C.parseLink(u.value); if (l) { u.value = l.url; k.value = l.key; setupMsg("ملأتُ الخانتين من الرابط ✓ اضغط «اربط».", true); } }
+    });
+    if (k) k.addEventListener("keydown", function (e) { if (e.key === "Enter") doLink(); });
+  }
+  function setupMsg(msg, good) {
+    var e = el("stErr");
+    if (!e) return;
+    e.textContent = msg;
+    e.classList.toggle("good", !!good);
+  }
+  function doLink() {
+    var f = { l: ((el("stLink") || {}).value || "").trim(), u: ((el("stUrl") || {}).value || "").trim(), k: ((el("stKey") || {}).value || "").trim() };
+    v.sf = f;
+    var l = null;
+    if (/#/.test(f.u) && /\bu=/.test(f.u)) l = C.parseLink(f.u);
+    if (!l && f.u && f.k) {
+      l = { url: /^https?:\/\//i.test(f.u) ? f.u : "https://" + f.u, key: f.k };
+      /* الخانتان مملوءتان من رابط جاهز: فرعه (&b=) يبقى معهما */
+      var pl = f.l ? C.parseLink(f.l) : null;
+      if (pl && pl.url === f.u && pl.key === f.k) l.branch = pl.branch;
+    }
+    if (!l && f.l) { l = C.parseLink(f.l); if (!l) { setupMsg("الرابط غير صحيح: لازم فيه #u=… و&k=… — أو املأ الخانتين فوق."); return; } }
+    if (!l) { setupMsg(!f.u ? "اكتب عنوان الربط أولاً (الخانة ١)." : "اكتب كلمة السر (الخانة ٢)."); return; }
+    l.url = String(l.url).replace(/\/+$/, "");
     C.setLink(l);
     v.setup = "";
     el("app").innerHTML = '<div class="boot"><div><span class="spin"></span><p class="note">يتصل بالمنظومة…</p></div></div>';
     C.refresh().then(function (ok) {
-      if (!ok) { v.setup = "تعذّر الاتصال: تأكد من الإنترنت ومن رابط الربط."; C.unlink(); }
+      if (!ok) { v.setup = "تعذّر الاتصال: تأكد من الإنترنت ومن العنوان وكلمة السر (ما كتبتَه بقي في الخانات لتصحّحه)."; C.unlink(); }
+      else v.sf = null;
       tellAndroid();
       render();
     });
@@ -566,7 +599,7 @@ var UI = (function () {
       (C.bioRec(C.staffInfo() ? w.id : "") ? "مفعّل على هذا الهاتف — اضغط لإيقافه" : "غير مفعّل — اضغط لتفعيله") + "</span></span></button>" +
       '<button class="li" data-a="refresh"><span class="lic">' + ic("refresh") + '</span><span class="m"><b>آخر تحديث</b><span>' + (S().at ? esc(C.ago(S().at)) : "لم يُحدَّث") + " · " + fmtN(C.info().n) + " صنف</span></span></button>" +
       item("settings", "gear", "الإعدادات", "اسم الهاتف، الربط، تجربة الطباعة") + "</div>" +
-      '<p class="note">' + esc(sh.name) + (sh.city ? " — فرع " + esc(sh.city) : "") + " · الإصدار 2.1" + (ANDROID && AndroidApp.version ? " (" + esc(AndroidApp.version()) + ")" : "") + "</p></div>";
+      '<p class="note">' + esc(sh.name) + (sh.city ? " — فرع " + esc(sh.city) : "") + " · الإصدار 2.2" + (ANDROID && AndroidApp.version ? " (" + esc(AndroidApp.version()) + ")" : "") + "</p></div>";
     return h;
   }
   function item(k, icon, t, sub) {
@@ -715,6 +748,7 @@ var UI = (function () {
       case "fab": if (C.canP("sell")) { go("sell"); setTimeout(scan, 250); } else scan(); break;
       case "scan": scan(); break;
       case "link": doLink(); break;
+      case "eye": { var kk = el("stKey"); if (kk) { var show = kk.type === "password"; kk.type = show ? "text" : "password"; t.textContent = show ? "إخفاء" : "إظهار"; } break; }
       case "unlink":
         sheet("<h2>فك ربط هذا الهاتف؟</h2><p class=\"by\">تُحذف بيانات الفرع من الهاتف، ويُطلب رابط الربط من جديد. ما بعته ولم يصل المنظومة يبقى ويُرسل بعد الربط.</p>" +
           '<button class="btn d" data-a="unlinkYes">فك الربط</button><button class="btn o mt" data-a="close">إلغاء</button>');

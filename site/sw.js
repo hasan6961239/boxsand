@@ -7,7 +7,7 @@
        انقطعت أو تأخّرت أكثر من 3 ثوانٍ فالنسخة المحفوظة.
      • قارئ الباركود (vendor/): رقم نسخته في اسمه، فيُحفظ مرة واحدة.
    ============================================================ */
-var CACHE = "maktaba-app-3";
+var CACHE = "maktaba-app-4";
 var CORE = [
   "./", "app.css", "core.js", "ui.js", "scan.js", "config.js", "manifest.json",
   "icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable.png",

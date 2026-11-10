@@ -360,3 +360,9 @@ body.scanning{overflow:hidden}
 @media (prefers-reduced-motion:reduce){.sc-line{animation:none}.scanner{animation:none}}
 @keyframes fade{from{opacity:0}}
 @keyframes scanLine{from{top:14%}to{top:86%}}
+
+/* شاشة الربط: كلمة السر بجانب زر الإظهار، ورسالة النجاح خضراء */
+.pwrow { display: flex; gap: 8px; align-items: stretch; }
+.pwrow .inp { flex: 1; min-width: 0; }
+.eye { flex: 0 0 auto; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink2); font-family: var(--body); font-size: 13px; font-weight: 600; cursor: pointer; }
+.err.good { color: var(--ok); }
