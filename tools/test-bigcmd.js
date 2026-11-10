@@ -14,6 +14,18 @@
      node tools/test-bigcmd.js
    ============================================================ */
 'use strict';
+
+/* جهاز ثانٍ يُربط بعد أن يرفع جهاز المحل نسخته الأولى (ثوانٍ بعد ربطه): قبلها يقول البرنامج «انتظر
+   دقيقة» (no-snap) كما يقوله للمستخدم. على جهاز سريع (CI) كان الربط يسبقها */
+async function linkSecond(d, body) {
+  let r = null;
+  for (let i = 0; i < 60; i++) {
+    r = await d.link(body);
+    if (!(r && r.code === 'no-snap')) return r;
+    await new Promise(z => setTimeout(z, 500));
+  }
+  return r;
+}
 process.env.QIRTASIYA_SYNC_MS = '1500';
 const fs = require('fs'), path = require('path'), os = require('os');
 const E = require('./engine');
@@ -76,7 +88,7 @@ function ok(c, name, d) {
     let r = await A.link({ action: 'main', url: cloud.url, key: KEY, name: 'المحل' });
     ok(r && r.ok, 'جهاز المحل رُبط (' + s.books.length + ' كتاباً و' + s.invoices.length + ' فاتورة)', r);
     await B.start();
-    r = await B.link({ action: 'second', url: cloud.url, key: KEY, branch: 'misrata', name: 'اللابتوب', replace: true });
+    r = await linkSecond(B, { action: 'second', url: cloud.url, key: KEY, branch: 'misrata', name: 'اللابتوب', replace: true });
     ok(r && r.ok && r.data.role === 'second', 'الجهاز الثاني أخذ نسخته', r);
     const same = async f => { const a = (await A.load()).s, b = (await B.load()).s; return f(a) && f(b); };
 

@@ -20,6 +20,18 @@
      node tools/simulate.js          BOOKS=61000 ROUNDS=26 SEED=7 QI_SHOTS=مجلد
    ============================================================ */
 'use strict';
+
+/* جهاز ثانٍ يُربط بعد أن يرفع جهاز المحل نسخته الأولى (ثوانٍ بعد ربطه): قبلها يقول البرنامج «انتظر
+   دقيقة» (no-snap) كما يقوله للمستخدم. على جهاز سريع (CI) كان الربط يسبقها */
+async function linkSecond(d, body) {
+  let r = null;
+  for (let i = 0; i < 60; i++) {
+    r = await d.link(body);
+    if (!(r && r.code === 'no-snap')) return r;
+    await new Promise(z => setTimeout(z, 500));
+  }
+  return r;
+}
 process.env.QIRTASIYA_SYNC_MS = '3000';
 process.env.QIRTASIYA_SYNC_FAST_MS = '1000';
 const fs = require('fs'), path = require('path'), os = require('os'), http = require('http');
@@ -274,10 +286,10 @@ function site(cfg) {
     ok(r && r.ok && r.data.role === 'main', 'مصراتة: جهاز المحل رُبط', r);
     t = Date.now();
     await TS.start();
-    r = await TS.link({ action: 'second', url: cloud.url, key: KEY, branch: 'tripoli', name: 'الدور الأول', replace: true });
+    r = await linkSecond(TS, { action: 'second', url: cloud.url, key: KEY, branch: 'tripoli', name: 'الدور الأول', replace: true });
     ok(r && r.ok && r.data.role === 'second', 'طرابلس: الجهاز الثاني أخذ نسخته (' + ((Date.now() - t) / 1000).toFixed(1) + ' ث)', r);
     await MS.start();
-    r = await MS.link({ action: 'second', url: cloud.url, key: KEY, branch: 'misrata', name: 'لابتوب حسن', replace: true });
+    r = await linkSecond(MS, { action: 'second', url: cloud.url, key: KEY, branch: 'misrata', name: 'لابتوب حسن', replace: true });
     ok(r && r.ok && r.data.role === 'second', 'مصراتة: اللابتوب أخذ نسخته', r);
     t = Date.now();
     await Promise.all([TM.open(), MM.open()]);
