@@ -57,6 +57,33 @@ const CORS = {
 
 /* فهرس ملفات KV (رموز الفروع والهواتف). أول مرة بلا فهرس: يُبنى من list مرة واحدة */
 const KV_INDEX = "index:branches";
+/* فوق هذا الحجم (بايتاً) لقطة الفرع تُحفظ بلا تحويل ولا تحليل (حدّ وقت الحساب): انظر /put */
+const BIG_PUT = 65536;
+const UTF8_ENC = new TextEncoder(), UTF8_DEC = new TextDecoder();
+
+/* أين كائن JSON الكامل في البايتات: [البداية، النهاية بعد آخر «}»]، أو null إن لم يكن كاملاً (مقطوعاً، أو
+   بعده شيء). الأقواس والعلامات حروف إنجليزية، وبايتات الحرف العربي في UTF-8 لا تكون منها أبداً، فيُعدّ على
+   البايتات بلا تحويل لنص. يكفي ليُرفض المقطوع؛ الصحة الكاملة من كاتبه (المنظومة: JSON.stringify) */
+function jsonSpan(b) {
+  let n = b.length, i = 0;
+  while (n > 0 && (b[n - 1] === 32 || b[n - 1] === 10 || b[n - 1] === 13 || b[n - 1] === 9)) n--;
+  if (b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) i = 3;
+  while (i < n && (b[i] === 32 || b[i] === 10 || b[i] === 13 || b[i] === 9)) i++;
+  if (b[i] !== 123 || b[n - 1] !== 125) return null;
+  const start = i;
+  let depth = 0, inStr = false;
+  for (; i < n; i++) {
+    const c = b[i];
+    if (inStr) { if (c === 92) i++; else if (c === 34) inStr = false; continue; }
+    if (c === 34) inStr = true;
+    else if (c === 123 || c === 91) depth++;
+    else if (c === 125 || c === 93) {
+      if (--depth < 0) return null;
+      if (depth === 0 && i !== n - 1) return null;
+    }
+  }
+  return depth === 0 && !inStr ? [start, n] : null;
+}
 async function kvIndex(env) {
   const raw = await env.SHOP.get(KV_INDEX);
   if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a)) return a; } catch { } }
@@ -406,19 +433,36 @@ export default {
 
     // رفع لقطة فرع واحد
     if (path.endsWith("/put") && request.method === "POST") {
-      /* يُحلَّل للتحقق ورمز الفرع فقط، ويُحفظ النص كما وصل (ومعه serverAt في آخره). كان يُحلَّل ثم
-         يُكتب من جديد كله: لقطة مصراتة (نصف ميغا) تجاوزت حدّ وقت الحساب في الخطة المجانية
-         (10 ميلي ثانية) فردّ Cloudflare بالرمز 503 */
-      const raw = await request.text();
-      let snap;
-      try { snap = JSON.parse(raw); }
-      catch { return json({ ok: false, error: "محتوى غير صالح" }, 400); }
-
-      const id = snap && typeof snap === "object" && !Array.isArray(snap) && snap.branch && String(snap.branch.id || "").trim();
+      /* وقت الحساب في الخطة المجانية 10 ميلي ثانية. لقطة المحل (مصراتة) نصف ميغا وأكثر، وكان يُصرف عليها:
+         تحويل البايتات لنص (عربي: 3.5 ms) ثم التحليل (2.6) ثم إعادة الكتابة (3.2) ثم بايتات من جديد — فوق
+         الحدّ فيردّ Cloudflare بالرمز 503. الآن اللقطة الكبيرة تبقى بايتات: يُفحص أنها كائن JSON كامل
+         (الأقواس متوازنة خارج النصوص، على البايتات مباشرة: 1.5 ms)، ورمز الفرع من أولها (المنظومة تكتبه
+         أول شيء)، وتُحفظ كما وصلت ومعها serverAt. الصغيرة (الهواتف) تُحلَّل كاملة كما كانت */
+      const buf = new Uint8Array(await request.arrayBuffer());
+      let id = "", body = null;
+      if (buf.length > BIG_PUT) {
+        const span = jsonSpan(buf);
+        const m = span && /^\{\s*"branch"\s*:\s*\{\s*"id"\s*:\s*"([^"\\]{1,40})"/.exec(UTF8_DEC.decode(buf.subarray(span[0], Math.min(span[1], span[0] + 512))));
+        if (m) {
+          id = m[1].trim();
+          const tail = UTF8_ENC.encode(',"serverAt":' + JSON.stringify(new Date().toISOString()) + "}");
+          body = new Uint8Array(span[1] - span[0] - 1 + tail.length);
+          body.set(buf.subarray(span[0], span[1] - 1), 0);
+          body.set(tail, span[1] - span[0] - 1);
+          body = body.buffer;
+        }
+      }
+      if (body === null) {
+        const raw = UTF8_DEC.decode(buf).trim();
+        let snap;
+        try { snap = JSON.parse(raw); }
+        catch { return json({ ok: false, error: "محتوى غير صالح" }, 400); }
+        id = snap && typeof snap === "object" && !Array.isArray(snap) && snap.branch ? String(snap.branch.id || "").trim() : "";
+        body = raw.slice(0, -1) + ',"serverAt":' + JSON.stringify(new Date().toISOString()) + "}";
+      }
       if (!id || !/^[a-z0-9._-]{1,40}$/i.test(id)) {
         return json({ ok: false, error: "رمز فرع غير صالح" }, 400);
       }
-      const body = raw.replace(/\}\s*$/, ',"serverAt":' + JSON.stringify(new Date().toISOString()) + "}");
       await env.SHOP.put("branch:" + id.toLowerCase(), body, {
         expirationTtl: 60 * 60 * 24 * 120,   // يُنظَّف تلقائياً بعد 120 يوماً بلا تحديث
       });
@@ -436,16 +480,24 @@ export default {
     /* v: 3 = بالفهرس (المنظومة والتطبيق يحدّثان كل دقيقة بلا خوف من حدّ list).
        الملفات كما كُتبت (JSON صالح من /put) بلا تحليل: أقل وقت حساب */
     if (path.endsWith("/all") && request.method === "GET") {
+      /* بايتات كما هي: تحويل كل لقطة لنص ثم الردّ بايتات من جديد كان يأخذ وحده قرابة حدّ وقت الحساب */
       const ids = await kvIndex(env);
-      const raws = [], live = [];
+      const parts = [], live = [];
+      let size = 0;
       for (const id of ids) {
-        const raw = await env.SHOP.get("branch:" + id);
-        if (!raw) continue;                       // انتهى عمره (120 يوماً بلا تحديث)
-        raws.push(raw); live.push(id);
+        const v = await env.SHOP.get("branch:" + id, { type: "arrayBuffer" });
+        if (!v || !v.byteLength) continue;        // انتهى عمره (120 يوماً بلا تحديث)
+        const u = new Uint8Array(v);
+        parts.push(u); live.push(id); size += u.length;
       }
       if (live.length !== ids.length) await env.SHOP.put(KV_INDEX, JSON.stringify(live));
-      return new Response('{"ok":true,"v":3,"branches":[' + raws.join(",") + "]}",
-        { headers: { "Content-Type": "application/json; charset=utf-8", ...CORS } });
+      const pre = UTF8_ENC.encode('{"ok":true,"v":3,"branches":['), post = UTF8_ENC.encode("]}");
+      const out = new Uint8Array(pre.length + size + Math.max(parts.length - 1, 0) + post.length);
+      let o = 0;
+      out.set(pre, o); o += pre.length;
+      parts.forEach((u, k) => { if (k) out[o++] = 44; out.set(u, o); o += u.length; });
+      out.set(post, o);
+      return new Response(out, { headers: { "Content-Type": "application/json; charset=utf-8", ...CORS } });
     }
 
     return json({ ok: false, error: "المسار غير معروف" }, 404);
