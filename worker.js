@@ -406,16 +406,20 @@ export default {
 
     // رفع لقطة فرع واحد
     if (path.endsWith("/put") && request.method === "POST") {
+      /* يُحلَّل للتحقق ورمز الفرع فقط، ويُحفظ النص كما وصل (ومعه serverAt في آخره). كان يُحلَّل ثم
+         يُكتب من جديد كله: لقطة مصراتة (نصف ميغا) تجاوزت حدّ وقت الحساب في الخطة المجانية
+         (10 ميلي ثانية) فردّ Cloudflare بالرمز 503 */
+      const raw = await request.text();
       let snap;
-      try { snap = await request.json(); }
+      try { snap = JSON.parse(raw); }
       catch { return json({ ok: false, error: "محتوى غير صالح" }, 400); }
 
-      const id = snap && snap.branch && String(snap.branch.id || "").trim();
+      const id = snap && typeof snap === "object" && !Array.isArray(snap) && snap.branch && String(snap.branch.id || "").trim();
       if (!id || !/^[a-z0-9._-]{1,40}$/i.test(id)) {
         return json({ ok: false, error: "رمز فرع غير صالح" }, 400);
       }
-      snap.serverAt = new Date().toISOString();
-      await env.SHOP.put("branch:" + id.toLowerCase(), JSON.stringify(snap), {
+      const body = raw.replace(/\}\s*$/, ',"serverAt":' + JSON.stringify(new Date().toISOString()) + "}");
+      await env.SHOP.put("branch:" + id.toLowerCase(), body, {
         expirationTtl: 60 * 60 * 24 * 120,   // يُنظَّف تلقائياً بعد 120 يوماً بلا تحديث
       });
       /* فهرس الملفات: /all يقرؤه بدل SHOP.list (الخطة المجانية: ألف list في اليوم فقط،
