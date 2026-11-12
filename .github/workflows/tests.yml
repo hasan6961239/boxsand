@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mono-mcs mono-devel libmono-system-windows-forms4.0-cil \
-            libmono-system-drawing4.0-cil nsis fonts-dejavu-core xvfb xauth poppler-utils imagemagick
+            libmono-system-drawing4.0-cil nsis fonts-dejavu-core xvfb xauth poppler-utils imagemagick ffmpeg
 
       - name: playwright-core وChromium
         run: |
@@ -99,7 +99,7 @@ jobs:
       - name: الفرعان يرى كلٌّ منهما الآخر (طرابلس بـ61 ألف كتاب)
         run: node tools/test-branches.js
 
-      - name: تطبيق الهاتف مع منظومة طرابلس الحقيقية (بيع وتعديل ورقم الفاتورة)
+      - name: تطبيق الهاتف مع منظومة طرابلس الحقيقية (بيع، تعديل كامل، إضافة كمية، صنف جديد)
         run: node tools/test-phone-e2e.js
 
       - name: الجهاز الثاني — حفظ كبير لا يوقف المزامنة
@@ -146,9 +146,13 @@ jobs:
           node tools/test.js
           node tools/test-money.js
           node tools/test-big.js
+          node tools/test-rail.js
 
-      - name: تطبيق الهاتف (طرابلس بـ61 ألف كتاب، ومصراتة)
+      - name: تطبيق الهاتف 3.0 (طرابلس بـ61 ألف كتاب، ومصراتة، ومنظومة قديمة)
         run: node tools/test-phone.js
+
+      - name: قارئ الباركود في الهاتف — كاميرا تعرض باركوداً حقيقياً، وصورة، وقارئ بلوتوث
+        run: node tools/test-scan.js
 
       - name: البناء (تطبيقا مصراتة وطرابلس، قرار 0022)
         run: |
