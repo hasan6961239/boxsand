@@ -32,7 +32,8 @@ const rail = pg => pg.evaluate(() => {
   return { n: its.length, h: Math.round(rc[0].height), w: Math.round(rc[0].width), inside: rc.every(x => x.top >= r.top - 1 && x.bottom <= r.bottom + 1),
     over: Math.round(last.offsetTop + last.offsetHeight + parseFloat(getComputedStyle(nav).paddingBottom) - nav.clientHeight),
     fit: document.getElementById('rail').classList.contains('fit'), small: document.getElementById('rail').classList.contains('fit-s'), more: !!more && !more.hidden,
-    ic: Math.round(its[0].querySelector('.ic').getBoundingClientRect().width), foot: document.querySelector('.rail-foot').getBoundingClientRect().bottom <= window.innerHeight };
+    ic: Math.round(its[0].querySelector('.ic').getBoundingClientRect().width), foot: document.querySelector('.rail-foot').getBoundingClientRect().bottom <= window.innerHeight,
+    box: [Math.round(document.getElementById('rail').getBoundingClientRect().bottom), Math.round(r.height), Math.round(document.querySelector('.rail-foot').getBoundingClientRect().top), Math.round(document.querySelector('.rail-foot').getBoundingClientRect().bottom), window.innerHeight] };
 });
 
 (async () => {
@@ -67,6 +68,12 @@ const rail = pg => pg.evaluate(() => {
   await shot(pg, 'rail-tripoli-768-after');
   check('طرابلس 1366×768: التبويبات السبعة عشر كلها ظاهرة بلا تمرير', s.n === 17 && s.inside && s.over <= 0 && !s.more, s);
   check('والزر مريح للضغط (' + s.h + ' بكسل ارتفاعاً، لا ينزل عن 30) والذيل (محفوظ والإصدار) ظاهر', s.h >= 30 && s.w >= 40 && s.foot && s.ic >= 18, s);
+  /* «جارٍ الحفظ…» أطول من «محفوظ»، وعلى خطوط أخرى يصير سطرين: الذيل يبقى داخل الشاشة والتبويبات كلها ظاهرة */
+  await pg.evaluate(() => { const e = document.getElementById('saveState'); e.innerHTML = '<span class="dot-live saving"></span> جارٍ الحفظ… جارٍ الحفظ…'; document.querySelector('.rail-foot').style.fontSize = '12px'; });
+  await sleep(500);
+  s = await rail(pg);
+  check('ذيل أطول (حالة حفظ طويلة، خط أكبر): يبقى داخل الشاشة والتبويبات كلها ظاهرة (' + s.h + ' بكسل)', s.foot && s.inside && s.over <= 1, s);
+  await pg.evaluate(() => { document.querySelector('.rail-foot').style.fontSize = ''; App.save && 0; }); await sleep(300);
   await pg.hover('#nav .nav-item:last-child'); await sleep(250);
   check('تلميح اسم الصفحة ما زال يظهر عند المرور', await pg.evaluate(() => { const t = document.querySelector('.nav-tip'); return !!t && t.classList.contains('on') && t.textContent.length > 2; }));
   await pg.click('#nav .nav-item:last-child'); await sleep(300);

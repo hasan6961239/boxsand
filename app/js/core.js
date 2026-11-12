@@ -2200,6 +2200,7 @@ var App = (function () {
     wireNavTips(nav);
     fitRail();
     fitRailSoon();
+    watchRail();
   }
 
   /* ---------- الشريط الجانبي يتّسع لكل تبويباته ----------
@@ -2243,6 +2244,23 @@ var App = (function () {
     if (typeof moveGlider === "function") { try { moveGlider(); } catch (e) { } }
   }
   function fitRailSoon() { clearTimeout(railT); railT = setTimeout(fitRail, 120); }
+  /* الذيل (حالة الحفظ والإصدار) يتغيّر طوله بعد الرسم: «جارٍ الحفظ…» سطران، والإصدار يصل من
+     البرنامج بعد لحظة. تغيّر طوله = يُعاد الحساب، وإلا دُفع الذيل تحت حافة الشاشة */
+  var railObs = null;
+  function watchRail() {
+    if (railObs || typeof ResizeObserver === "undefined") return;
+    var foot = document.querySelector("#rail .rail-foot"), rail = document.getElementById("rail");
+    if (!foot || !rail) return;
+    var last = "";
+    railObs = new ResizeObserver(function () {
+      var k = Math.round(foot.offsetHeight) + "|" + Math.round(rail.clientHeight);
+      if (k === last) return;
+      last = k;
+      fitRailSoon();
+    });
+    railObs.observe(foot);
+    railObs.observe(rail);
+  }
   function railMore() {
     var rail = document.getElementById("rail"), nav = document.getElementById("nav");
     if (!rail || !nav) return;
@@ -2554,7 +2572,8 @@ var App = (function () {
     apiJson("/api/info").then(function (d) {
       if (!d || !d.ok) return;
       var v = "v" + (d.version || "?");
-      e.textContent = d.build ? (v + " · " + d.build) : v;
+      /* التاريخ في جزء وحده: الشريط المضغوط يخفيه (يبقى في التلميح) فيقصر الذيل سطراً */
+      e.innerHTML = '<span class="v-num">' + esc(v) + "</span>" + (d.build ? '<span class="v-build"> · ' + esc(d.build) + "</span>" : "");
       e.title = "الإصدار " + (d.version || "?") +
         (d.build ? "\nتاريخ البناء: " + d.build : "") +
         "\nمجلد البيانات: " + (d.dataDir || "");
