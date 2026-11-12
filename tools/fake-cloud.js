@@ -92,8 +92,22 @@ function kv() {
   const stats = { list: 0, get: 0, put: 0 };
   return {
     map: m, stats,
-    async get(k) { stats.get++; return m.has(k) ? m.get(k) : null; },
-    async put(k, v) { stats.put++; m.set(k, String(v)); },
+    /* كما في Cloudflare: القيمة بايتات تُقرأ نصاً (الافتراضي) أو { type: "arrayBuffer" }، وتُكتب نصاً أو بايتات.
+       في الذاكرة نصّاً (الاختبارات تقرأ map.get كما هو) */
+    async get(k, o) {
+      stats.get++;
+      if (!m.has(k)) return null;
+      const t = typeof o === 'string' ? o : o && o.type;
+      if (t === 'arrayBuffer') { const b = Buffer.from(m.get(k), 'utf8'); return b.buffer.slice(b.byteOffset, b.byteOffset + b.length); }
+      if (t === 'json') return JSON.parse(m.get(k));
+      return m.get(k);
+    },
+    async put(k, v) {
+      stats.put++;
+      if (v instanceof ArrayBuffer) v = Buffer.from(v).toString('utf8');
+      else if (ArrayBuffer.isView(v)) v = Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString('utf8');
+      m.set(k, String(v));
+    },
     async delete(k) { m.delete(k); },
     async list(o) {
       stats.list++;

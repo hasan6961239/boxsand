@@ -66,7 +66,13 @@ function ok(cond, name, detail) {
     const bigSnap = { branch: { id: 'misrata', name: 'مصراتة' }, at: '2026-11-12 18:00', items: Array.from({ length: 1800 }, (_, i) => ({ k: 'K' + i, t: 'book', n: 'كتاب رقم ' + i + ' }', a: 'مؤلف', b: '978' + i, q: i % 9, p: 12.5, nt: 'ملاحظة طويلة '.repeat(8) })) };
     /* بمسافات بين الحقول: إعادة الكتابة (القديمة) تحذفها، والحفظ كما وصل يُبقيها */
     const bigRaw = JSON.stringify(bigSnap, null, 1);
+    /* الخادم يعمل في العملية نفسها: يُعدّ كم مرة حُلّل نصّ كبير (اللقطة الكبيرة لا تُحلَّل: حدّ وقت الحساب) */
+    const realParse = JSON.parse;
+    let bigParses = 0;
+    JSON.parse = function (t) { if (typeof t === 'string' && t.length > 65536) bigParses++; return realParse.apply(this, arguments); };
     const pr = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: bigRaw + '\n' });
+    JSON.parse = realParse;
+    ok(pr.status === 200 && bigParses === 0, 'اللقطة الكبيرة لا تُحلَّل في الخادم (حدّ وقت الحساب 10 ms في الخطة المجانية: كان يردّ 503)', { status: pr.status, bigParses });
     const stored = noD1.env.SHOP.map.get('branch:misrata');
     ok(pr.status === 200 && stored.indexOf(bigRaw.slice(0, -1)) === 0 && /,"serverAt":"\d{4}-\d\d-\d\dT[^"]+"\}$/.test(stored) && JSON.parse(stored).items.length === 1800,
       'لقطة كبيرة (' + Math.round(bigRaw.length / 1024) + ' ك.ب): تُحفظ نصّها كما وصل ومعها serverAt (بلا إعادة كتابة)', stored && stored.slice(-60));
@@ -75,6 +81,13 @@ function ok(cond, name, detail) {
     const bad = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: bigRaw.slice(0, -3) });
     const arr = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: '[{"branch":{"id":"x"}}]' });
     ok(bad.status === 400 && arr.status === 400 && JSON.parse(noD1.env.SHOP.map.get('branch:misrata')).items.length === 1800, 'ونصّ مقطوع أو غير كائن يُرفض ولا يمسّ المحفوظ', [bad.status, arr.status]);
+    /* كبيرة لكن الفرع ليس أول شيء فيها: تُحلَّل كما كانت (سليمة تُحفظ) */
+    const late = JSON.stringify({ at: 'x', items: bigSnap.items, branch: { id: 'misrata', name: 'مصراتة' } });
+    const lr = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: late });
+    ok(lr.status === 200 && JSON.parse(noD1.env.SHOP.map.get('branch:misrata')).at === 'x', 'وكبيرة رمز فرعها ليس في أولها: تُحلَّل وتُحفظ كما كانت', lr.status);
+    /* لقطة الهاتف (صغيرة، kind أولاً) كما كانت */
+    const phr = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'phone', at: 'y', branch: { id: 'phone-zz123456', name: 'هاتف' }, orders: [] }) });
+    ok(phr.status === 200 && JSON.parse(noD1.env.SHOP.map.get('branch:phone-zz123456')).kind === 'phone', 'ولقطة الهاتف الصغيرة كما كانت');
     await noD1.close();
 
     console.log('\n== جهاز المحل ==');
