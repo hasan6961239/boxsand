@@ -55,6 +55,8 @@ const INSTRUMENT = () => {
   document.addEventListener('DOMContentLoaded', () => {
     new MutationObserver(l => { window.__ev.mut += l.length; }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'hidden', 'style', 'value', 'disabled'] });
   });
+  /* أزرار الهاتف التي تشترك في فعل واحد وتختلف بقيمتها (تبويبات، أوضاع، اختيارات): كل قيمة زر */
+  window.__byV = /^(go|meth|filt|lib|imode|itype|iview|open2|pPick|pSet|alTab|invTab|debtTab|outTab|fSet|fPick|rDst|aqDst|aqStep|fStep|shelf)$/;
   /* العناصر القابلة للضغط في مكان، وكل نوع مرة (أزرار الصفوف المتشابهة زر واحد) */
   window.__vis = e => {
     if (e.disabled || e.closest('[hidden]')) return false;
@@ -70,7 +72,7 @@ const INSTRUMENT = () => {
       const oc = e.getAttribute('onclick') || '', da = e.getAttribute('data-a') || '';
       const txt = (e.textContent || e.title || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 48);
       const norm = oc.replace(/'[^']*'|"[^"]*"/g, "'…'").replace(/\d+/g, 'N');
-      const key = e.tagName + '|' + norm + '|' + da + (oc || da ? '' : '|' + txt) + (da === 'go' || da === 'meth' || da === 'filt' || da === 'lib' ? '|' + (e.getAttribute('data-v') || '') : '');
+      const key = e.tagName + '|' + norm + '|' + da + (oc || da ? '' : '|' + txt) + (window.__byV.test(da) ? '|' + (e.getAttribute('data-v') || '') : '');
       if (seen.has(key)) return;
       seen.add(key);
       list.push({ key, oc, da, txt: txt || oc.slice(0, 40) || da, on: /(^|\s)(on|active|sel)(\s|$)/.test(e.className || '') || e.getAttribute('aria-selected') === 'true' });
@@ -88,7 +90,7 @@ const INSTRUMENT = () => {
       const oc = e.getAttribute('onclick') || '', da = e.getAttribute('data-a') || '';
       const txt = (e.textContent || e.title || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 48);
       const norm = oc.replace(/'[^']*'|"[^"]*"/g, "'…'").replace(/\d+/g, 'N');
-      const k = e.tagName + '|' + norm + '|' + da + (oc || da ? '' : '|' + txt) + (da === 'go' || da === 'meth' || da === 'filt' || da === 'lib' ? '|' + (e.getAttribute('data-v') || '') : '');
+      const k = e.tagName + '|' + norm + '|' + da + (oc || da ? '' : '|' + txt) + (window.__byV.test(da) ? '|' + (e.getAttribute('data-v') || '') : '');
       if (k === key && !e.disabled) { e.setAttribute('data-crawl', '1'); return true; }
     }
     return false;
@@ -268,9 +270,15 @@ const CANCEL = /^(✕|إلغاء|إغلاق|لا|لا، .*|رجوع|تراجع)$
     cloud = await C.start({ secret: KEY });
     const td = new Date().toISOString().slice(0, 10);
     const snap = {
-      branch: { id: 'misrata', name: 'دار الحكمة', city: 'مصراتة' }, at: td + ' 10:00', whs: [], msgs: [], acks: {}, phoneSell: true,
-      items: mis.books.slice(0, 600).map(b => ({ k: b.code, t: 'book', n: b.title, a: b.author || '', b: b.barcode || '', c: b.cat || '', q: b.qty || 0, p: b.price || 0, m: b.min || 0, l: b.lib || '', s: String(b.shelf || '') })),
-      cust: [{ id: 'c1', n: 'مكتبة النور', ph: '0912345678', b: 120 }], dash: { today: td, days: { [td]: { v: 450, n: 9, q: 14 } }, recent: [], cur: 'د.ل' }
+      branch: { id: 'misrata', name: 'دار الحكمة', city: 'مصراتة' }, at: td + ' 00:00', whs: [], msgs: [], acks: {}, phoneSell: true,
+      items: mis.books.slice(0, 600).map(b => ({ k: b.code, t: 'book', n: b.title, a: b.author || '', b: b.barcode || '', c: b.cat || '', q: b.qty || 0, p: b.price || 0, m: b.min || 0, l: b.lib || '', s: String(b.shelf || ''), d: b.publisher || '' }))
+        .concat(mis.stationery.slice(0, 80).map(x => ({ k: x.code, t: 'stat', n: x.name, a: x.brand || '', b: x.barcode || '', c: x.cat || '', q: x.qty || 0, p: x.price || 0, m: x.min || 0, loc: x.loc || '', u: x.unit || 'قطعة' }))),
+      cust: [{ id: 'c1', n: 'مكتبة النور', ph: '0912345678', b: 120 }, { id: 'c2', n: 'أحمد علي', ph: '', b: 0 }],
+      sup: [{ id: 'sp1', n: 'دار الفكر', ph: '0913334444', b: 800 }],
+      ph: { v: 3, libs: mis.meta.libraries || ['A', 'B', 'C'], shelves: mis.meta.shelves || 6, units: ['قطعة', 'علبة'], bcats: mis.meta.bookCats || [], scats: mis.meta.statCats || [], pubs: ['دار الفكر'] },
+      dash: { today: td, days: { [td]: { v: 450, n: 9, q: 14 } }, cur: 'د.ل',
+        recent: [{ no: 77, d: td, at: '10:10', t: 35, m: 'cash', k: 'sale', n: 'كتاب', q: 1, li: [['كتاب', 1, 35]] }, { no: 76, d: td, at: '09:30', t: 120, m: 'credit', k: 'sale', c: 'مكتبة النور', n: 'كتب', q: 4, li: [['كتب', 4, 30]], due: 120 }],
+        credit: [{ no: 76, d: td, at: '09:30', c: 'مكتبة النور', cid: 'c1', t: 120, pd: 0, due: 120 }] }
     };
     await fetch(cloud.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(snap) });
     const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript;charset=utf-8', '.css': 'text/css;charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.wasm': 'application/wasm' };
@@ -294,50 +302,115 @@ const CANCEL = /^(✕|إلغاء|إغلاق|لا|لا، .*|رجوع|تراجع)$
     await ph.waitForSelector('#pw2', { timeout: 30000 });
     await ph.fill('#pw', '2468'); await ph.fill('#pw2', '2468'); await ph.click('[data-a="pinSet"]');
     await ph.waitForSelector('.nav', { timeout: 30000 });
-    await sleep(800);
+    await sleep(900);
     const pev = (f, a) => ph.evaluate(f, a);
-    const screens = ['home', 'books', 'sell', 'loc', 'more'];
-    const pgo = async k => {
-      /* الماسح الذي فتحه زر سابق يُغلق كما يغلقه المستخدم (✕) */
-      await pev(k => { if (window.WebScan && document.querySelector('.scanner')) WebScan.close(); const s = document.getElementById('sheet'); if (s) { s.hidden = true; s.innerHTML = ''; } document.getElementById('toasts').innerHTML = ''; UI.go(k); }, k);
-      await sleep(250);
+    await pev(() => { Core.setPref('anim', false); });          // الحركات تؤخّر الضغط الآلي فقط؛ تُختبر في test-phone
+    const bcA = snap.items.find(i => i.t === 'book' && i.b && i.q > 2).b, bcB = snap.items.filter(i => i.t === 'book' && i.b && i.q > 2)[1].b;
+    /* كل شاشة وكل وضع فيها: كما يصل إليها المستخدم، وبما يُظهر أزرارها كلها (سلة فيها كتاب، قائمة فيها سطر…) */
+    const base = () => { Core.S.cart = []; Core.S.recv = { dst: 'shelf', sp: '', nt: '', lines: [] }; Core.S.loc.list = []; Core.S.sell.method = 'cash'; Core.S.draft = {}; UI.__v.q = ''; UI.__v.filt = ''; UI.__v.cat = ''; UI.__v.place = null; UI.__v.mode = 'view'; Core.setPref('type', 'book'); Core.setPref('view', 'list'); };
+    const views = [
+      ['الرئيسية', () => UI.go('home')],
+      ['إضافة وتعديل: قائمة', () => UI.go('items')],
+      ['إضافة وتعديل: بطاقات', () => { Core.setPref('view', 'cards'); UI.go('items'); }],
+      ['إضافة وتعديل: الرفوف', () => { Core.setPref('view', 'map'); UI.go('items'); }],
+      ['إضافة وتعديل: كتب رف', () => { Core.setPref('view', 'map'); UI.go('items'); UI.act('place', '0:0'); }],
+      ['إضافة وتعديل: قرطاسية', () => { Core.setPref('type', 'stat'); UI.go('items'); }],
+      ['إضافة كمية', b => { UI.__v.mode = 'qty'; UI.go('items'); UI.onScan(b[0]); if (window.WebScan) WebScan.close(); }],
+      ['صنف جديد: كتاب', () => { UI.__v.mode = 'new'; UI.go('items'); }],
+      ['صنف جديد: قرطاسية', () => { UI.__v.mode = 'new'; Core.setPref('type', 'stat'); UI.go('items'); }],
+      ['بطاقة الكتاب', b => { UI.go('items'); UI.onScan(b[0]); }],
+      ['تعديل الكتاب', b => { UI.go('items'); UI.onScan(b[0]); UI.act('edit'); }],
+      ['البيع', b => { UI.go('sell'); UI.onScan(b[0]); if (window.WebScan) WebScan.close(); }],
+      ['البيع الآجل', b => { UI.go('sell'); UI.onScan(b[0]); UI.act('meth', 'credit'); }],
+      ['الجرد', b => { UI.go('home'); UI.act('open2', 'count'); UI.onScan(b[1]); if (window.WebScan) WebScan.close(); }],
+      ['الفواتير', () => { UI.__v.invTab = 'shop'; UI.go('invoices'); }],
+      ['الآجل', () => UI.go('credit')],
+      ['الديون', () => { UI.__v.debtTab = 'cust'; UI.go('debts'); }],
+      ['التنبيهات', () => UI.go('alerts')],
+      ['الإعدادات', () => UI.go('settings')],
+      ['سجل الإرسال', () => { UI.go('settings'); UI.act('open2', 'outbox'); }]
+    ];
+    const pgo = async v => {
+      /* الماسح والنافذة التي فتحها زر سابق تُغلق كما يغلقها المستخدم */
+      await pev(() => { if (window.WebScan && document.querySelector('.scanner')) WebScan.close(); const s = document.getElementById('sheet'); if (s) { s.hidden = true; s.innerHTML = ''; s.classList.remove('out'); } const d = document.getElementById('donePop'); if (d) d.remove(); document.getElementById('toasts').innerHTML = ''; });
+      await pev(base); await pev(v[1], [bcA, bcB]);
+      await sleep(180);
+      await pev(() => { if (window.WebScan && document.querySelector('.scanner')) WebScan.close(); document.getElementById('toasts').innerHTML = ''; });
     };
     const pstate = () => pev(() => ({
       scan: !!document.querySelector('.scanner'), sheet: !document.getElementById('sheet').hidden, sheetTxt: (document.getElementById('sheet').textContent || '').trim().slice(0, 50),
+      done: !!document.getElementById('donePop'),
       toasts: [...document.querySelectorAll('#toasts > *')].map(t => t.textContent.trim()), scr: (window.UI && UI.__v && UI.__v.screen) || '',
+      /* ما يتغيّر بلا أثر في الصفحة (قيمة خانة، إعداد، تمرير) */
+      st: JSON.stringify([Core.S.cart, Core.S.recv, Core.S.loc, Core.S.pref, Core.S.sell, Core.S.edits.length, Core.S.orders.length, UI.__v.form && UI.__v.form.f, UI.__v.screen, UI.__v.mode, UI.__v.back.length, Math.round(window.pageYOffset),
+        [].map.call(document.querySelectorAll('#app input, #sheet input'), i => i.type + ':' + i.value)]),
       ev: JSON.parse(JSON.stringify(window.__ev))
     }));
-    for (const k of screens) {
-      await pgo(k);
-      /* سلة فيها كتاب ليظهر زر «إتمام البيع» وأزرار الكمية */
-      if (k === 'sell') { await pev(b => UI.onScan(b), snap.items.find(i => i.b && i.q > 2).b); await sleep(200); }
-      const list = (await pev(() => window.__collect('#app') )).filter(x => !/unlinkYes|logout/.test(x.da));
+    const effect = (b, a) => {
+      const r = [];
+      if (a.sheet && (!b.sheet || a.sheetTxt !== b.sheetTxt)) r.push('نافذة «' + a.sheetTxt + '»');
+      if (!a.sheet && b.sheet) r.push('تُغلق النافذة');
+      if (a.done && !b.done) r.push('تم البيع ✓');
+      if (a.scan && !b.scan) r.push('يفتح الكاميرا');
+      if (a.ev.prints) r.push('طباعة');
+      if (a.ev.opens) r.push('يفتح رابطاً');
+      if (a.toasts.length) r.push('تنبيه: ' + a.toasts.join(' / ').slice(0, 100));
+      if (!r.length && a.scr !== b.scr) r.push('يفتح شاشة ' + a.scr);
+      if (!r.length && (a.ev.mut > 0 || a.st !== b.st)) r.push('يتغيّر المعروض');
+      return r;
+    };
+    const SKIPP = /unlinkYes|logout|recatYes/;
+    const seenNav = new Set();
+    const tap = async () => {
+      try { await ph.click('[data-crawl="1"]', { timeout: 2500 }); return ''; }
+      catch (e) { await pev(() => { const el = document.querySelector('[data-crawl="1"]'); if (el) el.click(); }); return 'لم يُضغط باليد' + (process.env.QI_DEBUG ? ': ' + e.message.split('\n').filter(l => /intercept|not stable|detached|visible|waiting for/.test(l)).slice(-2).join(' / ') : ''); }
+    };
+    for (const v of views) {
+      await pgo(v);
+      const list = (await pev(() => window.__collect('#app'))).filter(x => !SKIPP.test(x.da)).filter(x => {
+        /* الشريط السفلي وزر التحديث والرجوع يتكرّر في كل شاشة: يكفي مرة */
+        if (!/^(go|fab|refresh|back)$/.test(x.da)) return true;
+        if (seenNav.has(x.key)) return false;
+        seenNav.add(x.key); return true;
+      });
       for (const x of list) {
-        await pgo(k);
-        if (k === 'sell') { await pev(b => { if (!(Core.S.cart || []).length) UI.onScan(b); }, snap.items.find(i => i.b && i.q > 2).b).catch(() => { }); await sleep(150); }
+        await pgo(v);
         if (!(await pev(key => window.__mark('#app', key), x.key))) continue;
         await pev(() => { const e = window.__ev; e.prints = e.opens = e.downloads = e.files = e.mut = 0; e.api = []; e.bad = []; });
         const b = await pstate();
         const e0 = perr.length;
-        try { await ph.click('[data-crawl="1"]', { timeout: 2500 }); } catch (e) { await pev(() => { const el = document.querySelector('[data-crawl="1"]'); if (el) el.click(); }); x.note = 'لم يُضغط باليد' + (process.env.QI_DEBUG ? ': ' + e.message.split('\n').filter(l => /intercept|not stable|detached|visible|waiting for/.test(l)).slice(-2).join(' / ') : ''); }
+        x.note = await tap();
         clicks++;
-        await sleep(400);
+        await sleep(420);
         const a = await pstate();
-        const r = [];
-        if (a.sheet && !b.sheet) r.push('نافذة «' + a.sheetTxt + '»');
-        if (a.scan && !b.scan) r.push('يفتح الكاميرا');
-        if (a.ev.prints) r.push('طباعة');
-        if (a.ev.opens) r.push('يفتح رابطاً');
-        if (a.toasts.length) r.push('تنبيه: ' + a.toasts.join(' / ').slice(0, 100));
-        if (!r.length && a.ev.mut > 0) r.push('يتغيّر المعروض');
+        const r = effect(b, a);
         const er = perr.slice(e0);
-        const nm = 'الهاتف | ' + k + ' | ' + x.txt + (x.da ? ' [' + x.da + ']' : '');
+        const nm = 'الهاتف | ' + v[0] + ' | ' + x.txt + (x.da ? ' [' + x.da + ']' : '');
         out(nm + ' | ' + (r.join('، ') || 'لا شيء') + (x.note ? ' | ' + x.note : '') + (er.length ? ' | أخطاء: ' + er.join(' ؛ ') : ''));
         if (er.length) broken.push(nm + ': ' + er.join(' ؛ ')); else if (!r.length && !x.on) dead.push(nm);
+        /* النافذة السفلية التي فتحها الزر: أزرارها كذلك، كل واحد بعد فتحها من جديد */
+        if (a.sheet && !b.sheet) {
+          const inner = (await pev(() => window.__collect('#sheet'))).filter(y => !SKIPP.test(y.da));
+          for (const y of inner) {
+            await pgo(v);
+            if (!(await pev(key => window.__mark('#app', key), x.key))) break;
+            await tap(); await sleep(350);
+            if (!(await pev(key => window.__mark('#sheet', key), y.key))) continue;
+            await pev(() => { const e = window.__ev; e.prints = e.opens = e.downloads = e.files = e.mut = 0; e.api = []; e.bad = []; });
+            const b2 = await pstate(), e1 = perr.length;
+            const note = await tap();
+            clicks++;
+            await sleep(420);
+            const a2 = await pstate(), r2 = effect(b2, a2), er2 = perr.slice(e1);
+            const nm2 = nm + ' ← ' + y.txt + (y.da ? ' [' + y.da + ']' : '');
+            out(nm2 + ' | ' + (r2.join('، ') || 'لا شيء') + (note ? ' | ' + note : '') + (er2.length ? ' | أخطاء: ' + er2.join(' ؛ ') : ''));
+            if (er2.length) broken.push(nm2 + ': ' + er2.join(' ؛ ')); else if (!r2.length && !y.on) dead.push(nm2);
+          }
+        }
       }
     }
     /* الخروج ثم الدخول برمز الهاتف */
-    await pgo('more');
+    await pgo(['الإعدادات', () => UI.go('settings')]);
     if (await ph.$('[data-a="logout"]:visible')) {
       await ph.click('[data-a="logout"]:visible', { timeout: 5000 }); await sleep(500);
       const back = await ph.waitForSelector('#pw', { timeout: 5000 }).then(() => true, () => false);

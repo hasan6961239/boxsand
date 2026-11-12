@@ -8,6 +8,8 @@
    - بيع من الهاتف يصل المنظومة فاتورةً، والسؤال الخفيف عن الهاتف لا يرفع
      لقطة، ورقم الفاتورة يعود للهاتف.
    - تعديل اسم كتاب من الهاتف يُطبَّق في المنظومة، ويعود في قائمة الفرع.
+   - هاتف 3.0: قائمة الفرع بأعمدتها كلها، وتعديل كل الحقول، وإضافة كمية (تُسجَّل
+     إدخال بضاعة)، وصنف جديد (يأخذ رمزه من المنظومة ويعود في القائمة بلا تكرار).
      node tools/test-phone-e2e.js            (BOOKS=… لعدد آخر)
    ============================================================ */
 'use strict';
@@ -95,7 +97,8 @@ function site(cfg) {
     await p.goto(st.url + '#u=' + encodeURIComponent(cloud.url) + '&k=' + encodeURIComponent(KEY));
     await p.waitForSelector('#pw2', { timeout: 60000 });
     await p.fill('#pw', '1357'); await p.fill('#pw2', '1357'); await p.click('[data-a="pinSet"]');
-    await p.waitForSelector('.hd .big');
+    await p.waitForSelector('.menu');
+    await sleep(700);
     await p.evaluate(() => { const s = document.getElementById('sheet'); s.hidden = true; s.innerHTML = ''; });
     const inf = await p.evaluate(() => Core.info());
     ok(inf.src === 'cat' && inf.n === cat.n, 'الهاتف: كتب طرابلس كلها من قائمة الفرع (' + inf.n + ')', inf);
@@ -138,15 +141,74 @@ function site(cfg) {
       if (!ed) await sleep(300);
     }
     ok(ed && ed.price === 33.5, 'تعديل الاسم والسعر طُبّق في المنظومة', ed && { t: ed.title, p: ed.price });
-    /* قائمة الفرع الجديدة: «حدّث الآن» في المنظومة */
-    const ow2 = (await raw('/api/claim', { force: true })).body.token;
-    await raw('/api/link', { action: 'now' }, { 'X-Owner': ow2 });
-    await raw('/api/release?t=' + ow2, {});
-    await p.evaluate(() => UI.refresh(true)); await sleep(3000);
+    /* قائمة الفرع الجديدة: «تحديث الآن» في المنظومة (من شاشتها: لا يُؤخذ الجهاز من يدها).
+       القائمة الجديدة تُعرف برقم نسختها: ما يعرضه الهاتف قبلها هو تعديله هو فوق القديمة */
+    const catVer = async () => { const c = await (await fetch(cloud.url + '/v2/catalogs?branch=tripoli', { headers: { 'X-Shop-Key': KEY } })).json(); return ((c.catalogs || []).find(x => x.branch === 'tripoli') || {}).ver || ''; };
+    const newCatalog = async name => {
+      const v0 = await catVer();
+      await pc.evaluate(() => App.flushSave ? App.flushSave().catch(() => { }) : null);
+      await pc.evaluate(() => Stock.sync(true));
+      let v1 = v0;
+      for (let i = 0; i < 60 && v1 === v0; i++) { await sleep(500); v1 = await catVer(); }
+      ok(v1 && v1 !== v0, name, { v0, v1 });
+      for (let i = 0; i < 20; i++) {
+        await p.evaluate(() => UI.refresh(true)); await sleep(1200);
+        if (await p.evaluate(v => Core.S.catVer === v, v1)) break;
+      }
+      return v1;
+    };
+    const v1 = await newCatalog('«تحديث الآن» في المنظومة ينشر قائمة جديدة فيها التعديل');
+    ok(await p.evaluate(v => Core.S.catVer === v, v1), 'والهاتف نزّل القائمة الجديدة');
     const g3 = await p.evaluate(b => { const g = Core.byCode(b); return g && { n: g.n, p: g.p, editing: !!g.editing }; }, b3.barcode);
     const g1b = await p.evaluate(b => Core.byCode(b).q, b1.barcode);
     ok(g3 && g3.n === 'عنوان معدّل من الهاتف' && g3.p === 33.5, 'والقائمة الجديدة على الهاتف فيها الاسم والسعر الجديدان', g3);
     ok(g1b === b1.qty - 2, 'والكمية بعد البيع من القائمة نفسها (لا تُطرح مرتين)', g1b);
+
+    console.log('\n== هاتف 3.0: تعديل كامل، إضافة كمية، صنف جديد — مع المنظومة الحقيقية ==');
+    ok(await p.evaluate(() => Core.proto()) === 3, 'لقطة المنظومة تقول للهاتف إنها تفهم تعديلات 3.0 (ph.v = 3)');
+    const b4 = good[6], b5 = good[7];
+    const cols = await p.evaluate(b => { const g = Core.byCode(b); return g && { d: g.d, m: g.m, pw: g.pw, room: g.room, cf: g.cf, code: g.code, sp: g.sp }; }, b4.barcode);
+    ok(cols && cols.d === (b4.publisher || '') && cols.m === (b4.min || 0) && Math.abs(cols.pw - (b4.priceW || 0)) < 0.001 && cols.cf === (b4.catFull || '') && cols.code === b4.code &&
+      cols.room === Math.min(Math.max(b4.store || 0, 0), Math.max(b4.qty, 0)), 'قائمة الفرع التي ينشرها المحرك فيها أعمدة التعديل الكامل (دار النشر، حد التنبيه، سعر الجملة، غرفة الخزين، التخصص الدقيق)',
+      { cols, b: { d: b4.publisher, m: b4.min, pw: b4.priceW, st: b4.store, cf: b4.catFull } });
+    const rawCat = await p.evaluate(() => JSON.stringify(Core.items().slice(0, 300)));
+    ok(!/"cost"/.test(rawCat) && !/"profit"/.test(JSON.stringify(JSON.parse(cloud.env.SHOP.map.get('branch:tripoli')))), 'ولا سعر شراء ولا ربح في ما يصل الهاتف');
+    const ids = await p.evaluate(([x, y, yc]) => {
+      const g = Core.byCode(x);
+      Core.editItem(g, { d: 'دار من الهاتف', bc: '9991112223334', pw: 9.5, nt: 'ملاحظة من الهاتف', c: 'تخصص من الهاتف', m: 4, st: 1 });
+      const r = Core.receive([{ b: y, k: yc, n: 'x', q: 7 }], { dst: 'store', nt: 'فاتورة 12' });
+      const n = Core.newItem('book', { n: 'كتاب أُضيف من الهاتف', a: 'مؤلفه', d: '', c: 'تخصص من الهاتف', bc: '9995556667778', p: 18, pw: 0, q: 4, m: 1, l: 'A', s: '1', dst: 'shelf', nt: '' });
+      return { e: Core.S.edits.find(z => z.set && z.set.bc === '9991112223334').id, r: r.id, n: n.id };
+    }, [b4.barcode, b5.barcode, b5.code]);
+    ok(await p.evaluate(() => { const g = Core.items()[0]; return g.isNew && g.n === 'كتاب أُضيف من الهاتف'; }), 'الكتاب الجديد يظهر في الهاتف فوراً «ينتظر المنظومة»');
+    await sleep(1500);
+    const pur0 = await pc.evaluate(() => App.S.purchases.length);
+    await pc.evaluate(() => Stock.sync(false, true));
+    let nb = null;
+    for (let i = 0; i < 30 && !nb; i++) {
+      nb = await pc.evaluate(() => App.S.books.find(y => y.barcode === '9995556667778') || null);
+      if (!nb) await sleep(300);
+    }
+    ok(nb && /^K/.test(nb.code) && nb.title === 'كتاب أُضيف من الهاتف' && nb.author === 'مؤلفه' && nb.qty === 4 && nb.price === 18 && nb.lib === 'A' && nb.shelf === '1' && nb.cost === 0 && nb.cat === 'تخصص من الهاتف',
+      'الصنف الجديد سُجّل في المنظومة برمز منها (' + (nb && nb.code) + ') وبياناته كلها', nb);
+    const pcs = await pc.evaluate(([x, y]) => ({ a: App.S.books.find(b => b.code === x), b: App.S.books.find(b => b.code === y), pur: App.S.purchases[0], n: App.S.purchases.length }), [b4.code, b5.code]);
+    ok(pcs.a.publisher === 'دار من الهاتف' && pcs.a.barcode === '9991112223334' && pcs.a.priceW === 9.5 && pcs.a.note === 'ملاحظة من الهاتف' && pcs.a.cat === 'تخصص من الهاتف' && pcs.a.min === 4 && pcs.a.store === 1 && pcs.a.cost === b4.cost,
+      'تعديل كل الحقول من الهاتف طُبّق في المنظومة (دار النشر، الباركود، سعر الجملة، الملاحظة، التخصص، حد التنبيه، غرفة الخزين) وسعر الشراء لم يُمسّ', pcs.a);
+    ok(pcs.b.qty === b5.qty + 7 && pcs.b.store === (b5.store || 0) + 7 && pcs.n === pur0 + 1 && pcs.pur.src === 'phone' && pcs.pur.lines[0].qty === 7 && pcs.pur.lines[0].cost === b5.cost && /فاتورة 12/.test(pcs.pur.note),
+      'إضافة الكمية: +7 في غرفة الخزين، وسُجّلت «إدخال بضاعة» بسعر الشراء المسجّل في المنظومة', { q: pcs.b.qty, st: pcs.b.store, pur: pcs.pur });
+    await sleep(2800);                                          // التأكيدات تُرفع بعدها وحدها
+    await p.evaluate(() => UI.refresh(true)); await sleep(2000);
+    const sts = await p.evaluate(i => [i.e, i.r, i.n].map(id => (Core.S.edits.find(z => z.id === id) || {}).status), ids);
+    ok(sts.join() === 'done,done,done', 'التأكيدات الثلاثة رجعت للهاتف (سُجّل)', sts);
+    await newCatalog('وقائمة جديدة بعد التعديلات الثلاثة');
+    const fin = await p.evaluate(([oldB, y]) => {
+      const all = Core.items(), nw = all.filter(g => g.n === 'كتاب أُضيف من الهاتف'), a = Core.byCode('9991112223334'), b = Core.byCode(y);
+      return { n: Core.info().n, all: all.length, nw: nw.map(g => ({ code: g.code, isNew: !!g.isNew, q: g.q, lib: g.lib })), a: a && { code: a.code, d: a.d, pw: a.pw, room: a.room, nt: a.nt, m: a.m }, old: !!Core.byCode(oldB), bq: b && b.q, broom: b && b.room };
+    }, [b4.barcode, b5.barcode]);
+    ok(fin.n === cat.n + 1 && fin.all === fin.n && fin.nw.length === 1 && !fin.nw[0].isNew && fin.nw[0].code === nb.code && fin.nw[0].q === 4 && fin.nw[0].lib === 'A',
+      'قائمة الفرع الجديدة فيها الكتاب الجديد برمزه، مرة واحدة (لا يتكرّر مع المنتظر)', fin);
+    ok(fin.a && fin.a.code === b4.code && fin.a.d === 'دار من الهاتف' && fin.a.pw === 9.5 && fin.a.room === 1 && fin.a.nt === 'ملاحظة من الهاتف' && fin.a.m === 4 && !fin.old, 'والكتاب المعدّل يُعثر عليه بباركوده الجديد (والقديم لم يعد)، وبياناته الجديدة', fin.a);
+    ok(fin.bq === b5.qty + 7 && fin.broom === (b5.store || 0) + 7, 'والكمية المضافة في القائمة مرة واحدة (لا تُجمع مرتين)', { q: fin.bq, room: fin.broom });
 
     ok(errs.length === 0, 'بلا أخطاء في الصفحات', errs.slice(0, 5));
     await ctx.close();

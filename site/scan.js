@@ -18,6 +18,7 @@ window.WebScan = (function () {
   var OPTS = { formats: ["EAN13", "EAN8", "UPCA", "UPCE", "Code128", "Code39"], tryHarder: true, maxNumberOfSymbols: 1 };
   var ready = null;      // وعد القارئ بعد تحميله
   var cur = null;        // جلسة المسح المفتوحة الآن
+  var pref = { beep: true, vib: true };   // من إعدادات التطبيق: صوت واهتزاز عند القراءة
 
   var IC = {
     x: "M6 6l12 12M18 6L6 18",
@@ -83,7 +84,8 @@ window.WebScan = (function () {
     try { st.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { }
   }
 
-  function open(cb) {
+  /* onClose: أُغلقت بلا قراءة (✕، أو خرج صاحب الهاتف من التطبيق) */
+  function open(cb, onClose) {
     if (cur) return;
     var ov = document.createElement("div");
     ov.className = "scanner";
@@ -106,7 +108,7 @@ window.WebScan = (function () {
     var video = ov.querySelector(".sc-video"), msg = ov.querySelector(".sc-msg"),
         frame = ov.querySelector(".sc-frame"), torchBtn = ov.querySelector('[data-sc="torch"]'),
         file = ov.querySelector(".sc-file");
-    var s = cur = { cb: cb, stream: null, timer: 0, busy: false, n: 0, done: false, ac: null, torch: false,
+    var s = cur = { cb: cb, onClose: onClose, hit: false, stream: null, timer: 0, busy: false, n: 0, done: false, ac: null, torch: false,
       cv: null, g: null, picking: false, starting: false };
 
     /* الصوت يحتاج لمسة من صاحب الجهاز — وهذه اللمسة هي فتح الكاميرا */
@@ -220,8 +222,9 @@ window.WebScan = (function () {
 
     function hit(code) {
       s.done = true;
-      beep(s.ac);
-      try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { }
+      s.hit = true;
+      if (pref.beep) beep(s.ac);
+      try { if (pref.vib && navigator.vibrate) navigator.vibrate(60); } catch (e) { }
       ov.classList.add("sc-ok");
       say(code);
       setTimeout(function () {
@@ -326,11 +329,17 @@ window.WebScan = (function () {
     document.body.classList.remove("scanning");
     var ac = s.ac;
     if (ac && ac.close) setTimeout(function () { try { ac.close(); } catch (e) { } }, 400);
+    if (!s.hit && s.onClose) { try { s.onClose(); } catch (e) { } }
   }
 
   return {
     open: open, close: close, live: live, read: read,
     isOpen: function () { return !!cur; },
-    preload: function () { return lib(); }
+    preload: function () { return lib(); },
+    set: function (o) {
+      if (!o) return;
+      if (o.beep !== undefined) pref.beep = !!o.beep;
+      if (o.vib !== undefined) pref.vib = !!o.vib;
+    }
   };
 })();

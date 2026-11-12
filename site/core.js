@@ -80,9 +80,26 @@ var Core = (function () {
       phone: { id: "phone-" + rand(8), name: "هاتف" },
       orders: [], edits: [], cart: [],
       sell: { disc: "", method: "cash", cust: "", paid: "" },
-      loc: { lib: "", shelf: "1", count: false, list: [] },
+      loc: { lib: "", shelf: "1", count: true, list: [] },
+      /* «إضافة كمية»: جلسة إدخال بضاعة تبقى حتى تُحفظ (ولو أُغلق التطبيق) */
+      recv: { dst: "shelf", sp: "", nt: "", lines: [] },
+      pref: {}, draft: {},
       bio: {}, pin: null, last: "", at: "", catVer: "", seen: {}
     };
+  }
+  /* الإعدادات وقيمها الأولى. lockMin: القفل بعد الغياب (دقائق) · every: التحديث التلقائي (0 = الأسرع المسموح،
+     ثوانٍ، −1 = يدوي) · cont: المسح المتواصل في البيع */
+  var PREF0 = {
+    font: "m", dark: "light", anim: true, payDef: "cash", camSell: true, cont: false, beep: true, vib: true,
+    autoPrint: false, lockMin: 2, every: 0, view: "list", type: "book", mode: "view",
+    nStock: true, nRestock: true, nDaily: true, nSync: true
+  };
+  function pref(k) { var p = (S && S.pref) || {}; return p[k] === undefined ? PREF0[k] : p[k]; }
+  function setPref(k, v) {
+    if (!S.pref || typeof S.pref !== "object") S.pref = {};
+    S.pref[k] = v;
+    save();
+    emit("pref", k);
   }
   function load() {
     var d = null;
@@ -92,6 +109,10 @@ var Core = (function () {
     Object.keys(b).forEach(function (k) { if (d[k] === undefined || d[k] === null && k !== "pin") d[k] = b[k]; });
     ["orders", "edits", "cart"].forEach(function (k) { if (!Array.isArray(d[k])) d[k] = []; });
     if (!d.loc || !Array.isArray(d.loc.list)) d.loc = b.loc;
+    d.loc.count = true;                                   // 3.0: الجرد فقط (تسجيل الأماكن وحده أُزيل)
+    if (!d.recv || !Array.isArray(d.recv.lines)) d.recv = b.recv;
+    if (!d.pref || typeof d.pref !== "object") d.pref = {};
+    if (!d.draft || typeof d.draft !== "object") d.draft = {};
     if (!/^phone-[a-z0-9]{6,}$/.test((d.phone && d.phone.id) || "")) d.phone = b.phone;
     if (!d.cfg || typeof d.cfg !== "object") d.cfg = b.cfg;
     /* فرع التطبيق من config.js يغلب: تطبيق طرابلس لا يصير تطبيق مصراتة برابط */
@@ -289,7 +310,7 @@ var Core = (function () {
       save();
       push();
       emit("busy", false);
-      emit("data", { acks: newly });
+      emit("data", { acks: newly, eds: newly.eds || [] });
       return true;
     }).catch(function (e) {
       busy = false;
@@ -321,28 +342,35 @@ var Core = (function () {
       t: i.t || "book", code: i.k || "", n: i.n || "", a: i.a || "", b: i.b || "", c: i.c || "",
       q: num(i.q), room: st, p: num(i.p), m: num(i.m),
       lib: book ? String(i.l || "") : "", shelf: book ? String(i.s || "") : "", loc: book ? "" : (i.loc || ""),
-      d: i.d || "", nt: i.nt || "", u: i.u || "", sl: num(i.sl), ls: i.ls || ""
+      d: i.d || "", nt: i.nt || "", u: i.u || "", sl: num(i.sl), ls: i.ls || "",
+      pw: num(i.pw), cf: i.cf || "", sp: i.sp || "", un: i.un ? 1 : 0
     };
   }
   function fromCat(a) {
     var book = a[0] !== "stat", pl = book ? parsePlace(a[9]) : { lib: "", shelf: "" };
     return {
       t: book ? "book" : "stat", code: a[1] || "", n: a[2] || "", a: a[3] || "", b: a[4] || "", c: a[5] || "",
-      q: num(a[6]), room: 0, wh: num(a[7]), p: num(a[8]) / 1000, m: 0,
+      q: num(a[6]), room: Math.min(Math.max(num(a[12]), 0), Math.max(num(a[6]), 0)), wh: num(a[7]), p: num(a[8]) / 1000, m: num(a[11]),
       lib: pl.lib, shelf: pl.shelf, loc: book ? (pl.lib || pl.shelf ? "" : String(a[9] || "")) : String(a[9] || ""),
-      d: "", nt: "", u: "", sl: 0, ls: ""
+      /* الأعمدة بعد العاشر (منظومة 4.2 فما فوق): دار النشر، حد التنبيه، غرفة الخزين، سعر الجملة،
+         التخصص الدقيق، الملاحظة، الوحدة، المورّد، لم يُجرد. منظومة أقدم: غير موجودة = فارغة */
+      d: a[10] || "", nt: a[15] || "", u: a[16] || "", sl: 0, ls: "",
+      pw: num(a[13]) / 1000, cf: a[14] || "", sp: a[17] || "", un: num(a[18]) ? 1 : 0
     };
   }
+  function hay(g) { return norm([g.n, g.a, g.b, g.code, g.c, g.d, g.cf].join(" ")); }
   function build() {
-    var m = mine(), list = [], by = {}, src = "none", srcAt = "";
+    var m = mine(), list = [], by = {}, byK = {}, src = "none", srcAt = "";
     if (m && m.items && m.items.length) { list = m.items.map(fromSnap); src = "snap"; srcAt = m.at || ""; }
     else if (data.cat) { list = data.cat.items.map(fromCat); src = "cat"; srcAt = data.cat.at || ""; }
     list.forEach(function (g) {
       g.key = itemKey(g.b, g.code, g.t, g.n);
+      g.ob = g.b;                                         // الباركود كما في المنظومة (التعديل يُرسل به)
       g.shelfQ = g.q - g.room;
       g.others = [];
-      g.h = norm([g.n, g.a, g.b, g.code, g.c, g.d].join(" "));
+      g.h = hay(g);
       if (!by[g.key]) by[g.key] = g;
+      if (g.code) { var ck = String(g.code).toUpperCase(); if (!byK[ck]) byK[ck] = g; }
     });
     /* الفروع الأخرى: من لقطاتها (فرع كبير بلا كتب في لقطته لا يظهر هنا) */
     branches().forEach(function (br) {
@@ -354,56 +382,119 @@ var Core = (function () {
       });
     });
     list.sort(function (x, y) { return x.n < y.n ? -1 : x.n > y.n ? 1 : 0; });
-    return { list: list, by: by, src: src, srcAt: srcAt };
+    return { list: list, by: by, byK: byK, src: src, srcAt: srcAt };
   }
-  /* بيع وتعديلات من هذا الهاتف لم تظهر بعد في البيانات: تُطبَّق على المعروض */
+  /* بيع وتعديلات من هذا الهاتف لم تظهر بعد في البيانات: تُطبَّق على المعروض.
+     التعديل يغيّر نسخة من الصنف، و«إضافة كمية» تزيد كميته، و«صنف جديد» يظهر أول القائمة
+     حتى تسجّله المنظومة ويصل في بياناتها */
+  function applySet(g, f) {
+    if (f.n) g.n = f.n;
+    if (f.a !== undefined) g.a = f.a;
+    if (f.d !== undefined) g.d = f.d;
+    if (f.sp !== undefined) g.sp = f.sp;
+    if (f.c !== undefined) g.c = f.c;
+    if (f.cf !== undefined) g.cf = f.cf;
+    if (f.bc !== undefined) g.b = f.bc;
+    if (f.p !== undefined) g.p = num(f.p);
+    if (f.pw !== undefined) g.pw = num(f.pw);
+    if (f.m !== undefined) g.m = num(f.m);
+    if (f.l !== undefined) g.lib = f.l;
+    if (f.s !== undefined) g.shelf = String(f.s);
+    if (f.loc !== undefined) g.loc = f.loc;
+    if (f.u !== undefined) g.u = f.u;
+    if (f.nt !== undefined) g.nt = f.nt;
+    if (f.qd) g.q += num(f.qd);
+    if (f.st !== undefined) g.room = Math.min(Math.max(num(f.st), 0), Math.max(g.q, 0));
+    if (f.cnt) g.un = 0;
+    g.room = Math.min(g.room, Math.max(g.q, 0));
+    g.shelfQ = g.q - g.room;
+  }
+  function newGhost(e) {
+    var f = e.set || {}, book = e.t !== "stat", q = Math.max(num(f.q), 0), store = f.dst === "store";
+    var g = {
+      t: book ? "book" : "stat", code: "", n: f.n || "", a: f.a || "", b: f.bc || "", c: f.c || "",
+      q: q, room: store ? q : 0, wh: 0, p: num(f.p), m: num(f.m),
+      lib: book && !store ? (f.l || "") : "", shelf: book && !store ? String(f.s || "") : "", loc: book || store ? "" : (f.loc || ""),
+      d: f.d || "", nt: f.nt || "", u: f.u || "", sl: 0, ls: "", pw: num(f.pw), cf: f.cf || "", sp: f.sp || "", un: 0,
+      key: "new:" + e.id, ob: "", others: [], isNew: true, editing: true, newSt: e.status
+    };
+    g.shelfQ = g.q - g.room;
+    g.h = hay(g);
+    return g;
+  }
   function adjusted(c) {
     var catAt = c.src === "cat" ? c.srcAt : "";
-    var live = function (x) { return x.status === "pending" || (catAt && x.status === "done" && String(x.at) > catAt); };
+    var live = function (x) {
+      return x.status === "pending" || (catAt && (x.status === "done" || x.status === "part") && String(x.at) > catAt);
+    };
     var ords = S.orders.filter(live), eds = S.edits.filter(live);
     if (!ords.length && !eds.length) return c.list;
-    var touched = {};
+    var touched = {}, ghosts = [], names = null;
     function hit(b, k) {
-      var g = (b && c.by["b:" + String(b).trim()]) || (k && c.by["k:" + String(k).trim().toUpperCase()]);
+      var g = (b && c.by["b:" + String(b).trim()]) || (k && (c.by["k:" + String(k).trim().toUpperCase()] || c.byK[String(k).trim().toUpperCase()]));
       if (!g) return null;
       if (!touched[g.key]) { touched[g.key] = Object.assign({}, g); }
       return touched[g.key];
     }
+    /* صنف جديد سجّلته المنظومة ووصل في البيانات: لا يُعرض مرتين */
+    function arrived(e) {
+      var f = e.set || {};
+      if (f.bc && c.by["b:" + String(f.bc).trim()]) return true;
+      if (e.status === "pending") return false;
+      if (!names) { names = {}; c.list.forEach(function (g) { names[g.t + "|" + norm(g.n)] = 1; }); }
+      return !!names[(e.t === "stat" ? "stat" : "book") + "|" + norm(f.n)];
+    }
     eds.slice().reverse().forEach(function (e) {
+      if (e.kind === "new") { if (!arrived(e)) ghosts.unshift(newGhost(e)); return; }
+      if (e.kind === "recv") {
+        (e.lines || []).forEach(function (l) {
+          var r = hit(l.b, l.k);
+          if (!r) return;
+          r.q += num(l.q);
+          if (e.dst === "store") r.room += num(l.q);
+          r.shelfQ = r.q - r.room;
+          r.editing = true;
+        });
+        return;
+      }
       var g = hit(e.b, e.k);
       if (!g) return;
-      var f = e.set || {};
-      if (f.n) { g.n = f.n; }
-      if (f.a !== undefined) g.a = f.a;
-      if (f.p !== undefined) g.p = num(f.p);
-      if (f.m !== undefined) g.m = num(f.m);
-      if (f.l !== undefined) g.lib = f.l;
-      if (f.s !== undefined) g.shelf = String(f.s);
-      if (f.loc !== undefined) g.loc = f.loc;
-      if (f.qd) { g.q += num(f.qd); g.shelfQ += num(f.qd); }
+      applySet(g, e.set || {});
       g.editing = true;
-      g.h = norm([g.n, g.a, g.b, g.code, g.c, g.d].join(" "));
+      g.h = hay(g);
     });
     ords.forEach(function (o) {
       (o.items || []).forEach(function (l) {
         var g = hit(l.b, l.k);
         if (!g) return;
-        g.q -= num(l.q); g.shelfQ -= num(l.q); g.pend = (g.pend || 0) + num(l.q);
+        g.q -= num(l.q); g.pend = (g.pend || 0) + num(l.q);
+        g.room = Math.min(g.room, Math.max(g.q, 0));
+        g.shelfQ = g.q - g.room;
         if (l.zp && num(l.p) > 0 && !(g.p > 0)) g.p = num(l.p);
       });
     });
-    return c.list.map(function (g) { return touched[g.key] || g; });
+    var out = c.list.map(function (g) { return touched[g.key] || g; });
+    return ghosts.length ? ghosts.concat(out) : out;
   }
   var built = null, builtVer = -1, adjKey = "";
   function items() {
     if (builtVer !== ver || !built) { built = build(); builtVer = ver; cache = null; }
     var k = S.orders.length + ":" + S.edits.length + ":" + S.orders.map(function (o) { return o.status; }).join("") +
-      S.edits.map(function (e) { return e.status; }).join("");
+      S.edits.map(function (e) { return e.status + (e.rev || 0); }).join("");
     if (!cache || adjKey !== k) { cache = adjusted(built); adjKey = k; }
     return cache;
   }
   function info() { items(); return { src: built.src, at: built.srcAt, n: built.list.length }; }
-  function byKey(key) { return items().filter(function (g) { return g.key === key; })[0] || null; }
+  /* فهرس بالمفتاح: السلة وصفحة الصنف تسألان عنه مع كل رسم (61 ألف صنف في طرابلس) */
+  var keyOf = null, keyMap = null;
+  function byKey(key) {
+    var all = items();
+    if (keyOf !== all) {
+      keyOf = all; keyMap = {};
+      for (var i = 0; i < all.length; i++) if (!keyMap[all[i].key]) keyMap[all[i].key] = all[i];
+    }
+    return keyMap[key] || null;
+  }
   function byCode(code) {
     var c = String(code || "").trim();
     if (!c) return null;
@@ -413,6 +504,79 @@ var Core = (function () {
     return null;
   }
   function invalidate() { ver++; }
+
+  /* ---------- قوائم النماذج والرفوف ----------
+     ما تختار منه نماذج «إضافة وتعديل»: الخزائن وعدد الرفوف والوحدات والتصنيفات ودور النشر
+     والموردون. من المنظومة (ph في لقطتها، 4.2 فما فوق) ومما في الأصناف نفسها */
+  function proto() { var m = mine(); return num(m && m.ph && m.ph.v); }
+  var listsOf = null, listsCache = null;
+  function lists() {
+    var all = items();
+    if (listsOf === all && listsCache) return listsCache;
+    var m = mine() || {}, ph = m.ph || {}, sh = shop();
+    var cb = {}, cs = {}, pubs = {}, libs = {}, maxShelf = 0;
+    (ph.bcats || []).forEach(function (c) { if (c) cb[c] = cb[c] || 0; });
+    (ph.scats || []).forEach(function (c) { if (c) cs[c] = cs[c] || 0; });
+    (ph.pubs || []).forEach(function (x) { if (x) pubs[x] = pubs[x] || 0; });
+    (ph.libs || sh.libs || []).forEach(function (l) { if (l) libs[l] = 1; });
+    for (var i = 0; i < all.length; i++) {
+      var g = all[i];
+      if (g.t === "book") {
+        if (g.c) cb[g.c] = (cb[g.c] || 0) + 1;
+        if (g.d) pubs[g.d] = (pubs[g.d] || 0) + 1;
+        if (g.lib && /^[A-Za-z\u0600-\u06FF0-9]{1,3}$/.test(g.lib)) libs[g.lib] = 1;
+        var sn = parseInt(g.shelf, 10);
+        if (sn > maxShelf && sn < 100) maxShelf = sn;
+      } else if (g.c) cs[g.c] = (cs[g.c] || 0) + 1;
+    }
+    var byCount = function (o) { return Object.keys(o).sort(function (a, b) { return o[b] - o[a] || (a < b ? -1 : 1); }); };
+    var libList = Object.keys(libs).sort();
+    if (!libList.length) libList = "ABCDEFGH".split("");
+    listsOf = all;
+    listsCache = {
+      bcats: byCount(cb), scats: byCount(cs), bcount: cb, scount: cs, pubs: byCount(pubs),
+      libs: libList, shelves: Math.max(num(ph.shelves) || 6, maxShelf),
+      units: (ph.units && ph.units.length ? ph.units : ["قطعة", "علبة", "دزينة", "رزمة", "طقم", "متر", "كيلو"]).slice(),
+      sups: (m.sup || []).slice()
+    };
+    return listsCache;
+  }
+  function byType(t) {
+    var all = items();
+    if (byType.of !== all) { byType.of = all; byType.c = {}; }
+    if (!byType.c[t]) byType.c[t] = all.filter(function (g) { return g.t === t; });
+    return byType.c[t];
+  }
+  /* خريطة الرفوف: كل خزانة ورفوفها وعدد العناوين والنسخ على كل رف (والقرطاسية: حسب مكانها) */
+  function shelfMap(t) {
+    var list = byType(t);
+    if (shelfMap.of === list && shelfMap.t === t) return shelfMap.c;
+    var libs = {}, none = { n: 0, q: 0 }, total = 0;
+    list.forEach(function (g) {
+      var a = t === "book" ? g.lib : g.loc, b = t === "book" ? String(g.shelf || "") : "";
+      var q = Math.max(t === "book" ? g.shelfQ : g.q, 0);
+      total++;
+      if (!a && !b) { none.n++; none.q += q; return; }
+      var L = libs[a || "؟"] || (libs[a || "؟"] = { lib: a || "؟", n: 0, q: 0, sh: {} });
+      L.n++; L.q += q;
+      var sh = L.sh[b] || (L.sh[b] = { s: b, n: 0, q: 0 });
+      sh.n++; sh.q += q;
+    });
+    var out = Object.keys(libs).sort().map(function (k) {
+      var L = libs[k];
+      L.shelves = Object.keys(L.sh).map(function (x) { return L.sh[x]; }).sort(function (x, y) {
+        var nx = parseInt(x.s, 10), ny = parseInt(y.s, 10);
+        if (isNaN(nx) !== isNaN(ny)) return isNaN(nx) ? 1 : -1;
+        return isNaN(nx) ? (x.s < y.s ? -1 : 1) : nx - ny;
+      });
+      L.max = L.shelves.reduce(function (a, x) { return Math.max(a, x.n); }, 1);
+      delete L.sh;
+      return L;
+    });
+    shelfMap.of = list; shelfMap.t = t;
+    shelfMap.c = { libs: out, none: none, total: total };
+    return shelfMap.c;
+  }
 
   /* ---------- البحث المتسامح (نفس طريقة المنظومة) ----------
      المطابق أولاً (كل كلمة موجودة بأي ترتيب)؛ ولا مطابق = القريب: كلمة
@@ -676,36 +840,75 @@ var Core = (function () {
     S.orders.unshift(o);
     if (S.orders.length > 120) S.orders.length = 120;
     S.cart = [];
-    S.sell = { disc: "", method: "cash", cust: "", paid: "" };
+    S.sell = { disc: "", method: pref("payDef") === "card" ? "card" : "cash", cust: "", paid: "" };
     S.pushedEmpty = false;
     save();
     push();
     return { order: o };
   }
 
-  /* ---------- التعديل ---------- */
-  function editItem(g, set) {
+  /* ---------- التعديل، والصنف الجديد، وإضافة الكمية ----------
+     كلها تُكتب في ملف هذا الهاتف على خادم الربط، والمنظومة تطبّقها وتعيد تأكيدها.
+     الصنف يُعرَّف برمزه وبباركوده كما في المنظومة (ob)، لا بما عدّلناه هنا ولم يصلها بعد */
+  function newEdit(o) {
     var m = mine();
-    S.edits.unshift(stamp({ id: "e" + Date.now().toString(36) + rand(4), b: g.b || "", k: g.code || "", n: g.n, set: set,
-      at: nowStamp(), status: "pending", to: m && m.branch ? m.branch.id : "" }));
+    o.id = "e" + Date.now().toString(36) + rand(4);
+    o.at = nowStamp(); o.status = "pending"; o.to = m && m.branch ? m.branch.id : "";
+    S.edits.unshift(stamp(o));
     if (S.edits.length > 200) S.edits.length = 200;
+    S.pushedEmpty = false;
+    save();
+    return o;
+  }
+  function refOf(g) { return { b: (g.ob !== undefined ? g.ob : g.b) || "", k: g.code || "" }; }
+  function editItem(g, set) {
+    var r = refOf(g);
+    newEdit({ b: r.b, k: r.k, n: g.n, set: set });
+    push();
+  }
+  /* صنف جديد: t = book أو stat، وset فيه كل حقوله (q الكمية، dst: shelf أو store) */
+  function newItem(t, set) {
+    var e = newEdit({ kind: "new", t: t === "stat" ? "stat" : "book", n: set.n, set: set });
+    push();
+    return e;
+  }
+  /* إضافة كمية: سطور {b, k, n, q}، والوجهة (shelf أو store)، والمورّد والملاحظة اختياريان */
+  function receive(lines, opt) {
+    opt = opt || {};
+    var ls = lines.filter(function (l) { return num(l.q) > 0; }).map(function (l) { return { b: l.b || "", k: l.k || "", n: l.n || "", q: Math.floor(num(l.q)) }; });
+    if (!ls.length) return null;
+    var e = newEdit({ kind: "recv", n: ls.length === 1 ? ls[0].n : ls.length + " أصناف", lines: ls,
+      dst: opt.dst === "store" ? "store" : "shelf", sp: opt.sp || "", nt: String(opt.nt || "").trim().slice(0, 200) });
+    push();
+    return e;
+  }
+  /* الجرد: تعديل الصنف نفسه يُدمج ما دام لم يُرسل */
+  var locT = null;
+  function queueLoc(g, set) {
+    var r = refOf(g), e = S.edits.filter(function (x) {
+      return x.status === "pending" && !x.sent && x.loc && !x.kind && ((x.b && x.b === r.b) || (!x.b && x.k === r.k));
+    })[0];
+    if (e) {
+      Object.keys(set).forEach(function (k) { if (k === "qd") e.set.qd = num(e.set.qd) + num(set.qd); else e.set[k] = set[k]; });
+      e.rev = (e.rev || 0) + 1;
+      S.pushedEmpty = false;
+      save();
+    } else newEdit({ b: r.b, k: r.k, n: g.n, set: set, loc: 1 });
+    clearTimeout(locT);
+    locT = setTimeout(push, 1500);
+  }
+  /* ما لم تسجّله المنظومة يُعاد إرساله (زر «أعد الإرسال» في سجل الهاتف) */
+  function resend() {
+    S.orders.concat(S.edits).forEach(function (x) { if (x.status === "pending") x.sent = false; });
     S.pushedEmpty = false;
     save();
     push();
   }
-  /* الأماكن: تعديل الكتاب نفسه يُدمج ما دام لم يُرسل */
-  var locT = null;
-  function queueLoc(g, set) {
-    var m = mine(), e = S.edits.filter(function (x) {
-      return x.status === "pending" && !x.sent && x.loc && ((x.b && x.b === g.b) || (!x.b && x.k === g.code));
-    })[0];
-    if (e) Object.keys(set).forEach(function (k) { if (k === "qd") e.set.qd = num(e.set.qd) + num(set.qd); else e.set[k] = set[k]; });
-    else S.edits.unshift(stamp({ id: "e" + Date.now().toString(36) + rand(4), b: g.b || "", k: g.code || "", n: g.n, set: set, loc: 1,
-      at: nowStamp(), status: "pending", to: m && m.branch ? m.branch.id : "" }));
+  function dropEdit(id) {
+    S.edits = S.edits.filter(function (e) { return !(e.id === id && e.status === "pending" && !e.sent); });
     S.pushedEmpty = false;
     save();
-    clearTimeout(locT);
-    locT = setTimeout(push, 1500);
+    push();
   }
 
   /* ---------- الإرسال والتأكيدات ---------- */
@@ -719,10 +922,14 @@ var Core = (function () {
     pushing = true;
     var body = {
       kind: "phone", at: nowStamp(), branch: { id: S.phone.id, name: S.phone.name || "هاتف" }, items: [],
-      orders: pend.map(function (o) {
+      /* الأقدم أولاً: المنظومة تطبّقها بترتيب حدوثها (تعديلان لحقل واحد: الأخير هو الباقي،
+         وأرقام الفواتير بترتيب البيع) */
+      orders: pend.slice().reverse().map(function (o) {
         return { id: o.id, date: o.date, at: o.at, items: o.items, disc: o.disc, method: o.method, cust: o.cust, paid: o.paid, to: o.to || "", by: o.by, byName: o.byName };
       }),
-      edits: pendE.map(function (e) { return { id: e.id, b: e.b, k: e.k, set: e.set, to: e.to || "", by: e.by }; })
+      edits: pendE.slice().reverse().map(function (e) {
+        return { id: e.id, kind: e.kind, t: e.t, b: e.b, k: e.k, set: e.set, lines: e.lines, dst: e.dst, sp: e.sp || undefined, nt: e.nt || undefined, to: e.to || "", by: e.by };
+      })
     };
     fetch(base() + "/put", {
       method: "POST", cache: "no-store", headers: hdr({ "Content-Type": "application/json" }), body: JSON.stringify(body)
@@ -733,7 +940,7 @@ var Core = (function () {
       S.pushedEmpty = !pend.length && !pendE.length;
       save();
       emit("sent", pend.length + pendE.length);
-    }).catch(function () { /* بلا إنترنت: تبقى وتُرسل لاحقاً */ }).then(function () {
+    }).catch(function () { /* بلا إنترنت: تبقى وتُرسل لاحقاً */ emit("sendfail"); }).then(function () {
       pushing = false;
       if (pushAgain) { pushAgain = false; push(); }
     });
@@ -751,12 +958,16 @@ var Core = (function () {
       changed = true;
       if (o.status === "done") newly.push(o);
     });
+    var eds = [];
     S.edits.forEach(function (e) {
       if (e.status !== "pending" || !(e.id in acks)) return;
-      e.status = acks[e.id] ? "done" : "fail";
+      /* 1 طُبّق · 2 طُبّق بعضه (باركود مستعمل، أو سطر غير موجود) · 0 لم يُطبَّق */
+      e.status = num(acks[e.id]) === 2 ? "part" : acks[e.id] ? "done" : "fail";
       changed = true;
+      eds.push(e);
     });
     if (changed) S.pushedEmpty = false;
+    newly.eds = eds;
     return newly;
   }
 
@@ -797,6 +1008,24 @@ var Core = (function () {
     return true;
   }
 
+  /* ---------- حالة التحديث (السطر أعلى كل شاشة) ---------- */
+  function syncState() {
+    var on = !(typeof navigator !== "undefined" && navigator.onLine === false);
+    var mins = S.at ? Math.round((Date.now() - new Date(String(S.at).replace(" ", "T")).getTime()) / 60000) : -1;
+    return { busy: busy, at: S.at || "", err: lastErr, online: on, pending: pending(), mins: mins,
+      level: busy ? "busy" : (!on || lastErr) ? "bad" : (mins < 0 || mins > 30) ? "old" : "ok" };
+  }
+  /* تنزيل قائمة الكتب من جديد (الإعدادات): تُنسى نسختها فتُجلب كاملة في التحديث القادم */
+  function resetCatalog() {
+    S.catVer = ""; data.cat = null; ver++;
+    drop("cat");
+    save();
+  }
+  function clearPin() { S.pin = null; if (S.bio) delete S.bio._; save(); }
+  function failed() {
+    return S.orders.filter(function (o) { return o.status === "fail"; }).length + S.edits.filter(function (e) { return e.status === "fail"; }).length;
+  }
+
   /* ---------- الأحداث للشاشات ---------- */
   function on(fn) { listeners.push(fn); }
   function emit(type, arg) { listeners.forEach(function (f) { try { f(type, arg); } catch (e) { } }); }
@@ -827,6 +1056,9 @@ var Core = (function () {
     configured: configured, parseLink: parseLink, setLink: setLink, unlink: unlink, refresh: refresh, isBusy: function () { return busy; }, lastError: function () { return lastErr; }, badKeyChars: badKeyChars,
     mine: mine, branches: branches, shop: shop, cur: cur, branchId: branchId,
     items: items, info: info, byKey: byKey, byCode: byCode, search: search, invalidate: invalidate,
+    proto: proto, lists: lists, byType: byType, shelfMap: shelfMap, pref: pref, setPref: setPref, PREF0: PREF0,
+    newItem: newItem, receive: receive, resend: resend, dropEdit: dropEdit, syncState: syncState, resetCatalog: resetCatalog,
+    clearPin: clearPin, failed: failed, itemKey: itemKey,
     staffInfo: staffInfo, people: people, personOf: personOf, roleOf: roleOf, canP: canP, who: who,
     needsPin: needsPin, locked: locked, login: login, setPin: setPin, pinOk: pinOk, lock: lock,
     bioAvail: bioAvail, bioRec: bioRec, bioEnroll: bioEnroll, bioCheck: bioCheck, bioOff: bioOff, bioDone: bioDone, bioWord: bioWord,
