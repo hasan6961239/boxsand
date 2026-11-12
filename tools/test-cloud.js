@@ -61,6 +61,20 @@ function ok(cond, name, detail) {
     noD1.env.SHOP.map.delete('branch:tripoli');
     all = await (await fetch(noD1.url + '/all', { headers: { 'X-Shop-Key': 'x' } })).json();
     ok(all.branches.length === 2 && JSON.parse(noD1.env.SHOP.map.get('index:branches')).indexOf('tripoli') < 0, 'لقطة انتهى عمرها تخرج من الفهرس');
+    /* لقطة بحجم مصراتة (نصف ميغا): تُحفظ كما وصلت ومعها serverAt — لا تُكتب من جديد (كانت تتجاوز حدّ
+       وقت الحساب 10 ms فيردّ Cloudflare بالرمز 503) */
+    const bigSnap = { branch: { id: 'misrata', name: 'مصراتة' }, at: '2026-11-12 18:00', items: Array.from({ length: 1800 }, (_, i) => ({ k: 'K' + i, t: 'book', n: 'كتاب رقم ' + i + ' }', a: 'مؤلف', b: '978' + i, q: i % 9, p: 12.5, nt: 'ملاحظة طويلة '.repeat(8) })) };
+    /* بمسافات بين الحقول: إعادة الكتابة (القديمة) تحذفها، والحفظ كما وصل يُبقيها */
+    const bigRaw = JSON.stringify(bigSnap, null, 1);
+    const pr = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: bigRaw + '\n' });
+    const stored = noD1.env.SHOP.map.get('branch:misrata');
+    ok(pr.status === 200 && stored.indexOf(bigRaw.slice(0, -1)) === 0 && /,"serverAt":"\d{4}-\d\d-\d\dT[^"]+"\}$/.test(stored) && JSON.parse(stored).items.length === 1800,
+      'لقطة كبيرة (' + Math.round(bigRaw.length / 1024) + ' ك.ب): تُحفظ نصّها كما وصل ومعها serverAt (بلا إعادة كتابة)', stored && stored.slice(-60));
+    all = await (await fetch(noD1.url + '/all', { headers: { 'X-Shop-Key': 'x' } })).json();
+    ok(all.ok && all.branches.find(b => b.branch.id === 'misrata').items[1799].n === 'كتاب رقم 1799 }', 'و/all يقرؤها سليمة');
+    const bad = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: bigRaw.slice(0, -3) });
+    const arr = await fetch(noD1.url + '/put', { method: 'POST', headers: { 'X-Shop-Key': 'x', 'Content-Type': 'application/json' }, body: '[{"branch":{"id":"x"}}]' });
+    ok(bad.status === 400 && arr.status === 400 && JSON.parse(noD1.env.SHOP.map.get('branch:misrata')).items.length === 1800, 'ونصّ مقطوع أو غير كائن يُرفض ولا يمسّ المحفوظ', [bad.status, arr.status]);
     await noD1.close();
 
     console.log('\n== جهاز المحل ==');
