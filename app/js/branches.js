@@ -35,7 +35,8 @@ var Stock = (function () {
       items: light ? [] : App.allItems().map(function (x) {
         var it = x.it;
         return {
-          k: it.code || "", t: x.type, n: App.itemName(it), a: it.author || "",
+          /* a: المؤلف للكتاب والماركة للقرطاسية (كانت الماركة لا تُرفع فتظهر فارغة في التلفون) */
+          k: it.code || "", t: x.type, n: App.itemName(it), a: it.author || it.brand || "",
           b: it.barcode || "", c: it.cat || "",
           q: App.num(it.qty), p: App.num(it.price), m: App.num(it.min),
           /* منها في غرفة الخزين (يُحذف إن كان صفراً فتبقى اللقطة صغيرة).
@@ -47,7 +48,11 @@ var Stock = (function () {
           l: it.lib || "", s: it.shelf || "", loc: it.loc || "",
           /* الناشر والملاحظة يظهران في صفحة الكتاب على الموقع.
              سعر الشراء والربح لا يُرفعان أبداً. */
-          d: it.publisher || "", nt: it.note || "", u: it.unit || ""
+          d: it.publisher || "", nt: it.note || "", u: it.unit || "",
+          /* للتعديل الكامل من التلفون (3.0): سعر الجملة، التخصص الدقيق، المورّد، و«لم يُجرد بعد» (طرابلس).
+             تُحذف إن كانت فارغة فتبقى اللقطة صغيرة */
+          pw: App.num(it.priceW) || undefined, cf: it.catFull || undefined,
+          sp: it.supplierId || undefined, un: it.uncounted ? 1 : undefined
         };
       }),
       /* المخازن اليدوية ترافق اللقطة بأسماء أصنافها محلولة، ليعرضها
@@ -70,14 +75,43 @@ var Stock = (function () {
       /* لتطبيق التلفون: لوحة اليوم (مبيعات بلا أرباح ولا تكلفة)، والزبائن
          وديونهم، وتأكيد فواتير التلفون التي سُجّلت هنا. */
       dash: dashSummary(),
-      cust: light ? undefined : S().customers.map(function (c) {
-        return { id: c.id, n: c.name || "", ph: c.phone || "", b: App.r3(App.num(c.balance)) };
-      }),
+      cust: phoneCust(light),
+      /* الموردون وما علينا لكل واحد: صفحة «الديون» في التلفون (بصلاحية الديون) */
+      sup: phoneSup(),
       acks: phoneAcks(),
       phoneSell: S().meta.phoneSales !== false,
       /* طرابلس: دخول الموظفين في التلفون (بصمات كلمات السر فقط)، واسم المكتبة وشعارها */
       staff: phoneStaff(),
-      shop: phoneShop()
+      shop: phoneShop(),
+      /* ما يفهمه هذا الجهاز من التلفون (v 3: كل الحقول، إضافة كمية، صنف جديد)، وقوائم النماذج */
+      ph: phoneForms()
+    };
+  }
+
+  /* الزبائن وديونهم. فرع كبير: لقطته تبقى صغيرة (الـWorker يحلّلها في حدّ 10 ميلي ثانية)، فإن
+     كثروا رُفع من عليهم دين أولاً، بحدّ */
+  var CUST_LIGHT = 400;
+  function phoneCust(light) {
+    var cs = S().customers || [];
+    if (light && cs.length > CUST_LIGHT) {
+      cs = cs.slice().sort(function (a, b) { return App.num(b.balance) - App.num(a.balance); }).slice(0, CUST_LIGHT);
+    }
+    return cs.map(function (c) {
+      return { id: c.id, n: c.name || "", ph: c.phone || "", b: App.r3(App.num(c.balance)) };
+    });
+  }
+  function phoneSup() {
+    if (typeof People === "undefined" || !People.supDebt) return undefined;
+    return (S().suppliers || []).slice(0, 400).map(function (s) {
+      return { id: s.id, n: s.name || "", ph: s.phone || "", b: App.r3(People.supDebt(s)) };
+    });
+  }
+  function phoneForms() {
+    var m = S().meta || {};
+    return {
+      v: 3, libs: (m.libraries || []).slice(0, 80), shelves: App.num(m.shelves) || 6,
+      units: (m.units || []).slice(0, 60), bcats: (m.bookCats || []).slice(0, 400), scats: (m.statCats || []).slice(0, 200),
+      pubs: (S().publishers || []).slice(0, 600).map(function (p) { return p.name || ""; }).filter(Boolean)
     };
   }
 
@@ -112,16 +146,41 @@ var Stock = (function () {
         (v.items || []).forEach(function (l) { g.q += App.num(l.qty); });
       }
     });
-    S().invoices.slice(0, 15).forEach(function (v) {
-      var c = v.customerId && typeof People !== "undefined" ? People.customer(v.customerId) : null;
+    /* آخر 40 فاتورة بسطورها (حتى 12 سطراً لكل واحدة): صفحة «الفواتير» في التلفون تفتح الفاتورة.
+       بلا ربح ولا تكلفة */
+    var custName = {};
+    function cname(id) {
+      if (!id) return "";
+      if (custName[id] === undefined) {
+        var c = typeof People !== "undefined" ? People.customer(id) : null;
+        custName[id] = c ? (c.name || "") : "";
+      }
+      return custName[id];
+    }
+    S().invoices.slice(0, 40).forEach(function (v) {
+      var its = v.items || [];
       recent.push({
         no: v.no, d: v.date, at: String(v.at || "").slice(11, 16), t: App.r3(App.num(v.total)),
-        m: v.method || "", k: v.kind || "sale", c: c ? c.name : "", ph: v.source === "phone" ? 1 : undefined,
-        n: (v.items || []).map(function (l) { return l.name; }).slice(0, 4).join("، "),
-        q: (v.items || []).reduce(function (a, l) { return a + App.num(l.qty); }, 0)
+        m: v.method || "", k: v.kind || "sale", c: cname(v.customerId), ph: v.source === "phone" ? 1 : undefined,
+        n: its.map(function (l) { return l.name; }).slice(0, 4).join("، "),
+        q: its.reduce(function (a, l) { return a + App.num(l.qty); }, 0),
+        li: its.slice(0, 12).map(function (l) { return [String(l.name || "").slice(0, 80), App.num(l.qty), App.r3(App.num(l.price))]; }),
+        ds: App.num(v.discount) ? App.r3(App.num(v.discount)) : undefined,
+        due: App.num(v.due) > 0 ? App.r3(App.num(v.due)) : undefined,
+        by: v.byName || undefined
       });
     });
-    return { today: today, days: by, recent: recent, cur: S().meta.currency || "" };
+    /* آخر 60 فاتورة بيع آجل: صفحة «الآجل» في التلفون (الزبون، المبلغ، المدفوع عند البيع، الباقي) */
+    var credit = [], all = S().invoices;
+    for (var i = 0; i < all.length && credit.length < 60; i++) {
+      var v = all[i];
+      if (v.method !== "credit" || v.kind === "return") continue;
+      credit.push({
+        no: v.no, d: v.date, at: String(v.at || "").slice(11, 16), c: cname(v.customerId), cid: v.customerId || "",
+        t: App.r3(App.num(v.total)), pd: App.r3(App.num(v.paid)), due: App.r3(App.num(v.due))
+      });
+    }
+    return { today: today, days: by, recent: recent, credit: credit, cur: S().meta.currency || "" };
   }
 
   /* ---------- البيع من التلفون ----------
@@ -180,43 +239,69 @@ var Stock = (function () {
     return n;
   }
   /* ---------- التعديل من التلفون ----------
-     الاسم، المؤلف/الماركة، السعر، حد التنبيه، المكان، والكمية فرقاً
-     (+3 أو −2) لا رقماً مطلقاً: ما بيع هنا بين التعديل ووصوله يبقى
-     محسوباً. مرة واحدة لكل تعديل، ويعود تأكيده للتلفون. */
+     كل حقول الصنف كما في نموذج الكمبيوتر (الاسم، المؤلف/الماركة، دار النشر، المورّد، التصنيف،
+     التخصص الدقيق، الباركود، السعران، حد التنبيه، المكان، الوحدة، الملاحظة) — إلا سعر الشراء:
+     لا يمرّ على خادم الربط أبداً. والكمية فرقاً (+3 أو −2) لا رقماً مطلقاً: ما بيع هنا بين
+     التعديل ووصوله يبقى محسوباً. ومعها نوعان: «صنف جديد» (kind: new) و«إضافة كمية»
+     (kind: recv، تُسجَّل إدخال بضاعة). مرة واحدة لكل تعديل، ويعود تأكيده للتلفون:
+     1 طُبّق · 2 طُبّق بعضه (باركود مستعمل، أو سطر غير موجود) · 0 لم يُطبَّق */
   function takePhoneEdits(list) {
     if (S().meta.phoneSales === false) return 0;
     var done = phoneDone(), n = 0;
+    pIdx = null;
     list.forEach(function (snap) {
       if (!snap || snap.kind !== "phone" || !Array.isArray(snap.edits)) return;
       snap.edits.forEach(function (e) {
         if (!e || !e.id || done[e.id] !== undefined) return;
         if (e.to && e.to !== S().branch.id) return;
-        done[e.id] = applyPhoneEdit(e, (snap.branch && snap.branch.name) || "التلفون") ? 1 : 0;
+        var r = applyPhoneEdit(e, (snap.branch && snap.branch.name) || "التلفون");
+        done[e.id] = r === 2 ? 2 : r ? 1 : 0;
         if (done[e.id]) n++;
       });
     });
+    pIdx = null;
     if (n) { App.save(); App.toast(n === 1 ? "وصل تعديل صنف من التلفون" : "وصلت " + n + " تعديلات من التلفون", "ok"); }
     return n;
   }
-  function applyPhoneEdit(e, device) {
-    var hit = null, bc = String(e.b || "").trim(), code = String(e.k || "").trim().toUpperCase();
-    App.allItems().forEach(function (x) {
-      if (hit) return;
-      if ((bc && String(x.it.barcode || "").trim() === bc) ||
-          (code && String(x.it.code || "").trim().toUpperCase() === code)) hit = x;
+  /* فهرس الأصناف بالرمز والباركود: جلسة جرد ترسل مئات التعديلات، وكل تعديل كان يمرّ على
+     الأصناف كلها (61 ألفاً في طرابلس). يُبنى مرة لكل دفعة، ويُعاد إن تغيّر باركود أو أُضيف صنف */
+  var pIdx = null;
+  function phoneIndex() {
+    if (pIdx) return pIdx;
+    var byK = Object.create(null), byB = Object.create(null);
+    ["book", "stat"].forEach(function (type) {
+      (App.listOf(type) || []).forEach(function (it) {
+        var k = String(it.code || "").trim().toUpperCase(), b = String(it.barcode || "").trim();
+        if (k && !byK[k]) byK[k] = { it: it, type: type };
+        if (b && !byB[b]) byB[b] = { it: it, type: type };
+      });
     });
+    pIdx = { k: byK, b: byB };
+    return pIdx;
+  }
+  /* الرمز أولاً (لا يتغيّر ولا يتكرّر)، ثم الباركود */
+  function phoneFind(b, k) {
+    var ix = phoneIndex(), code = String(k || "").trim().toUpperCase(), bc = String(b || "").trim();
+    return (code && ix.k[code]) || (bc && ix.b[bc]) || null;
+  }
+  function ptxt(v, max) { return String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, max || 300); }
+  /* صلاحية كل حقل حين يكون الموظفون مفعّلين — كما في نموذج الكمبيوتر */
+  var PHONE_GATE = {
+    n: "items", a: "items", d: "items", c: "items", cf: "items", bc: "items", u: "items", nt: "items",
+    sp: ["items", "goods"], p: "price", pw: "price", m: ["goods", "items"],
+    qd: ["count", "goods"], st: ["count", "goods"], l: ["items", "count"], s: ["items", "count"], loc: ["items", "count"]
+  };
+  function applyPhoneEdit(e, device) {
+    if (e.kind === "new") return phoneNewItem(e, device);
+    if (e.kind === "recv") return phoneReceive(e, device);
+    var hit = phoneFind(e.b, e.k);
     if (!hit) return false;
-    var it = hit.it, isB = hit.type === "book", f = e.set || {}, what = [];
-    /* الموظفون مفعّلون: كل حقل بصلاحيته — الاسم والمؤلف (items)، السعر (price)،
-       حد التنبيه (goods)، الكمية (count أو goods)، المكان (items أو count) */
+    var it = hit.it, isB = hit.type === "book", f = e.set || {}, what = [], part = false;
     if (staffGate()) {
-      var ok = function (p) { return Staff.canId(e.by, p); }, g = {};
-      if (f.n !== undefined && ok("items")) g.n = f.n;
-      if (f.a !== undefined && ok("items")) g.a = f.a;
-      if (f.p !== undefined && ok("price")) g.p = f.p;
-      if (f.m !== undefined && ok(["goods", "items"])) g.m = f.m;
-      if (f.qd !== undefined && ok(["count", "goods"])) g.qd = f.qd;
-      ["l", "s", "loc"].forEach(function (k) { if (f[k] !== undefined && ok(["items", "count"])) g[k] = f[k]; });
+      var g = {};
+      Object.keys(PHONE_GATE).forEach(function (k) {
+        if (f[k] !== undefined && Staff.canId(e.by, PHONE_GATE[k])) g[k] = f[k];
+      });
       if (f.cnt && g.qd !== undefined) g.cnt = 1;
       if (!Object.keys(g).length) {
         App.log("تعديل من التلفون", App.itemName(it) + ": لم يُطبَّق — ليس من صلاحيات الموظف — " + device);
@@ -225,24 +310,142 @@ var Stock = (function () {
       }
       f = g;
     }
-    function txt(v) { return String(v == null ? "" : v).trim().slice(0, 300); }
-    if (f.n !== undefined && txt(f.n)) { if (isB) it.title = txt(f.n); else it.name = txt(f.n); what.push("الاسم"); }
-    if (f.a !== undefined) { if (isB) it.author = txt(f.a); else it.brand = txt(f.a); what.push(isB ? "المؤلف" : "الماركة"); }
+    if (f.n !== undefined && ptxt(f.n)) { if (isB) it.title = ptxt(f.n); else it.name = ptxt(f.n); what.push("الاسم"); }
+    if (f.a !== undefined) { if (isB) it.author = ptxt(f.a); else it.brand = ptxt(f.a); what.push(isB ? "المؤلف" : "الماركة"); }
+    if (isB && f.d !== undefined) { it.publisher = ptxt(f.d); what.push("دار النشر"); }
+    if (f.sp !== undefined) {
+      var sid = ptxt(f.sp, 80);
+      if (!sid || (typeof People !== "undefined" && People.supplier(sid))) { it.supplierId = sid; what.push("المورّد"); }
+    }
+    if (f.c !== undefined) {
+      it.cat = typeof Inv !== "undefined" && Inv.canonCat ? Inv.canonCat(hit.type, ptxt(f.c)) : ptxt(f.c);
+      what.push(isB && App.isX4 && App.isX4() ? "التخصص" : "التصنيف");
+    }
+    if (isB && f.cf !== undefined) { it.catFull = ptxt(f.cf, 500); what.push("التخصص الدقيق"); }
+    if (f.bc !== undefined) {
+      var nb = ptxt(f.bc, 60), other = nb ? phoneIndex().b[nb] : null;
+      if (other && other.it !== it) {
+        part = true;
+        App.log("تعديل من التلفون", App.itemName(it) + ": الباركود " + nb + " لم يُحفظ — مستعمل في «" + App.itemName(other.it) + "» — " + device);
+        if (staffGate()) phoneLog(e.by, device);
+      } else if (nb !== String(it.barcode || "").trim()) { it.barcode = nb; pIdx = null; what.push("الباركود"); }
+    }
     if (f.p !== undefined && App.num(f.p) >= 0) { it.price = App.num(f.p); what.push("السعر"); }
+    if (f.pw !== undefined && App.num(f.pw) >= 0) { it.priceW = App.num(f.pw); what.push("سعر الجملة"); }
     if (f.m !== undefined && App.num(f.m) >= 0) { it.min = App.num(f.m); what.push("حد التنبيه"); }
-    if (isB && f.l !== undefined) { it.lib = txt(f.l); what.push("المكتبة"); }
-    if (isB && f.s !== undefined) { it.shelf = txt(f.s); what.push("الرف"); }
-    if (!isB && f.loc !== undefined) { it.loc = txt(f.loc); what.push("المكان"); }
+    if (isB && f.l !== undefined) { it.lib = ptxt(f.l, 40); what.push("المكتبة"); }
+    if (isB && f.s !== undefined) { it.shelf = ptxt(f.s, 40); what.push("الرف"); }
+    if (!isB && f.loc !== undefined) { it.loc = ptxt(f.loc); what.push("المكان"); }
+    if (!isB && f.u !== undefined && ptxt(f.u, 40)) { it.unit = ptxt(f.u, 40); what.push("الوحدة"); }
+    if (f.nt !== undefined) { it.note = String(f.nt == null ? "" : f.nt).trim().slice(0, 1000); what.push("الملاحظة"); }
     if (f.qd !== undefined && App.num(f.qd) !== 0) {
       it.qty = Math.max(App.num(it.qty) + App.num(f.qd), 0);
       what.push("الكمية " + (App.num(f.qd) > 0 ? "+" : "") + App.num(f.qd));
     }
-    /* جرد من التلفون (تسجيل الأماكن مع عدّ النسخ): الكتاب صار مجروداً */
+    /* منها في غرفة الخزين: جزء من الكمية، لا يزيد عليها ولا يقلّ عن صفر */
+    if (f.st !== undefined) {
+      var st = Math.min(Math.max(Math.floor(App.num(f.st)), 0), Math.max(App.num(it.qty), 0));
+      if (st !== App.storeQty(it)) {
+        if (st > 0) it.store = st; else delete it.store;
+        what.push("غرفة الخزين " + st);
+      }
+    }
+    /* جرد من التلفون (عدّ النسخ، أو كمية كُتبت بيد): الكتاب صار مجروداً */
     if (f.cnt && it.uncounted) { delete it.uncounted; what.push("جُرد"); }
+    /* كما في نموذج الكمبيوتر: كتاب بلا سعر جملة ولدار نشره نسبة ⇦ يُحسب منها */
+    if (isB && (f.p !== undefined || f.d !== undefined) && App.num(it.priceW) <= 0 && it.publisher &&
+        typeof Inv !== "undefined" && Inv.pubByName) {
+      var auto = Inv.wholesaleFromPub(it.price, Inv.pubByName(it.publisher));
+      if (auto > 0) it.priceW = auto;
+    }
+    if (!what.length) return part ? false : true;      // لا شيء تغيّر فعلاً (القيم كما هي): مقبول
     it.updated = App.nowStamp();
     App.log("تعديل من التلفون", App.itemName(it) + ": " + what.join("، ") + " — " + device);
     if (staffGate()) phoneLog(e.by, device);
+    return part ? 2 : true;
+  }
+
+  /* صنف جديد من التلفون: كما يُضاف من «بضاعة جديدة» — رمز جديد، وسعر الشراء صفر حتى يُكتب هنا */
+  function phoneNewItem(e, device) {
+    var f = e.set || {}, type = e.t === "stat" ? "stat" : "book", isB = type === "book";
+    var name = ptxt(f.n);
+    if (!name) return false;
+    if (staffGate() && !Staff.canId(e.by, ["items", "goods"])) {
+      App.log("إضافة من التلفون", name + ": لم يُضف — ليس من صلاحيات الموظف — " + device);
+      phoneLog(e.by, device);
+      return false;
+    }
+    var bc = ptxt(f.bc, 60), clash = bc ? phoneIndex().b[bc] : null;
+    if (clash) {
+      App.log("إضافة من التلفون", name + ": لم يُضف — الباركود " + bc + " مستعمل في «" + App.itemName(clash.it) + "» — " + device);
+      if (staffGate()) phoneLog(e.by, device);
+      return false;
+    }
+    var qty = Math.max(Math.floor(App.num(f.q)), 0), toStore = f.dst === "store";
+    var canon = function (c) { return typeof Inv !== "undefined" && Inv.canonCat ? Inv.canonCat(type, c) : c; };
+    var sid = ptxt(f.sp, 80);
+    if (sid && !(typeof People !== "undefined" && People.supplier(sid))) sid = "";
+    var v = { id: App.uid(), code: App.nextCode(type) };
+    if (isB) {
+      v.title = name; v.author = ptxt(f.a); v.publisher = ptxt(f.d); v.supplierId = sid;
+      v.lib = toStore ? "" : ptxt(f.l, 40); v.shelf = toStore ? "" : ptxt(f.s, 40);
+      v.cat = canon(ptxt(f.c)); v.catFull = ptxt(f.cf, 500);
+    } else {
+      v.name = name; v.cat = canon(ptxt(f.c)); v.brand = ptxt(f.a); v.supplierId = sid;
+      v.unit = ptxt(f.u, 40) || "قطعة"; v.loc = toStore ? "" : ptxt(f.loc);
+    }
+    v.barcode = bc; v.cost = 0;
+    v.price = Math.max(App.num(f.p), 0); v.priceW = Math.max(App.num(f.pw), 0);
+    v.qty = qty; v.store = toStore ? qty : 0;
+    v.min = Math.max(Math.floor(App.num(f.m)), 0);
+    v.note = String(f.nt == null ? "" : f.nt).trim().slice(0, 1000);
+    if (isB && v.priceW <= 0 && v.publisher && typeof Inv !== "undefined" && Inv.pubByName) {
+      var auto = Inv.wholesaleFromPub(v.price, Inv.pubByName(v.publisher));
+      if (auto > 0) v.priceW = auto;
+    }
+    v.created = v.updated = App.nowStamp();
+    App.listOf(type).unshift(v);
+    pIdx = null;
+    App.log(isB ? "إضافة كتاب" : "إضافة صنف", name + " — من التلفون — " + device);
+    if (staffGate()) phoneLog(e.by, device);
     return true;
+  }
+
+  /* إضافة كمية من التلفون: إدخال بضاعة في «سجل الإدخالات» بسعر الشراء المسجّل هنا (التلفون لا
+     يعرفه)، بلا طريقة دفع — آجل المورّد يُسجَّل من الكمبيوتر */
+  function phoneReceive(e, device) {
+    var src = Array.isArray(e.lines) ? e.lines : [];
+    if (staffGate() && !Staff.canId(e.by, ["goods", "items"])) {
+      App.log("إدخال بضاعة من التلفون", "لم يُسجَّل — ليس من صلاحيات الموظف — " + device);
+      phoneLog(e.by, device);
+      return false;
+    }
+    var toStore = e.dst === "store", lines = [], pieces = 0;
+    src.forEach(function (l) {
+      var hit = l ? phoneFind(l.b, l.k) : null, q = l ? Math.floor(App.num(l.q)) : 0;
+      if (!hit || q <= 0) return;
+      var st = toStore ? q : 0;
+      App.receiveStock(hit.it, q, st);
+      hit.it.updated = App.nowStamp();
+      pieces += q;
+      lines.push({ type: hit.type, id: hit.it.id, name: App.itemName(hit.it), qty: q, cost: App.num(hit.it.cost), st: st });
+    });
+    if (!lines.length) {
+      App.log("إدخال بضاعة من التلفون", "لم يُسجَّل: أصناف غير موجودة — " + device);
+      if (staffGate()) phoneLog(e.by, device);
+      return false;
+    }
+    var sup = e.sp && typeof People !== "undefined" ? People.supplier(String(e.sp)) : null;
+    var note = ptxt(e.nt, 200);
+    S().purchases.unshift({
+      id: App.uid(), date: App.today(), supplierId: sup ? sup.id : "",
+      note: (note ? note + " — " : "") + "من التلفون (" + String(device || "").slice(0, 60) + ")",
+      lines: lines, total: App.r3(lines.reduce(function (a, l) { return a + l.qty * l.cost; }, 0)),
+      at: App.nowStamp(), src: "phone"
+    });
+    App.log("إدخال بضاعة", lines.length + " صنف (" + pieces + " قطعة) " + (toStore ? "للمخزن" : "للرفوف") + " — من التلفون — " + device);
+    if (staffGate()) phoneLog(e.by, device);
+    return lines.length < src.length ? 2 : true;
   }
 
   function setPhoneSales(on) {

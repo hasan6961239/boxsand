@@ -1478,7 +1478,11 @@ namespace Qirtasiya.Data
         }
 
         /* قائمة كتب الفرع للفروع الأخرى (CatalogJson) من بيانات 3.x نفسها:
-           qty ما في المحل (الرفوف وغرفة الخزين)، store ما في المخازن، والسعر بالدرهم */
+           qty ما في المحل (الرفوف وغرفة الخزين)، store ما في المخازن، والسعر بالدرهم.
+           بعد الأعمدة العشرة ما يحتاجه تطبيق الهاتف ليعدّل الصنف كاملاً (3.0): دار النشر، حد التنبيه،
+           ما في غرفة الخزين، سعر الجملة بالدرهم، التخصص الدقيق، الملاحظة، الوحدة، رقم المورّد، و1 إن
+           لم يُجرد بعد. الفارغ منها في آخر السطر لا يُكتب (61 ألف سطر)، والفروع تقرأ العشرة الأولى
+           وحدها (SetRemoteCatalog). سعر الشراء لا يُكتب أبداً */
         string X3CatalogJson(out int count)
         {
             Dictionary<string, object> s = Json.Parse(X3ExportCore(db)) as Dictionary<string, object> ?? new Dictionary<string, object>();
@@ -1529,13 +1533,32 @@ namespace Qirtasiya.Data
                     Json.Quote(sb, type); sb.Append(',');
                     Json.Quote(sb, X3Str(it, "code")); sb.Append(',');
                     Json.Quote(sb, X3Str(it, "title").Length > 0 ? X3Str(it, "title") : X3Str(it, "name")); sb.Append(',');
-                    Json.Quote(sb, X3Str(it, "author")); sb.Append(',');
+                    Json.Quote(sb, X3Str(it, "author").Length > 0 ? X3Str(it, "author") : X3Str(it, "brand")); sb.Append(',');
                     Json.Quote(sb, X3Str(it, "barcode")); sb.Append(',');
                     Json.Quote(sb, X3Str(it, "cat")); sb.Append(',');
-                    sb.Append(((long)Math.Round(X3Num(it, "qty"))).ToString(CultureInfo.InvariantCulture)).Append(',');
+                    double qty = X3Num(it, "qty");
+                    sb.Append(((long)Math.Round(qty)).ToString(CultureInfo.InvariantCulture)).Append(',');
                     sb.Append(((long)Math.Round(inWh)).ToString(CultureInfo.InvariantCulture)).Append(',');
                     sb.Append(((long)Math.Round(X3Num(it, "price") * 1000)).ToString(CultureInfo.InvariantCulture)).Append(',');
                     Json.Quote(sb, place);
+                    object unc;
+                    bool uncounted = it.TryGetValue("uncounted", out unc) && unc is bool && (bool)unc;
+                    long room = (long)Math.Round(Math.Min(Math.Max(X3Num(it, "store"), 0), Math.Max(qty, 0)));
+                    string note = X3Str(it, "note");
+                    string[] extra = new string[] {
+                        Json.Write(X3Str(it, "publisher")),
+                        ((long)Math.Round(Math.Max(X3Num(it, "min"), 0))).ToString(CultureInfo.InvariantCulture),
+                        room.ToString(CultureInfo.InvariantCulture),
+                        ((long)Math.Round(Math.Max(X3Num(it, "priceW"), 0) * 1000)).ToString(CultureInfo.InvariantCulture),
+                        Json.Write(X3Str(it, "catFull")),
+                        Json.Write(note.Length > 300 ? note.Substring(0, 300) : note),
+                        Json.Write(X3Str(it, "unit")),
+                        Json.Write(X3Str(it, "supplierId")),
+                        uncounted ? "1" : "0"
+                    };
+                    int last = extra.Length - 1;
+                    while (last >= 0 && (extra[last] == "\"\"" || extra[last] == "0")) last--;
+                    for (int x = 0; x <= last; x++) sb.Append(',').Append(extra[x]);
                     sb.Append(']');
                 }
             }

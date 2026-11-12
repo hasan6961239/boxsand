@@ -143,10 +143,11 @@ const check = (name, ok, got) => {
     const snap = await S(() => {
       const a = performance.now(); const full = Stock.snapshot(); const t = performance.now() - a;
       const c = performance.now(); const lite = Stock.snapshot(true); const tl = performance.now() - c;
-      return { t: Math.round(t), n: full.items.length, tl: Math.round(tl), ln: lite.items.length, wh: (lite.whs || []).every(w => !w.items.length), cust: lite.cust === undefined, staff: 'staff' in lite };
+      return { t: Math.round(t), n: full.items.length, tl: Math.round(tl), ln: lite.items.length, wh: (lite.whs || []).every(w => !w.items.length), cust: Array.isArray(lite.cust) && lite.cust.length <= 400 && lite.cust.length === Math.min(400, App.S.customers.length), nc: (lite.cust || []).length, staff: 'staff' in lite };
     });
     check('لقطة المخزون الكاملة (' + whLines + ' سطر مخازن): ' + snap.t + ' ms (كانت 14 ثانية)', snap.t < 2000 && snap.n >= BOOKS, snap);
-    check('ولقطة الفرع الكبير بلا أصناف ولا أصناف مخازن ولا زبائن (' + snap.tl + ' ms)', snap.ln === 0 && snap.wh && snap.cust, snap);
+    /* الزبائن يُرفعون للفرع الكبير أيضاً (الآجل والديون في الهاتف 3.0)، بحدّ 400 لتبقى اللقطة صغيرة */
+    check('ولقطة الفرع الكبير بلا أصناف ولا أصناف مخازن، وزبائنها بحدّ 400 (' + snap.nc + ' زبون، ' + snap.tl + ' ms)', snap.ln === 0 && snap.wh && snap.cust && snap.tl < 300, snap);
     const ids = await S(() => {
       const bk = App.S.books, last = bk[bk.length - 1];
       const a = App.findItem('book', last.id) === last;

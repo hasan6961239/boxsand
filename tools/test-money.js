@@ -904,6 +904,97 @@ const check = (name, ok, got) => {
     check('الكاشير عدّل السعر من الهاتف: لا يُطبَّق (ليس من صلاحياته)', ed.b1.price === 50 && ed.done.e1 === 0, JSON.stringify({ p: ed.b1.price, d: ed.done.e1 }));
     check('المدير سجّل المكان وجرد من الهاتف: B رف 3، والكمية 2، ولم يعد «لم يُجرد»', ed.u9.lib === 'B' && ed.u9.shelf === '3' && ed.u9.qty === 2 && !ed.u9.uncounted && ed.done.e2 === 1, JSON.stringify(ed.u9));
     check('تعديل فيه سعر ومكان من الكاشير: لا يُطبَّق أي منهما (الكاشير لا يسجّل الأماكن)', ed.b2.lib === 'A' && ed.b2.price === 20 && ed.done.e3 === 0, JSON.stringify({ l: ed.b2.lib, p: ed.b2.price }));
+
+    /* الهاتف 3.0: صنف جديد وإضافة كمية بصلاحية «إضافة الكتب» أو «إدخال البضاعة» فقط */
+    const q0 = await S(pg, () => App.findItem('book', 'b1').qty);
+    await pg.evaluate(() => Stock.takePhoneEdits([{ kind: 'phone', branch: { id: 'phone-abc', name: 'تلفون المعرض' }, edits: [
+      { id: 'g1', kind: 'new', t: 'book', set: { n: 'كتاب من الكاشير', p: 10, q: 1 }, by: 's2' },
+      { id: 'g2', kind: 'recv', lines: [{ b: '1001', q: 5 }], by: 's2' },
+      { id: 'g3', kind: 'new', t: 'book', set: { n: 'كتاب من المدير', p: 10, q: 1, bc: '7001' }, by: 's1' },
+      { id: 'g4', kind: 'recv', lines: [{ b: '1001', q: 5 }], dst: 'store', by: 's1' },
+      { id: 'g5', b: '1002', set: { d: 'دار', pw: 15 }, by: 's2' }
+    ] }])); await sleep(200);
+    const g = await S(pg, () => ({ done: App.S.phoneDone, b1: App.findItem('book', 'b1'), nw: App.S.books.filter(b => /من (الكاشير|المدير)$/.test(b.title)).map(b => b.title + '|' + b.barcode + '|' + b.code),
+      lg: App.S.log.filter(l => l.action === 'إضافة كتاب' || l.action === 'إدخال بضاعة').map(l => l.action + '|' + l.byName + '|' + l.dev), pur: App.S.purchases[0], b2: App.findItem('book', 'b2') }));
+    check('الكاشير لا يضيف صنفاً ولا كمية من الهاتف، والمدير يضيف', g.done.g1 === 0 && g.done.g2 === 0 && g.done.g3 === 1 && g.done.g4 === 1 && g.nw.length === 1 && /كتاب من المدير\|7001\|K/.test(g.nw[0]), JSON.stringify({ d: [g.done.g1, g.done.g2, g.done.g3, g.done.g4], nw: g.nw }));
+    check('إضافة الكمية للمخزن: الكمية +5 وكلها في غرفة الخزين، وسُجّلت إدخال بضاعة', g.b1.qty === q0 + 5 && g.b1.store === 5 && g.pur && g.pur.src === 'phone' && g.pur.lines[0].qty === 5 && g.pur.lines[0].st === 5, JSON.stringify({ q: g.b1.qty, st: g.b1.store, pur: g.pur }).slice(0, 300));
+    check('والسجل باسم المدير وهاتفه', g.lg.filter(x => /المدير حسن\|تلفون المعرض/.test(x)).length >= 2, JSON.stringify(g.lg));
+    check('الكاشير لا يعدّل دار النشر ولا سعر الجملة', g.done.g5 === 0 && !g.b2.publisher && g.b2.priceW === 18, JSON.stringify({ d: g.b2.publisher, pw: g.b2.priceW }));
+    await pg.close();
+  }
+
+  /* ------ الهاتف 3.0 (بلا موظفين، مثل مصراتة): كل الحقول، إضافة كمية، صنف جديد ------ */
+  console.log('\n[ض] الهاتف 3.0: تعديل كل الحقول، إضافة كمية، صنف جديد');
+  {
+    const pg = await fresh(d => {
+      d.stationery.push({ id: 'q1', code: 'Q1', name: 'قلم أزرق', brand: 'بايلوت', unit: 'قطعة', loc: 'الدرج 1', barcode: '2001', cost: 1, price: 2, qty: 50, min: 5 });
+      d.suppliers.push({ id: 'sp1', name: 'مورد الكتب', phone: '092', opening: 300 });
+      d.publishers = [{ id: 'p1', name: 'دار س', rate: 0.2 }];
+      d.meta.libraries = ['A', 'B', 'C'];
+      d.counters.stat = 1;
+    });
+    await sell(pg, [['b1', 2]], 0, 'credit', '30');
+    const sn = await S(pg, () => { const x = Stock.snapshot(); return { ph: x.ph, sup: x.sup, it: x.items, dash: x.dash, raw: JSON.stringify(x) }; });
+    check('اللقطة: ph.v = 3 وقوائم النماذج، والموردون بديونهم، وسعر الجملة والماركة — وبلا سعر شراء ولا ربح',
+      !!sn.ph && sn.ph.v === 3 && sn.ph.libs.join() === 'A,B,C' && sn.ph.pubs.join() === 'دار س' && sn.sup.length === 1 && sn.sup[0].b === 300 &&
+      sn.it.find(i => i.k === 'K1').pw === 45 && sn.it.find(i => i.k === 'Q1').a === 'بايلوت' && !/"cost"|"profit"/.test(sn.raw), JSON.stringify({ ph: sn.ph, sup: sn.sup }).slice(0, 300));
+    const cr = sn.dash.credit && sn.dash.credit[0], rc = sn.dash.recent[0];
+    check('اللقطة: سجل البيع بالآجل (الزبون، المبلغ، المدفوع، الباقي)، وسطور آخر الفواتير',
+      !!cr && cr.t === 100 && cr.pd === 30 && cr.due === 70 && cr.cid === 'c1' && cr.c === 'زبون' && rc.li.length === 1 && rc.li[0][0] === 'كتاب أ' && rc.li[0][1] === 2 && rc.li[0][2] === 50 && rc.due === 70, JSON.stringify({ cr, rc }).slice(0, 300));
+
+    const phone = edits => pg.evaluate(e => Stock.takePhoneEdits([{ kind: 'phone', branch: { id: 'phone-x', name: 'هاتف المحل' }, edits: e }]), edits);
+    const st = () => S(pg, () => ({ b1: App.findItem('book', 'b1'), b2: App.findItem('book', 'b2'), q1: App.findItem('stat', 'q1'), done: App.S.phoneDone, nb: App.S.books.length, ns: App.S.stationery.length, pur: App.S.purchases }));
+    await phone([{ id: 'f1', b: '1002', k: 'K2', set: { n: 'كتاب ب المعدّل', a: 'مؤلف', d: 'دار س', sp: 'sp1', c: 'ديني', cf: 'فقه / عبادات', bc: '1002-N', p: 100, m: 3, l: 'B', s: '4', nt: 'ملاحظة من الهاتف', qd: 3, st: 2, cnt: 1 } }]);
+    let x = await st();
+    check('تعديل كل الحقول من الهاتف يُطبَّق: الاسم، المؤلف، دار النشر، المورّد، التصنيف، التخصص الدقيق، الباركود، السعر، حد التنبيه، المكان، الملاحظة، الكمية، غرفة الخزين',
+      x.b2.title === 'كتاب ب المعدّل' && x.b2.author === 'مؤلف' && x.b2.publisher === 'دار س' && x.b2.supplierId === 'sp1' && x.b2.cat === 'ديني' && x.b2.catFull === 'فقه / عبادات' &&
+      x.b2.barcode === '1002-N' && x.b2.price === 100 && x.b2.min === 3 && x.b2.lib === 'B' && x.b2.shelf === '4' && x.b2.note === 'ملاحظة من الهاتف' && x.b2.qty === 13 && x.b2.store === 2 && x.b2.cost === 10 && x.done.f1 === 1, JSON.stringify(x.b2));
+    await phone([{ id: 'f2', b: '1002-N', set: { pw: 0, p: 100 } }]);
+    x = await st();
+    check('سعر الجملة صفر ودار النشر لها نسبة: يُحسب منها كما في الكمبيوتر (100 ← 80)', x.b2.priceW === 80 && x.done.f2 === 1, 'pw=' + x.b2.priceW);
+    await phone([{ id: 'f3', k: 'K1', set: { bc: '2001' } }, { id: 'f4', k: 'K1', set: { bc: '2001', p: 55 } }]);
+    x = await st();
+    check('باركود مستعمل في صنف آخر لا يُحفظ: وحده = لم يُطبَّق (0)، ومع غيره = طُبّق بعضه (2)', x.b1.barcode === '1001' && x.b1.price === 55 && x.done.f3 === 0 && x.done.f4 === 2, JSON.stringify({ bc: x.b1.barcode, p: x.b1.price, f3: x.done.f3, f4: x.done.f4 }));
+    await phone([{ id: 'f5', b: '0000', k: 'K1', set: { m: 7 } }]);
+    x = await st();
+    check('الصنف يُعرف برمزه أولاً ولو كان باركوده في الهاتف قديماً', x.b1.min === 7 && x.done.f5 === 1, 'm=' + x.b1.min);
+    await phone([{ id: 'f6', k: 'K1', set: { p: 60 } }, { id: 'f7', k: 'K1', set: { p: 61 } }]);
+    x = await st();
+    check('تعديلان للسعر بترتيب حدوثهما: الأخير هو الباقي', x.b1.price === 61, 'p=' + x.b1.price);
+
+    await phone([
+      { id: 'n1', kind: 'new', t: 'book', set: { n: 'كتاب جديد من الهاتف', a: 'مؤلف جديد', d: 'دار س', c: 'ديني', cf: 'سيرة', bc: '3001', p: 40, q: 6, m: 2, l: 'C', s: '2', dst: 'shelf', nt: 'وصل اليوم' } },
+      { id: 'n2', kind: 'new', t: 'book', set: { n: 'كتاب بباركود مكرّر', bc: '3001', p: 5, q: 1 } },
+      { id: 'n3', kind: 'new', t: 'stat', set: { n: 'مسطرة 30', a: 'ماركة', c: 'أدوات مكتبية', u: 'علبة', loc: 'الرف 2', p: 3, q: 20, dst: 'store' } },
+      { id: 'n4', kind: 'new', t: 'book', set: { n: '  ', p: 5, q: 1 } }
+    ]);
+    x = await st();
+    const nb = await S(pg, () => ({ b: App.S.books.find(k => k.barcode === '3001'), s: App.S.stationery.find(k => k.name === 'مسطرة 30'), lg: App.S.log.filter(l => /^إضافة (كتاب|صنف)$/.test(l.action)).map(l => l.detail) }));
+    check('كتاب جديد من الهاتف: رمز جديد من المنظومة، وكل بياناته، وسعر الشراء صفر، وسعر الجملة من دار النشر',
+      !!nb.b && nb.b.code === 'K0003' && nb.b.title === 'كتاب جديد من الهاتف' && nb.b.author === 'مؤلف جديد' && nb.b.publisher === 'دار س' && nb.b.cat === 'ديني' && nb.b.catFull === 'سيرة' &&
+      nb.b.price === 40 && nb.b.priceW === 32 && nb.b.cost === 0 && nb.b.qty === 6 && nb.b.store === 0 && nb.b.min === 2 && nb.b.lib === 'C' && nb.b.shelf === '2' && nb.b.note === 'وصل اليوم' && !!nb.b.id && x.done.n1 === 1, JSON.stringify(nb.b));
+    check('صنف جديد بباركود مستعمل أو بلا اسم لا يُضاف', x.done.n2 === 0 && x.done.n4 === 0 && x.nb === 3, JSON.stringify({ n2: x.done.n2, n4: x.done.n4, nb: x.nb }));
+    check('قرطاسية جديدة «لغرفة الخزين»: كميتها كلها في الخزين وبلا مكان', !!nb.s && nb.s.code === 'Q0002' && nb.s.brand === 'ماركة' && nb.s.unit === 'علبة' && nb.s.loc === '' && nb.s.qty === 20 && nb.s.store === 20 && nb.s.price === 3 && x.done.n3 === 1 && nb.lg.some(d => /من التلفون — هاتف المحل/.test(d)), JSON.stringify(nb.s));
+
+    const q1 = x.b1.qty, p0 = x.pur.length;
+    await phone([
+      { id: 'r1', kind: 'recv', lines: [{ k: 'K1', q: 4 }, { b: '9999', q: 2 }, { b: '2001', q: 10 }], dst: 'shelf', sp: 'sp1', nt: 'فاتورة 77' },
+      { id: 'r2', kind: 'recv', lines: [{ k: 'Q1', q: 5 }], dst: 'store' },
+      { id: 'r3', kind: 'recv', lines: [{ b: '8888', q: 3 }] }
+    ]);
+    x = await st();
+    const debt = await S(pg, () => People.supDebt(People.supplier('sp1')));
+    const p1 = x.pur[1], p2 = x.pur[0];
+    check('إضافة كمية من الهاتف: الكميات تزيد، وتُسجَّل «إدخال بضاعة» بسعر الشراء المسجّل هنا وبالمورّد والملاحظة',
+      x.b1.qty === q1 + 4 && x.q1.qty === 65 && x.pur.length === p0 + 2 && p1.src === 'phone' && p1.supplierId === 'sp1' && p1.lines.length === 2 && p1.total === 4 * 30 + 10 * 1 && /فاتورة 77/.test(p1.note) && /من التلفون/.test(p1.note) && p1.pay === undefined,
+      JSON.stringify({ q: x.b1.qty, pen: x.q1.qty, p1 }).slice(0, 400));
+    check('سطر غير موجود في إضافة الكمية = طُبّق بعضه (2)، ولا شيء موجود = لم يُسجَّل (0)، ودين المورّد لا يتغيّر', x.done.r1 === 2 && x.done.r3 === 0 && debt === 300, JSON.stringify({ r1: x.done.r1, r3: x.done.r3, debt }));
+    check('إضافة كمية «لغرفة الخزين»: تزيد الكمية وما في الخزين معاً', x.q1.store === 5 && p2.lines[0].st === 5 && x.done.r2 === 1, JSON.stringify({ st: x.q1.store, p2 }).slice(0, 200));
+    await phone([{ id: 'n1', kind: 'new', t: 'book', set: { n: 'كتاب جديد من الهاتف', bc: '3002', p: 40, q: 6 } }, { id: 'r1', kind: 'recv', lines: [{ k: 'K1', q: 4 }] }]);
+    const y = await st();
+    check('التعديل نفسه إن وصل مرتين لا يُطبَّق مرتين', y.nb === x.nb && y.b1.qty === x.b1.qty && y.pur.length === x.pur.length, JSON.stringify({ nb: y.nb, q: y.b1.qty }));
+    const acks = await S(pg, () => Stock.snapshot().acks);
+    check('التأكيدات ترجع للهاتف بحالتها: 1 طُبّق، 2 بعضه، 0 لم يُطبَّق', acks.f1 === 1 && acks.f4 === 2 && acks.r1 === 2 && acks.n2 === 0 && acks.n1 === 1, JSON.stringify(acks));
     await pg.close();
   }
 

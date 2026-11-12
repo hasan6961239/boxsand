@@ -2198,6 +2198,77 @@ var App = (function () {
     });
     nav.innerHTML = h;
     wireNavTips(nav);
+    fitRail();
+    fitRailSoon();
+  }
+
+  /* ---------- الشريط الجانبي يتّسع لكل تبويباته ----------
+     طرابلس 17 تبويباً: على شاشة قصيرة (768) كان باقيها تحت الحافة، يُنزل له بعجلة الماوس بلا
+     أي علامة (شريط التمرير مخفي). الآن: إن لم تكفِ المساحة تُضغط الأزرار والفواصل والشعار بقدر
+     الحاجة فقط (حتى 30 بكسل للزر)، والتصميم كما هو تماماً على الشاشة التي تكفي. وإن لم يكفِ
+     الضغط (شاشة قصيرة جداً، أو حجم واجهة كبير): يبقى التمرير ومعه سهم «في الأسفل بقية» */
+  var railT = null;
+  /* كم يزيد ما في الشريط عن المساحة الظاهرة (من آخر تبويب، لا من scrollHeight: الكبسولة المنزلقة
+     تتحرّك بتحويل فتزيده وهماً) */
+  function navOver(nav) {
+    var items = nav.querySelectorAll(".nav-item"), last = items[items.length - 1];
+    if (!last) return 0;
+    return last.offsetTop + last.offsetHeight + (parseFloat(getComputedStyle(nav).paddingBottom) || 0) - nav.clientHeight;
+  }
+  function fitRail() {
+    var rail = document.getElementById("rail"), nav = document.getElementById("nav");
+    if (!rail || !nav) return;
+    rail.classList.remove("fit", "fit-s");
+    ["--nav-h", "--nav-gap", "--nav-sep"].forEach(function (k) { rail.style.removeProperty(k); });
+    var items = nav.querySelectorAll(".nav-item"), seps = nav.querySelectorAll(".group-label");
+    if (items.length && navOver(nav) > 1) {
+      var was = items[0].getBoundingClientRect().height || 34;
+      rail.classList.add("fit");                      // الشعار والذيل أصغر: مساحة التبويبات تكبر
+      var cs = getComputedStyle(nav);
+      var avail = nav.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      var gap = 2, sep = 4;
+      var h = Math.floor((avail - seps.length * (1 + sep * 2)) / items.length) - gap;
+      h = Math.max(30, Math.min(h, Math.floor(was)));
+      rail.style.setProperty("--nav-gap", gap + "px");
+      rail.style.setProperty("--nav-sep", sep + "px");
+      rail.style.setProperty("--nav-h", h + "px");
+      /* بقي بكسل أو اثنان من التقريب: ينقص الزر حتى يكفي (ولا ينزل عن 30) */
+      for (var k = 0; k < 6 && h > 30 && navOver(nav) > 1; k++) {
+        h--;
+        rail.style.setProperty("--nav-h", h + "px");
+      }
+      if (h < 40) rail.classList.add("fit-s");
+    }
+    railMore();
+    if (typeof moveGlider === "function") { try { moveGlider(); } catch (e) { } }
+  }
+  function fitRailSoon() { clearTimeout(railT); railT = setTimeout(fitRail, 120); }
+  function railMore() {
+    var rail = document.getElementById("rail"), nav = document.getElementById("nav");
+    if (!rail || !nav) return;
+    var extra = navOver(nav), over = extra > 1;
+    var down = over && nav.scrollTop < extra - 2;
+    rail.classList.toggle("more-down", down);
+    rail.classList.toggle("more-up", over && nav.scrollTop > 2);
+    var b = document.getElementById("navMore");
+    if (down && !b) {
+      b = document.createElement("button");
+      b.id = "navMore"; b.type = "button"; b.title = "باقي التبويبات";
+      b.setAttribute("aria-label", "باقي التبويبات");
+      b.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+      b.onclick = function () { nav.scrollBy({ top: Math.round(nav.clientHeight * 0.7), behavior: "smooth" }); };
+      rail.appendChild(b);
+    }
+    if (b) {
+      b.hidden = !down;
+      var foot = rail.querySelector(".rail-foot");
+      b.style.bottom = ((foot ? foot.offsetHeight : 0) + 4) + "px";
+    }
+    if (!nav.__more) { nav.__more = true; nav.addEventListener("scroll", railMore); }
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", fitRailSoon);
+    window.addEventListener("load", fitRailSoon);
   }
 
   /* ---------- تلميح اسم الصفحة ----------
@@ -2472,6 +2543,7 @@ var App = (function () {
     var b = document.body;
     b.classList.remove("ui-xs", "ui-sm", "ui-md", "ui-lg", "ui-xl");
     b.classList.add("ui-" + sz);
+    fitRailSoon();
   }
 
   /* ختم النسخة في أسفل الشريط: الإصدار وتاريخ البناء.
@@ -2864,7 +2936,7 @@ var App = (function () {
     isSecond: function () { return !!dev.second; },
     /* على الأساس الجديد (قرار 0025): النواة تعطي رقم ما رأته الشاشة مع كل تحميل */
     isX3: function () { return !!x3.rev; },
-    isX4: isX4, can: can, allow: allow, closeTop: closeTop, rebuildNav: function () { buildNav(); refreshBadges(); },
+    isX4: isX4, can: can, allow: allow, closeTop: closeTop, rebuildNav: function () { buildNav(); refreshBadges(); }, fitRail: fitRail,
     /* للاختبار: الحفظ بالفرق */
     __snap: {
       of: snapOf, text: snapText, patch: snapPatch, apply: x3Apply,

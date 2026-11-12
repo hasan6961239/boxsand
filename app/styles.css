@@ -1911,3 +1911,28 @@ tr.near td:first-child { box-shadow: inset -3px 0 0 var(--accent-wash); }
 body .search-big .inp { height: 52px; font-size: 17px; padding-inline-start: 44px; border-radius: 14px; border-width: 1.5px; }
 .search-big .inp:focus { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
 .search-big .mag { position: absolute; inset-inline-start: 16px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 18px; pointer-events: none; }
+
+/* ---------- الشريط الجانبي يتّسع لكل تبويباته (core.js: fitRail) ----------
+   الأزرار تتقلّص وحدها حتى 34 بكسل (تثبيتات 2.1 أعلاه، لخمسة عشر تبويباً). طرابلس سبعة عشر:
+   على شاشة 768 لا تكفي حتى عند 34. هنا الضغط الإضافي حين لا تكفي فقط: ارتفاع الزر والفواصل
+   من --nav-h و--nav-gap و--nav-sep (حتى 30)، والشعار والذيل أصغر قليلاً. على الشاشة التي تكفي
+   لا تُضاف fit فيبقى كل شيء كما كان */
+body #rail.fit #nav .nav-item { height: var(--nav-h, 34px); flex: 0 0 var(--nav-h, 34px); min-height: 0; margin-bottom: var(--nav-gap, 2px); border-radius: 13px; }
+body #rail.fit #nav .group-label { margin: var(--nav-sep, 4px) 14px; }
+body #rail.fit .brand { padding: 14px 0 6px; }
+body #rail.fit #nav { padding: 2px 10px 4px; }
+body #rail.fit .brand-mark { width: 28px; height: 28px; flex-basis: 28px; }
+body #rail.fit .rail-foot { padding: 6px 4px 10px; }
+body #rail.fit-s #nav .nav-item .ic { width: 19px; height: 19px; flex-basis: 19px; }
+body #rail.fit-s #nav .nav-item .count { top: 0; inset-inline-end: 4px; min-width: 15px; height: 15px; line-height: 15px; font-size: 9px; padding: 0 3px; }
+/* لم يكفِ الضغط: يبقى التمرير، وأسفله يبهت وفيه سهم «باقي التبويبات» */
+#rail.more-down #nav { -webkit-mask-image: linear-gradient(#000 calc(100% - 44px), transparent); mask-image: linear-gradient(#000 calc(100% - 44px), transparent); }
+#rail > #navMore {
+  position: absolute; left: 50%; transform: translateX(-50%); z-index: 3;
+  width: 36px; height: 22px; padding: 0; border: 0; border-radius: 11px; cursor: pointer;
+  background: var(--accent); color: #fff; display: grid; place-items: center;
+  box-shadow: 0 6px 14px -6px rgba(0,0,0,.7); animation: navMore 1.4s ease-in-out infinite;
+}
+#rail > #navMore[hidden] { display: none; }
+@keyframes navMore { 50% { transform: translate(-50%, 3px); } }
+@media (prefers-reduced-motion: reduce) { #rail > #navMore { animation: none; } }

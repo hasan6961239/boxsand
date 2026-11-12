@@ -27,8 +27,8 @@ namespace Qirtasiya
         static readonly string DataName = Tripoli ? "Qirtasiya-Tripoli" : "Qirtasiya";
         /* لكل تطبيق إصداره (tools/build-linux.sh يقرأ سطر تطبيقه): مصراتة رسمية،
            وطرابلس تجريبية حتى يعتمدها المحل. ملف التثبيت: الرقم لويندوز، و«-test» في اسمه */
-        const string AppVersionMisrata = "4.1";
-        const string AppVersionTripoli = "4.1-test";
+        const string AppVersionMisrata = "4.2";
+        const string AppVersionTripoli = "4.2-test";
         static readonly string AppVersion = Tripoli ? AppVersionTripoli : AppVersionMisrata;
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
@@ -3016,7 +3016,12 @@ namespace Qirtasiya
 
                     if (X3On && Db != null)
                     {
-                        SendJson(s, X3Sync(url, skey, upload, ExtractJsonRaw(req, "now") == "true"));
+                        /* «تحديث الآن» (now: true، آخر حقل في الطلب) يوقظ دورة المزامنة فتُنشر قائمة الكتب فوراً.
+                           كان يُقرأ بـExtractJsonRaw التي لا ترجع القيم المنطقية، فلا يُفرض شيء أبداً والقائمة
+                           تنتظر دورتها (نصف ساعة): كتاب أُضيف لا يصل الهاتف والفروع مهما ضُغط الزر */
+                        string tail = req.Length > 40 ? req.Substring(req.Length - 40) : req;
+                        bool now = System.Text.RegularExpressions.Regex.IsMatch(tail, "\"now\"\\s*:\\s*true\\s*}\\s*$");
+                        SendJson(s, X3Sync(url, skey, upload, now));
                         return;
                     }
 
