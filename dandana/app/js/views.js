@@ -18,7 +18,7 @@ import {
   fmtTime, fmtBytes, fmtDuration, songsCount, isStandalone, isIOS, norm, $,
 } from './util.js';
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 
 function page(root, ...kids) {
   const p = h('div.page', ...kids);
@@ -789,8 +789,12 @@ export function settings(root) {
   const keyDot = h('span.status-dot');
   const keyStatus = h('small', S.ytKey ? '…' : 'غير مضاف — البحث داخل التطبيق متوقف');
   const testKey = async () => {
-    await lib.setSetting('ytKey', ytKey.value.trim());
-    if (!ytKey.value.trim()) { keyDot.className = 'status-dot'; keyStatus.textContent = 'غير مضاف — البحث داخل التطبيق متوقف'; return; }
+    const k = ytapi.cleanKey(ytKey.value);
+    ytKey.value = k;
+    await lib.setSetting('ytKey', k);
+    if (!k) { keyDot.className = 'status-dot'; keyStatus.textContent = 'غير مضاف — البحث داخل التطبيق متوقف'; return; }
+    const shape = ytapi.keyShapeProblem(k);
+    if (shape) { keyDot.className = 'status-dot bad'; keyStatus.textContent = shape; return; }
     keyDot.className = 'status-dot'; keyStatus.textContent = 'يختبر…';
     try { await ytapi.test(); keyDot.className = 'status-dot ok'; keyStatus.textContent = 'المفتاح يشتغل ✓ — البحث والقوائم والريلز مفعّلة'; } catch (e) { keyDot.className = 'status-dot bad'; keyStatus.textContent = e.message; }
   };

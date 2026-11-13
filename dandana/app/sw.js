@@ -1,6 +1,6 @@
 // App-shell cache. Media lives in IndexedDB, never here; API/YouTube/radio
 // requests always go to the network.
-const VERSION = 'dandana-v1.1.0';
+const VERSION = 'dandana-v1.1.1';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/main.js', 'js/util.js', 'js/icons.js', 'js/db.js', 'js/library.js', 'js/tags.js', 'js/zip.js',

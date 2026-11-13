@@ -22,7 +22,7 @@ export function isoSeconds(d) {
 }
 
 async function call(path, params) {
-  const key = (lib.settings.ytKey || '').trim();
+  const key = cleanKey(lib.settings.ytKey);
   if (!key) throw new Error('أضف مفتاح يوتيوب من الإعدادات للبحث');
   const q = new URLSearchParams({ ...params, key });
   let r;
@@ -32,15 +32,39 @@ async function call(path, params) {
     throw new Error('تعذّر الاتصال بيوتيوب — تحقق من الإنترنت');
   }
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    const reason = d.error && d.error.errors && d.error.errors[0] && d.error.errors[0].reason;
-    if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw new Error('خلصت حصة اليوم لمفتاح يوتيوب (تتجدد بعد منتصف الليل بتوقيت أمريكا)');
-    if (reason === 'keyInvalid' || r.status === 400 && /API key/i.test(d.error && d.error.message)) throw new Error('مفتاح يوتيوب غير صحيح');
-    if (reason === 'accessNotConfigured' || reason === 'SERVICE_DISABLED' || /has not been used|disabled/i.test(d.error && d.error.message)) throw new Error('فعّل «YouTube Data API v3» في مشروع جوجل الخاص بالمفتاح');
-    if (r.status === 403 && /referer|referrer/i.test(d.error && d.error.message)) throw new Error('المفتاح مقيّد بموقع آخر — أضف رابط دندنة في قيود المفتاح');
-    throw new Error((d.error && d.error.message) || `خطأ من يوتيوب (${r.status})`);
-  }
+  if (!r.ok) throw new Error(explain(r.status, d.error || {}));
   return d;
+}
+
+/** Google's error → what to fix, in Arabic, with Google's own reason in brackets. */
+function explain(status, e) {
+  const msg = e.message || '';
+  const reasons = [
+    ...((e.errors || []).map((x) => x.reason)),
+    ...((e.details || []).map((x) => x.reason)),
+  ].filter(Boolean);
+  const has = (...r) => r.some((x) => reasons.includes(x));
+  const tag = ` (${reasons.find((x) => /^[A-Z_]+$/.test(x)) || reasons[0] || status})`;
+  if (has('quotaExceeded', 'dailyLimitExceeded', 'RATE_LIMIT_EXCEEDED')) return 'خلصت حصة اليوم لمفتاح يوتيوب — تتجدد بعد منتصف الليل بتوقيت أمريكا' + tag;
+  if (has('API_KEY_EXPIRED') || /expired/i.test(msg)) return 'المفتاح منتهي — اعمل مفتاح جديد من Credentials' + tag;
+  if (has('API_KEY_INVALID', 'keyInvalid') || /API key not valid/i.test(msg)) return 'جوجل يقول المفتاح غلط: النسخ ناقص، أو المفتاح انمسح. انسخه من جديد بزر النسخ في Credentials' + tag;
+  if (has('SERVICE_DISABLED', 'accessNotConfigured') || /has not been used|is disabled/i.test(msg)) return 'YouTube Data API v3 مش مفعّلة في مشروع المفتاح — فعّلها من Library' + tag;
+  if (has('API_KEY_SERVICE_BLOCKED') || /Requests to this API .* are blocked/i.test(msg)) return 'المفتاح مقيّد بواجهات أخرى — في قيود المفتاح (API restrictions) زيد YouTube Data API v3' + tag;
+  if (has('API_KEY_HTTP_REFERRER_BLOCKED') || /referer|referrer/i.test(msg)) return `المفتاح مقيّد بمواقع أخرى — زيد ${location.origin}/* في Websites` + tag;
+  if (has('API_KEY_IP_ADDRESS_BLOCKED', 'API_KEY_ANDROID_APP_BLOCKED', 'API_KEY_IOS_APP_BLOCKED')) return 'المفتاح مقيّد بسيرفر أو تطبيق جوال، فما يشتغلش من المتصفح — اعمل مفتاح جديد خاص بدندنة' + tag;
+  return (msg || 'خطأ من يوتيوب') + tag;
+}
+
+/** Remove spaces/new lines a copy can bring along, and check the shape (AIza + 35). */
+export function cleanKey(k) {
+  return (k || '').replace(/[\s‎‏‪-‮]+/g, '');
+}
+export function keyShapeProblem(k) {
+  if (!k) return '';
+  if (!k.startsWith('AIza')) return 'المفتاح لازم يبدأ بـ AIza — يمكن نسخت حاجة ثانية (مثل Client ID أو Secret)';
+  if (k.length !== 39) return `المفتاح لازم يكون 39 حرف وعندك ${k.length} — النسخ ناقص أو فيه زيادة`;
+  if (!/^[A-Za-z0-9_-]+$/.test(k)) return 'في المفتاح رموز غريبة — انسخه من جديد';
+  return '';
 }
 
 async function details(ids) {
