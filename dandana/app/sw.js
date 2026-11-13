@@ -1,11 +1,12 @@
 // App-shell cache. Media lives in IndexedDB, never here; API/YouTube/radio
 // requests always go to the network.
-const VERSION = 'dandana-v1.0.0';
+const VERSION = 'dandana-v1.1.0';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/main.js', 'js/util.js', 'js/icons.js', 'js/db.js', 'js/library.js', 'js/tags.js', 'js/zip.js',
   'js/art.js', 'js/importer.js', 'js/api.js', 'js/player.js', 'js/radio.js', 'js/lyrics.js',
   'js/taste.js', 'js/ui.js', 'js/nowplaying.js', 'js/views.js', 'js/reels.js',
+  'js/cobalt.js', 'js/ytapi.js', 'js/themes.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
@@ -25,7 +26,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin || url.pathname.includes('/api/')) return;
+  if (url.origin !== location.origin || url.pathname.includes('/api/') || url.pathname.endsWith('instances.json')) return;
   if (req.headers.get('range')) return;
   // Stale-while-revalidate for the shell; navigations fall back to index.html offline.
   e.respondWith(

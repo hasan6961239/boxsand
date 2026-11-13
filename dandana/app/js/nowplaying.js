@@ -3,6 +3,9 @@ import * as lib from './library.js';
 import { player } from './player.js';
 import { coverEl, dominantColor } from './art.js';
 import { getLyrics } from './lyrics.js';
+import * as api from './api.js';
+import { importOne } from './importer.js';
+import { cleanYouTubeTitle } from './tags.js';
 import { addToPlaylistSheet, trackMenu, go } from './ui.js';
 import { h, ic, iconBtn, fmtTime, actionSheet, toast, $ } from './util.js';
 
@@ -383,7 +386,24 @@ function npMenu() {
     if (t) return trackMenu(t);
   }
   actionSheet([
+    c.ytId ? { icon: 'download', label: 'احفظها في مكتبتي', fn: () => saveStream(c) } : null,
     c.ytId ? { icon: 'link', label: 'افتح في يوتيوب', fn: () => window.open(`https://www.youtube.com/watch?v=${c.ytId}`, '_blank') } : null,
     { icon: 'close', label: 'أوقف التشغيل', fn: () => player.pause() },
   ]);
+}
+
+async function saveStream(c) {
+  if (lib.findByYt(c.ytId)) return toast('موجودة في مكتبتك');
+  if (!c.streamBlob) {
+    api.startDownload({ id: c.ytId, title: c.title, channel: c.artist, kind: 'audio' });
+    return toast('بدأ التحميل — تابعه من «التحميلات»');
+  }
+  const names = c.album === 'اكتشاف على ذوقك' ? { title: c.title, artist: c.artist } : cleanYouTubeTitle(c.title, c.artist);
+  let artBlob = null;
+  try { const r = await fetch(`https://i.ytimg.com/vi/${c.ytId}/hqdefault.jpg`); if (r.ok) artBlob = await r.blob(); } catch { /* optional */ }
+  const blob = c.streamBlob;
+  await importOne({ name: `${names.title}.mp3`, size: blob.size, type: blob.type || 'audio/mpeg', get: async () => blob },
+    { title: names.title, artist: names.artist, source: 'youtube', ytId: c.ytId, artBlob, force: true });
+  lib.emit('tracks');
+  toast('انحفظت في مكتبتك ✓');
 }

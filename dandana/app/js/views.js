@@ -4,6 +4,9 @@ import * as db from './db.js';
 import * as api from './api.js';
 import * as taste from './taste.js';
 import * as radioApi from './radio.js';
+import * as cobalt from './cobalt.js';
+import * as ytapi from './ytapi.js';
+import * as themes from './themes.js';
 import { player } from './player.js';
 import { coverEl } from './art.js';
 import {
@@ -15,7 +18,7 @@ import {
   fmtTime, fmtBytes, fmtDuration, songsCount, isStandalone, isIOS, norm, $,
 } from './util.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 function page(root, ...kids) {
   const p = h('div.page', ...kids);
@@ -66,6 +69,7 @@ export function home(root) {
     const st = lib.stats();
     p.append(h('div.page-head',
       h('div.grow', h('div.hello', hello), h('div.hello-sub', st.count ? `${songsCount(st.count)} في مكتبتك` : 'مكتبتك جاهزة لأغانيك')),
+      iconBtn('palette', themes.themeSheet, 'الثيمات'),
       iconBtn('stats', () => go('#/stats'), 'إحصائيات'),
       iconBtn('sliders', () => go('#/settings'), 'الإعدادات')));
 
@@ -150,7 +154,7 @@ export function playTaste() {
   const { items, feeder } = taste.tasteRadio();
   if (!items.length) return toast('ما قدرت أجهز الميكس');
   player.playItems(items, 0, { context: 'على ذوقي ✨', feeder, shuffle: false });
-  if (lib.settings.mixNew && !api.hasServer()) toast('للحصول على أغاني جديدة داخل الميكس اضبط خادم التحميل');
+  if (lib.settings.mixNew && !api.canSearch()) toast('للحصول على أغاني جديدة داخل الميكس أضف مفتاح يوتيوب من الإعدادات');
 }
 
 // ================================================================ LIBRARY
@@ -437,18 +441,8 @@ export function discover(root) {
   p.append(head('اكتشف', { actions: [dlBtn] }));
   updDl();
 
-  if (!api.hasServer()) {
-    p.append(h('div.onboard',
-      h('h2', 'التحميل من يوتيوب يحتاج خادم صغير'),
-      h('p', 'سفاري ما يسمح لأي موقع يحمّل من يوتيوب مباشرة، فالتطبيق يعتمد على «خادم دندنة»: برنامج صغير تشغّله على كمبيوترك في البيت مرة وحدة، ويصير التحميل والبحث والريلز من يوتيوب يشتغلوا من الآيفون.'),
-      h('div.row.gap', btn('info', 'طريقة التشغيل', () => go('#/guide'), 'primary'), btn('sliders', 'أدخل رابط الخادم', () => go('#/settings'), 'ghost'))));
-    p.append(h('div.card', { style: { marginTop: '14px' } }, h('h3', 'متاح بدون خادم'),
-      h('p', 'الراديو، الكلمات، واقتراحات «على ذوقي» (مقاطع تجريبية) تشتغل الآن.'),
-      h('div.btn-row', { style: { marginTop: '12px' } }, btn('sparkle', 'على ذوقي', () => go('#/foryou')), btn('radio', 'راديو', () => go('#/radio')))));
-    return subs(api.onDownloads(updDl));
-  }
-
-  const input = h('input', { type: 'search', placeholder: 'ابحث في يوتيوب أو الصق رابط', value: lastQuery, enterkeyhint: 'search', autocapitalize: 'off', autocorrect: 'off' });
+  const searchable = api.canSearch();
+  const input = h('input', { type: 'search', placeholder: searchable ? 'ابحث في يوتيوب أو الصق رابط' : 'الصق رابط يوتيوب أو تيك توك أو إنستغرام', value: lastQuery, enterkeyhint: 'search', autocapitalize: 'off', autocorrect: 'off' });
   const form = h('form.search', { onsubmit: (e) => { e.preventDefault(); input.blur(); run(input.value); } }, ic('search'), input,
     iconBtn('paste', async () => {
       try {
@@ -460,9 +454,21 @@ export function discover(root) {
     }, 'لصق', 'sm clear'));
   p.append(form);
   const chips = h('div.chips');
-  p.append(chips);
+  if (searchable) p.append(chips);
   const results = h('div', { style: { marginTop: '12px' } });
   p.append(results);
+  if (!searchable) {
+    p.append(h('div.card', { style: { marginTop: '6px' } },
+      h('h3', 'التحميل يشتغل الآن بدون كمبيوتر ✓'),
+      h('p', 'انسخ رابط أي فيديو من يوتيوب (مشاركة ← نسخ الرابط)، أو من تيك توك وإنستغرام وساوند كلاود، وارجع هنا واضغط زر اللصق 📋.'),
+      h('div.btn-row', { style: { marginTop: '12px' } },
+        btn('link', 'افتح يوتيوب', () => window.open('https://www.youtube.com/', '_blank'), 'primary'),
+        btn('paste', 'لصق رابط', () => form.querySelector('.clear').click()))),
+      h('div.card',
+        h('h3', 'تبي تبحث وتتصفح يوتيوب من داخل التطبيق؟'),
+        h('p', 'أضف «مفتاح يوتيوب» المجاني من جوجل مرة وحدة (3 دقائق من الآيفون). بعدها يشتغل البحث، القوائم، وريلز يوتيوب، والأغاني الجديدة في «على ذوقي».'),
+        h('div.btn-row', { style: { marginTop: '12px' } }, btn('info', 'طريقة الحصول على المفتاح', () => go('#/guide'), 'primary'), btn('sliders', 'أدخل المفتاح', () => go('#/settings'), 'ghost'))));
+  }
 
   const drawChips = () => {
     chips.innerHTML = '';
@@ -489,13 +495,14 @@ export function discover(root) {
           const items = await api.playlist(q);
           lastResults = { kind: 'playlist', items, q };
         } else {
-          const m = api.isYouTubeUrl(q) ? await api.meta(q).catch(() => ({ id: api.ytId(q), title: '', url: q })) : { id: null, title: q.split('/').pop(), url: q };
+          const m = await api.meta(q);
           lastResults = null;
           results.innerHTML = '';
           ytSheet({ ...m, url: q });
           return;
         }
       } else {
+        if (!searchable) throw new Error('البحث يحتاج مفتاح يوتيوب — أو الصق رابط مباشرة');
         const items = await api.search(q, 25);
         lastResults = { kind: 'search', items, q };
         const rs = [q, ...(lib.settings.recentSearches || []).filter((x) => x !== q)].slice(0, 10);
@@ -535,13 +542,14 @@ export function discover(root) {
 export function downloads(root) {
   const p = page(root);
   p.append(head('التحميلات', { back: '#/discover', actions: [btn(null, 'مسح المنتهية', () => api.clearFinished(), 'sm ghost')] }));
-  p.append(h('p.muted', { style: { fontSize: '13px', marginBottom: '8px' } }, 'الخادم يحمّل ويحوّل، ثم ينتقل الملف للآيفون. خلي التطبيق مفتوحاً أثناء «النقل».'));
+  p.append(h('p.muted', { style: { fontSize: '13px', marginBottom: '8px' } }, 'خلي التطبيق مفتوحاً أثناء التحميل — آيفون يوقف التطبيقات في الخلفية.'));
   const list = h('div');
   p.append(list);
   const label = (d) => ({
     queued: 'في الانتظار…',
-    server: d.serverStatus === 'processing' ? 'يحوّل الملف على الخادم…' : `يحمّل على الخادم ${Math.round((d.progress / 0.7) * 100) || 0}%`,
-    transfer: `ينقل للآيفون ${Math.round(((d.progress - 0.7) / 0.28) * 100)}%`,
+    server: d.detail || 'على خادم البيت…',
+    cobalt: d.detail || 'يجهّز الملف…',
+    transfer: d.detail || 'ينقل للآيفون…',
     saving: 'يحفظ في المكتبة…',
     done: 'تم ✓ في مكتبتك',
     error: d.error || 'فشل',
@@ -553,15 +561,15 @@ export function downloads(root) {
     if (!ds.length) { list.append(emptyState('download', 'لا توجد تحميلات', 'ابحث في «اكتشف» واضغط على أي فيديو لتحميله.')); return; }
     for (const d of ds) {
       const actions = [];
-      if (['queued', 'server', 'transfer'].includes(d.status)) actions.push(iconBtn('close', () => api.cancelDownload(d), 'إلغاء', 'sm'));
+      if (['queued', 'server', 'cobalt', 'transfer'].includes(d.status)) actions.push(iconBtn('close', () => api.cancelDownload(d), 'إلغاء', 'sm'));
       if (['error', 'cancelled'].includes(d.status)) actions.push(iconBtn('refresh', () => api.retryDownload(d), 'إعادة', 'sm'));
       if (d.status === 'done' && d.trackId && lib.tracks.has(d.trackId)) actions.push(iconBtn('play', () => player.playTracks([d.trackId], 0, { context: 'التحميلات' }), 'تشغيل', 'sm'));
       list.append(h('div.dl',
         h('div.thumb', d.thumbnail ? h('img', { src: d.thumbnail, alt: '' }) : null),
         h('div.grow',
           h('div.t', d.title || d.url),
-          h('div.s' + (d.status === 'error' ? '.err' : ''), `${d.kind === 'video' ? 'فيديو ' + d.quality + 'p' : 'صوت ' + (d.format || '').toUpperCase()} · ${label(d)}`),
-          ['server', 'transfer', 'saving', 'queued'].includes(d.status) ? h('div.bar', h('i', { style: { width: Math.round(d.progress * 100) + '%' } })) : null),
+          h('div.s' + (d.status === 'error' ? '.err' : ''), `${d.site && d.site !== 'يوتيوب' ? d.site + ' · ' : ''}${d.kind === 'video' ? 'فيديو' + (d.quality && d.quality !== 'max' && d.vid ? ' ' + d.quality + 'p' : '') : 'صوت ' + (d.engine === 'cobalt' ? 'MP3' : (d.format || '').toUpperCase())} · ${label(d)}`),
+          ['server', 'cobalt', 'transfer', 'saving', 'queued'].includes(d.status) ? h('div.bar', h('i', { style: { width: Math.round(d.progress * 100) + '%' } })) : null),
         ...actions));
     }
   };
@@ -654,7 +662,7 @@ export function radio(root) {
 function recItem(r) {
   const acts = [];
   if (r.preview) acts.push(iconBtn('play', (e) => { e.stopPropagation(); player.playItems([{ type: 'preview', url: r.preview, title: r.title, artist: r.artist, cover: r.coverBig || r.cover }], 0, { context: 'مقطع تجريبي' }); }, 'استمع لمقطع', 'sm'));
-  if (api.hasServer()) acts.push(iconBtn('download', (e) => { e.stopPropagation(); downloadRec(r); }, 'تحميل', 'sm'));
+  if (api.canSearch()) acts.push(iconBtn('download', (e) => { e.stopPropagation(); downloadRec(r); }, 'تحميل', 'sm'));
   return recRow(r, () => recMenu(r), h('div.row', acts));
 }
 
@@ -671,11 +679,11 @@ async function downloadRec(r) {
 function recMenu(r) {
   const header = h('div.action-head', coverEl({ title: r.title, cover: r.cover }), h('div.grow', h('div.t.ellipsis', r.title), h('div.s.ellipsis', r.artist)));
   actionSheet([
-    api.hasServer() ? { icon: 'play', label: 'شغّل كاملة من يوتيوب', fn: () => player.playItems([taste.recToItem(r)], 0, { context: 'على ذوقي' }) } : null,
+    api.canSearch() ? { icon: 'play', label: 'شغّل كاملة من يوتيوب', fn: () => player.playItems([taste.recToItem(r)], 0, { context: 'على ذوقي' }) } : null,
     r.preview ? { icon: 'note', label: 'استمع لمقطع 30 ثانية', fn: () => player.playItems([{ type: 'preview', url: r.preview, title: r.title, artist: r.artist, cover: r.coverBig || r.cover }]) } : null,
-    api.hasServer() ? { icon: 'download', label: 'حمّلها لمكتبتي', fn: () => downloadRec(r) } : null,
-    api.hasServer() ? { icon: 'queue', label: 'أضف لقائمة الانتظار', fn: () => { player.addToQueue(taste.recToItem(r)); toast('أُضيفت'); } } : null,
-    !api.hasServer() ? { icon: 'info', label: 'للتحميل والتشغيل الكامل اضبط الخادم', fn: () => go('#/guide') } : null,
+    api.canSearch() ? { icon: 'download', label: 'حمّلها لمكتبتي', fn: () => downloadRec(r) } : null,
+    api.canSearch() ? { icon: 'queue', label: 'أضف لقائمة الانتظار', fn: () => { player.addToQueue(taste.recToItem(r)); toast('أُضيفت'); } } : null,
+    !api.canSearch() ? { icon: 'info', label: 'للتحميل والتشغيل الكامل أضف مفتاح يوتيوب', fn: () => go('#/settings') } : null,
   ], { header });
 }
 
@@ -689,7 +697,7 @@ export function foryou(root) {
   }
   p.append(h('div.onboard', { style: { marginTop: '0' } },
     h('h2', 'ميكس على ذوقك ✨'),
-    h('p', api.hasServer() && lib.settings.mixNew ? 'من أغانيك اللي تحبها، ومعاها أغاني جديدة كل شوي من يوتيوب.' : 'أغانيك مرتبة على ذوقك: المفضلة والأكثر سماعاً أولاً، مع تنويع.'),
+    h('p', api.canSearch() && lib.settings.mixNew ? 'من أغانيك اللي تحبها، ومعاها أغاني جديدة كل شوي من يوتيوب.' : 'أغانيك مرتبة على ذوقك: المفضلة والأكثر سماعاً أولاً، مع تنويع.'),
     btn('play', 'شغّل على ذوقي', playTaste, 'primary')));
   p.append(section('ذوقك', null, h('div.chips', prof.slice(0, 12).map((a) => h('button.chip', { onclick: () => go('#/artist/' + encodeURIComponent(a.key)) }, a.name)))));
   const recBox = h('div');
@@ -702,7 +710,7 @@ export function foryou(root) {
     recBox.innerHTML = '';
     artBox.innerHTML = '';
     if (!r || !r.items || !r.items.length) { recBox.append(h('p.muted', 'ما لقيت اقتراحات الآن — جرّب «تحديث».')); return; }
-    if (!api.hasServer()) recBox.append(h('p.muted', { style: { fontSize: '12.5px', marginBottom: '6px' } }, '▶ يشغّل مقطعاً تجريبياً. لتحميل الأغاني كاملة اضبط خادم التحميل.'));
+    if (!api.canSearch()) recBox.append(h('p.muted', { style: { fontSize: '12.5px', marginBottom: '6px' } }, '▶ يشغّل مقطعاً تجريبياً. لتشغيل الأغاني كاملة وتحميلها أضف مفتاح يوتيوب من الإعدادات.'));
     else recBox.append(h('div.btn-row', btn('play', 'شغّل الاقتراحات كاملة', () => player.playItems(r.items.map(taste.recToItem), 0, { context: 'اقتراحات على ذوقك' }))));
     recBox.append(h('div.list', r.items.map(recItem)));
     if (r.artists && r.artists.length) {
@@ -753,15 +761,56 @@ export function settings(root) {
     })), { title: label }) }, ic(iconName), h('div.lbl', h('b', label)), val);
   };
 
-  // server
+  // ---- download without a computer
+  const engDot = h('span.status-dot');
+  const engStatus = h('small', 'يفحص الخوادم…');
+  const checkEngines = async () => {
+    engDot.className = 'status-dot'; engStatus.textContent = 'يفحص الخوادم…';
+    const res = await cobalt.check();
+    const up = res.filter((r) => r.ok && r.youtube).length;
+    engDot.className = 'status-dot ' + (up ? 'ok' : 'bad');
+    engStatus.textContent = up ? `${up} من ${res.length} خوادم مجانية شغّالة الآن` : 'الخوادم المجانية لا ترد الآن — جرّب لاحقاً';
+  };
+  checkEngines();
+  const own = h('input.input.ltr', { value: S.cobaltUrl, placeholder: 'https://cobalt.example.com (اختياري)', inputmode: 'url', autocapitalize: 'off', autocorrect: 'off', spellcheck: false });
+  const ownKey = h('input.input.ltr', { value: S.cobaltKey, placeholder: 'Api-Key (اختياري)', autocapitalize: 'off', autocorrect: 'off', spellcheck: false, type: 'password' });
+  own.addEventListener('change', () => lib.setSetting('cobaltUrl', own.value.trim()));
+  ownKey.addEventListener('change', () => lib.setSetting('cobaltKey', ownKey.value.trim()));
+  p.append(...group('التحميل بدون كمبيوتر',
+    h('div.set-pad',
+      h('div.row.gap', engDot, h('div.grow', h('b', { style: { display: 'block' } }, 'خوادم cobalt المجانية'), engStatus), btn('refresh', 'فحص', checkEngines, 'sm ghost')),
+      h('p.muted', { style: { fontSize: '12.5px', marginTop: '10px' } }, 'تشتغل تلقائياً بدون أي إعداد: يوتيوب، تيك توك، إنستغرام، ساوند كلاود، فيسبوك، إكس. لو خادم فشل، التطبيق يجرّب اللي بعده.'),
+      h('details', { style: { marginTop: '10px' } }, h('summary', { style: { fontSize: '13px', color: 'var(--accent)', fontWeight: '700' } }, 'خادم cobalt خاص (اختياري)'),
+        h('div', { style: { marginTop: '10px' } }, own, h('div', { style: { height: '8px' } }), ownKey))),
+  ));
+
+  // ---- YouTube key (search, playlists, Shorts)
+  const ytKey = h('input.input.ltr', { value: S.ytKey, placeholder: 'AIza…', autocapitalize: 'off', autocorrect: 'off', spellcheck: false });
+  const keyDot = h('span.status-dot');
+  const keyStatus = h('small', S.ytKey ? '…' : 'غير مضاف — البحث داخل التطبيق متوقف');
+  const testKey = async () => {
+    await lib.setSetting('ytKey', ytKey.value.trim());
+    if (!ytKey.value.trim()) { keyDot.className = 'status-dot'; keyStatus.textContent = 'غير مضاف — البحث داخل التطبيق متوقف'; return; }
+    keyDot.className = 'status-dot'; keyStatus.textContent = 'يختبر…';
+    try { await ytapi.test(); keyDot.className = 'status-dot ok'; keyStatus.textContent = 'المفتاح يشتغل ✓ — البحث والقوائم والريلز مفعّلة'; } catch (e) { keyDot.className = 'status-dot bad'; keyStatus.textContent = e.message; }
+  };
+  p.append(...group('مفتاح يوتيوب (للبحث والتصفح)',
+    h('div.set-pad',
+      h('label.field', h('span', 'YouTube Data API key — مجاني من جوجل'), ytKey),
+      h('div.row.gap', keyDot, h('div.grow', keyStatus), btn(null, 'حفظ واختبار', testKey, 'sm primary')),
+      h('p.muted', { style: { fontSize: '12.5px', marginTop: '10px' } }, 'كيف أحصل عليه؟ ', h('a', { href: '#/guide', style: { color: 'var(--accent)' } }, 'الخطوات في الدليل'), ' (3 دقائق من الآيفون)')),
+  ));
+  if (S.ytKey) testKey();
+
+  // ---- home server (optional)
   const url = h('input.input.ltr', { value: S.serverUrl, placeholder: 'https://xxxx.trycloudflare.com', inputmode: 'url', autocapitalize: 'off', autocorrect: 'off', spellcheck: false });
   const key = h('input.input.ltr', { value: S.serverKey, placeholder: 'اختياري', autocapitalize: 'off', autocorrect: 'off', spellcheck: false, type: 'password' });
   const dot = h('span.status-dot');
-  const status = h('small', 'غير مضبوط');
+  const status = h('small', 'غير مضبوط (اختياري)');
   const test = async () => {
     await lib.setSetting('serverUrl', url.value.trim());
     await lib.setSetting('serverKey', key.value.trim());
-    if (!api.hasServer()) { dot.className = 'status-dot'; status.textContent = 'غير مضبوط'; return; }
+    if (!api.hasServer()) { dot.className = 'status-dot'; status.textContent = 'غير مضبوط (اختياري)'; return; }
     dot.className = 'status-dot'; status.textContent = 'يتصل…';
     try {
       const hl = await api.health();
@@ -773,34 +822,26 @@ export function settings(root) {
       status.textContent = e.message;
     }
   };
-  p.append(...group('خادم التحميل (يوتيوب)',
+  p.append(...group('خادم البيت (اختياري — الأكثر ثباتاً)',
     h('div.set-pad',
       h('label.field', h('span', 'رابط الخادم'), url),
       h('label.field', h('span', 'مفتاح الخادم'), key),
-      h('div.row.gap', dot, h('div.grow', status), btn(null, 'حفظ واختبار', test, 'sm primary')),
-      h('p.muted', { style: { fontSize: '12.5px', marginTop: '10px' } }, 'كيف أشغّل الخادم؟ ', h('a', { href: '#/guide', style: { color: 'var(--accent)' } }, 'شوف الشرح'))),
+      h('div.row.gap', dot, h('div.grow', status), btn(null, 'حفظ واختبار', test, 'sm primary'))),
+    choice('طريقة التحميل', 'download', [['auto', 'تلقائي (خادم البيت ثم المجاني)'], ['cobalt', 'الخوادم المجانية فقط'], ['server', 'خادم البيت فقط']], 'dlEngine'),
   ));
   if (S.serverUrl) test();
 
   p.append(...group('التحميل',
-    choice('صيغة الصوت', 'note', [['m4a', 'M4A (أفضل للآيفون)'], ['mp3', 'MP3']], 'audioFormat'),
+    choice('صيغة الصوت (خادم البيت)', 'note', [['m4a', 'M4A (أفضل للآيفون)'], ['mp3', 'MP3']], 'audioFormat'),
     choice('جودة الفيديو الافتراضية', 'video', [['360', '360p'], ['480', '480p'], ['720', '720p HD'], ['1080', '1080p Full HD']], 'videoQuality'),
   ));
 
   p.append(...group('التشغيل',
     toggle('bgAudio', 'الفيديو يكمل كصوت عند قفل الشاشة', 'آيفون يوقف الفيديو في الخلفية، فنحوّله لصوت تلقائياً', 'moon'),
-    toggle('mixNew', 'أغاني جديدة داخل «على ذوقي»', 'كل رابع أغنية اقتراح جديد من يوتيوب (يحتاج الخادم)', 'sparkle'),
+    toggle('mixNew', 'أغاني جديدة داخل «على ذوقي»', 'كل رابع أغنية اقتراح جديد من يوتيوب (يحتاج مفتاح يوتيوب)', 'sparkle'),
   ));
 
-  const sw = (name, color) => h('button.swatch' + (S.accent === name ? '.on' : ''), {
-    style: { background: color }, 'aria-label': name,
-    onclick: (e) => { lib.setSetting('accent', name); e.currentTarget.parentNode.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on')); e.currentTarget.classList.add('on'); },
-  });
-  p.append(...group('المظهر',
-    choice('السمة', 'moon', [['dark', 'داكن'], ['light', 'فاتح'], ['auto', 'حسب الجهاز']], 'theme'),
-    h('div.set-row', ic('sparkle'), h('div.lbl', h('b', 'اللون')), h('div.swatches',
-      sw('gold', '#f2b84b'), sw('rose', '#ef5d7e'), sw('teal', '#3fd0b6'), sw('violet', '#a78bfa'), sw('blue', '#5aa9ff'))),
-  ));
+  p.append(h('div.set-title', 'الثيمات'), h('div.set-group', h('div.set-pad', themes.picker())));
 
   // storage
   const st = lib.stats();
@@ -987,33 +1028,42 @@ export function guide(root) {
       h('li', 'التطبيق يقرأ اسم الأغنية والفنان والغلاف من الملف نفسه، وإذا ما فيه يستنتجها من اسم الملف (مثل «عمرو دياب - تملي معاك.mp3»).'),
       h('li', 'تقدر تعدّل أي معلومة أو تختار غلاف من الصور: اضغط ⋯ بجانب الأغنية ← «عدّل المعلومات».')),
 
-    h('h2', '٣) التحميل من يوتيوب — خادم دندنة'),
-    h('p', 'المتصفح ما يقدر يحمّل من يوتيوب مباشرة، فيحتاج برنامج صغير على كمبيوتر (ويندوز أو ماك) يشتغل في البيت. يوتيوب يحجب سيرفرات الإنترنت السحابية، لكن من إنترنت البيت يشتغل عادي.'),
+    h('h2', '٣) التحميل من يوتيوب وتيك توك وإنستغرام — بدون كمبيوتر'),
+    h('p', 'التحميل مدمج في التطبيق ويشتغل مباشرة: يعتمد على خوادم «cobalt» المجانية (برنامج تحميل مفتوح المصدر يشغّله متطوعون). لو خادم فشل، التطبيق يجرّب اللي بعده تلقائياً.'),
     h('ol',
-      h('li', 'ثبّت على الكمبيوتر: Python 3 و ffmpeg و deno. (ويندوز: ', h('code', 'winget install Python.Python.3.12 Gyan.FFmpeg DenoLand.Deno'), ' — ماك: ', h('code', 'brew install python ffmpeg deno'), ')'),
-      h('li', 'نزّل مجلد ', h('code', 'dandana/server'), ' من المشروع وشغّل ', h('code', 'start.bat'), ' (ويندوز) أو ', h('code', './start.sh'), ' (ماك).'),
-      h('li', 'عشان الآيفون يوصل له من أي مكان برابط https، ثبّت cloudflared وشغّل:'),
-    ),
+      h('li', 'في تطبيق يوتيوب (أو تيك توك/إنستغرام): «مشاركة» ← «نسخ الرابط».'),
+      h('li', 'في دندنة: «اكتشف» ← زر اللصق 📋.'),
+      h('li', 'اختر: صوت MP3، أو فيديو 360/480/720/1080. يتحفظ في مكتبتك ويشتغل بدون إنترنت.')),
+    h('p', 'ملاحظة صريحة: هذه الخوادم مجانية ويديرها متطوعون، ويوتيوب يحجب بعضها من وقت لآخر، فبعض الأغاني ممكن تفشل أحياناً. جرّب بعد شوية، أو استعمل خادم البيت (الفقرة ٥).'),
+
+    h('h2', '٤) البحث والتصفح داخل التطبيق — مفتاح يوتيوب المجاني'),
+    h('p', 'للبحث في يوتيوب من داخل دندنة، وريلز يوتيوب، والأغاني الجديدة في «على ذوقي»، تحتاج «مفتاح» مجاني من جوجل (واجهة يوتيوب الرسمية). مرة وحدة، من الآيفون:'),
+    h('ol',
+      h('li', 'افتح ', h('code', 'console.cloud.google.com'), ' وسجّل بحساب جوجل.'),
+      h('li', 'من الأعلى: «Select a project» ← «New project» ← اكتب أي اسم ← Create.'),
+      h('li', 'ابحث في الأعلى عن ', h('code', 'YouTube Data API v3'), ' ← افتحها ← Enable.'),
+      h('li', 'من القائمة: «APIs & Services» ← «Credentials» ← «Create credentials» ← «API key».'),
+      h('li', 'انسخ المفتاح (يبدأ بـ AIza) وحطه في: الإعدادات ← «مفتاح يوتيوب» ← «حفظ واختبار».')),
+    h('p', 'الحصة المجانية تكفي حوالي 100 بحث في اليوم، وتتجدد يومياً. المفتاح يتخزن في جهازك فقط.'),
+
+    h('h2', '٥) خادم البيت (اختياري — الأكثر ثباتاً)'),
+    h('p', 'لو تبي تحميل ثابت 100% وأسرع، تقدر تشغّل «خادم دندنة» على كمبيوتر في البيت. يوتيوب ما يحجب إنترنت البيت.'),
+    h('ol',
+      h('li', 'ثبّت على الكمبيوتر: ', h('code', 'winget install Python.Python.3.12 Gyan.FFmpeg DenoLand.Deno Cloudflare.cloudflared'), ' (ويندوز) أو ', h('code', 'brew install python ffmpeg deno cloudflared'), ' (ماك).'),
+      h('li', 'شغّل ', h('code', 'start.bat'), ' أو ', h('code', './start.sh'), ' من مجلد ', h('code', 'dandana/server'), '، وفي نافذة ثانية:')),
     h('div.code', 'cloudflared tunnel --url http://localhost:8765'),
-    h('ol', { start: 4 },
-      h('li', 'انسخ الرابط اللي ينتهي بـ ', h('code', '.trycloudflare.com'), ' وحطه في الإعدادات ← «رابط الخادم» ← «حفظ واختبار».'),
-      h('li', 'الرابط هذا يتغير كل ما تعيد تشغيل cloudflared. لرابط ثابت استخدم Tailscale Funnel أو نفق Cloudflare باسم نطاقك (الشرح في README).')),
-    h('p', 'نصيحة أمان: حط مفتاح للخادم بتشغيله مع ', h('code', 'DANDANA_KEY=كلمة-سر'), ' واكتب نفس الكلمة في الإعدادات.'),
+    h('p', 'انسخ رابط ', h('code', '.trycloudflare.com'), ' وحطه في الإعدادات ← «خادم البيت».'),
 
-    h('h2', '٤) التحميل والتصفح'),
-    h('ul',
-      h('li', 'من «اكتشف» ابحث أو الصق رابط فيديو أو قائمة تشغيل.'),
-      h('li', 'اضغط على أي نتيجة: تختار صوت (M4A أو MP3) أو فيديو 360/480/720/1080، أو تشغّله مباشرة بدون تحميل.'),
-      h('li', 'من تطبيق يوتيوب: «مشاركة» ← «نسخ الرابط»، وبعدها في دندنة اضغط زر اللصق 📋.'),
-      h('li', 'الصق رابط قائمة تشغيل كاملة وحمّلها كلها كصوت بضغطة.')),
+    h('h2', '٦) الثيمات'),
+    h('p', 'اضغط أيقونة الألوان 🎨 في الرئيسية أو من الإعدادات: 10 ثيمات كاملة (ليل، أسود، طرب، بحر، زمرّد، ورد، بنفسج، غروب، نهار، رمل) أو «تلقائي» حسب وضع الجهاز، مع اختيار لون الأزرار.'),
 
-    h('h2', '٥) ريلز، على ذوقي، والراديو'),
+    h('h2', '٧) ريلز، على ذوقي، والراديو'),
     h('ul',
-      h('li', 'ريلز: اسحب لفوق ولتحت. «مكتبتي» تعرض مقاطع من أغانيك وفيديوهاتك، و«يوتيوب» يجيب مقاطع قصيرة لفنانينك المفضلين (يحتاج الخادم). ضغطتين = مفضلة.'),
+      h('li', 'ريلز: اسحب لفوق ولتحت. «مكتبتي» تعرض مقاطع من أغانيك وفيديوهاتك، و«يوتيوب» يجيب مقاطع قصيرة لفنانينك المفضلين (يحتاج مفتاح يوتيوب). ضغطتين = مفضلة.'),
       h('li', 'على ذوقي: يحلل الفنانين اللي تسمعهم أكثر واللي حطيتهم مفضلة، ويقترح أغاني جديدة مش موجودة عندك. «شغّل على ذوقي» يشغّل ميكس لا ينتهي.'),
       h('li', 'الراديو: محطات ليبية وعربية وعالمية مباشرة، واضغط ❤️ لحفظ المحطة.')),
 
-    h('h2', '٦) مميزات أخرى'),
+    h('h2', '٨) مميزات أخرى'),
     h('ul',
       h('li', 'الكلمات المتزامنة مع الأغنية (زر الميكروفون في المشغّل).'),
       h('li', 'مؤقت النوم، سرعة التشغيل، تكرار وعشوائي ذكي ما يكرر نفس الفنان ورا بعض.'),

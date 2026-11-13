@@ -1,7 +1,9 @@
 // Reels: a vertical, swipeable feed. "مكتبتي" plays hooks from your own songs
-// and videos; "يوتيوب" streams short clips for the artists you listen to (via
-// the server). One shared <video> element moves between slides so iOS only
-// needs a single tap to allow sound.
+// and videos; "يوتيوب" shows short clips for the artists you listen to —
+// streamed through the home server when there is one, otherwise played in
+// YouTube's official embedded player (needs only the free YouTube key).
+// One shared <video> element moves between slides so iOS only needs a single
+// tap to allow sound.
 import * as lib from './library.js';
 import * as db from './db.js';
 import * as api from './api.js';
@@ -35,12 +37,14 @@ export function reelsView(root) {
 
   const sources = [['local', 'مكتبتي'], ['mix', 'الكل'], ['yt', 'يوتيوب']];
   let source = lib.settings.reelsSource || 'mix';
-  if (!api.hasServer()) source = 'local';
+  const ytOn = api.canSearch();
+  const embed = !api.hasServer(); // YouTube clips via the official embed player
+  if (!ytOn) source = 'local';
   const topBar = h('div.reels-top');
   const drawTop = () => {
     topBar.innerHTML = '';
     for (const [k, label] of sources) {
-      if (k !== 'local' && !api.hasServer()) continue;
+      if (k !== 'local' && !ytOn) continue;
       topBar.append(h('button' + (k === source ? '.on' : ''), { onclick: () => { if (k === source) return; source = k; lib.setSetting('reelsSource', k); reset(); drawTop(); } }, label));
     }
   };
@@ -81,7 +85,7 @@ export function reelsView(root) {
     ytQueries = shuffle(qs);
   }
   async function fetchYT() {
-    if (!api.hasServer() || exhaustedYT) return;
+    if (!ytOn || exhaustedYT) return;
     if (ytQueries.length < 2) buildQueries();
     const qs = ytQueries.splice(0, 2);
     const results = await Promise.allSettled(qs.map((q) => api.search(q, 15, 'short')));
@@ -102,13 +106,16 @@ export function reelsView(root) {
     }
   }
   const spinner = h('div.spinner', { style: { position: 'fixed', top: '45%', left: 'calc(50% - 14px)', zIndex: '3' } });
+  let feedGen = 0;
   async function more() {
     if (loading) return;
     loading = true;
+    const g = feedGen;
     if (!items.length) root.append(spinner);
     if (source !== 'yt') for (const it of nextLocal(source === 'local' ? 8 : 4)) addSlide(it);
     if (source !== 'local') {
       await fetchYT();
+      if (g !== feedGen) return; // tab switched while loading
       const yt = ytQ.splice(0, source === 'yt' ? 8 : 4);
       if (source === 'yt') yt.forEach(addSlide);
       else {
@@ -161,9 +168,9 @@ export function reelsView(root) {
     const side = h('div.side',
       likeBtn,
       t ? h('button', { onclick: (e) => { e.stopPropagation(); addToPlaylistSheet([t.id]); } }, h('span.c', ic('listplus')), 'قائمة')
-        : h('button', { onclick: (e) => { e.stopPropagation(); video.pause(); ytSheet(it); } }, h('span.c', ic('download')), 'تحميل'),
+        : h('button', { onclick: (e) => { e.stopPropagation(); video.pause(); ytCmd('pauseVideo'); ytSheet(it); } }, h('span.c', ic('download')), 'تحميل'),
       h('button', { onclick: (e) => { e.stopPropagation(); playFull(it); } }, h('span.c', ic('play')), 'كاملة'),
-      h('button.mute', { onclick: (e) => { e.stopPropagation(); muted = !muted; video.muted = muted; drawMute(); } }, h('span.c', ic(muted ? 'mute' : 'volume')), muted ? 'صامت' : 'صوت'));
+      h('button.mute', { onclick: (e) => { e.stopPropagation(); muted = !muted; video.muted = muted; ytCmd(muted ? 'mute' : 'unMute'); if (!muted) ytCmd('playVideo'); drawMute(); } }, h('span.c', ic(muted ? 'mute' : 'volume')), muted ? 'صامت' : 'صوت'));
     const info = h('div.info',
       h('div.src', ic(t ? (t.kind === 'video' ? 'video' : 'note') : 'compass'), t ? 'من مكتبتك' : 'يوتيوب'),
       h('div.t', title || ''), h('div.a', artist || ''));
@@ -225,19 +232,44 @@ export function reelsView(root) {
 
   function playFull(it) {
     video.pause();
+    ytCmd('pauseVideo');
     if (it.kind === 'local') player.playTracks([it.track.id], 0, { context: 'من الريلز' });
     else player.playItems([{ ...ytToItem(it), video: false }], 0, { context: 'من الريلز' });
     toast('يشتغل في المشغّل', { action: { label: 'افتح', fn: () => go('#/home') } });
   }
 
+  let frame = null;
+  function ytCmd(func) {
+    if (frame && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*');
+  }
+  function dropFrame() {
+    if (frame) { frame.remove(); frame = null; }
+  }
+
   async function activate(i) {
-    if (i < 0 || i === active) return;
+    if (i < 0 || i === active || !items[i]) return;
     active = i;
     const my = ++token;
     for (const s of slides) s.classList.remove('playing', 'paused');
     const slide = slides[i];
     const it = items[i];
     video.pause();
+    dropFrame();
+    if (it.kind === 'yt' && embed) {
+      video.removeAttribute('src');
+      const q = new URLSearchParams({
+        autoplay: '1', mute: muted || !unlockedOnce ? '1' : '0', playsinline: '1', controls: '0', loop: '1',
+        playlist: it.id, rel: '0', enablejsapi: '1', modestbranding: '1', origin: location.origin,
+      });
+      frame = h('iframe.reel-frame', {
+        src: `https://www.youtube-nocookie.com/embed/${it.id}?${q}`,
+        allow: 'autoplay; encrypted-media; picture-in-picture', allowfullscreen: true, title: it.title || 'YouTube',
+      });
+      slide._media.append(frame);
+      slide.classList.add('playing');
+      if (i >= items.length - 3) more();
+      return;
+    }
     video.classList.remove('contain');
     if (objURL) { URL.revokeObjectURL(objURL); objURL = null; }
     let src, isVideo = true, start = 0, dur = it.duration || null;
@@ -319,12 +351,15 @@ export function reelsView(root) {
     feed.innerHTML = '';
     feed.append(h('div.reel.msg', h('div',
       h('h3', 'ما في مقاطع للعرض'),
-      h('p', api.hasServer() ? 'أضف أغاني لمكتبتك أو جرّب تبويب «يوتيوب».' : 'أضف أغاني أو فيديوهات لمكتبتك، أو اضبط خادم التحميل لمقاطع يوتيوب القصيرة.'),
-      h('div.row.gap', { style: { justifyContent: 'center' } }, btn('upload', 'أضف أغاني', openImport, 'primary'), !api.hasServer() ? btn('info', 'الخادم', () => go('#/guide'), 'ghost') : null))));
+      h('p', ytOn ? 'أضف أغاني لمكتبتك أو جرّب تبويب «يوتيوب».' : 'أضف أغاني أو فيديوهات لمكتبتك. ولمقاطع يوتيوب القصيرة أضف مفتاح يوتيوب المجاني من الإعدادات.'),
+      h('div.row.gap', { style: { justifyContent: 'center' } }, btn('upload', 'أضف أغاني', openImport, 'primary'), !ytOn ? btn('sliders', 'الإعدادات', () => go('#/settings'), 'ghost') : null))));
   }
 
   function reset() {
     token++;
+    feedGen++;
+    loading = false;
+    dropFrame();
     video.pause();
     video.removeAttribute('src');
     for (const s of slides) io.unobserve(s);
@@ -339,6 +374,7 @@ export function reelsView(root) {
 
   return () => {
     token++;
+    dropFrame();
     life.abort();
     io.disconnect();
     video.pause();

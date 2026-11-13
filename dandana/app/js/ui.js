@@ -168,10 +168,10 @@ export function similarSheet(t) {
     (async () => {
       try {
         let rows = [];
-        if (api.hasServer()) {
+        if (api.canSearch() && (t.artist || t.ytId)) {
           const items = await taste.ytMix({ ytId: t.ytId, artist: t.artist, title: t.title });
           body.innerHTML = '';
-          body.append(h('div.btn-row', btn('play', 'شغّل الميكس', () => {
+          body.append(h('div.btn-row', btn('play', api.canMix() ? 'شغّل الميكس' : 'شغّل الكل', () => {
             close();
             player.playItems(items.map(ytToItem), 0, { context: `ميكس ${t.title}` });
           }, 'primary')));
@@ -179,7 +179,7 @@ export function similarSheet(t) {
         } else if (t.artist) {
           const items = await taste.artistTop(t.artist, 20);
           body.innerHTML = '';
-          body.append(h('p.muted', { style: { fontSize: '13px', marginBottom: '8px' } }, 'مقاطع تجريبية (30 ثانية). اضبط خادم التحميل في الإعدادات لتشغيل الأغاني كاملة وتحميلها.'));
+          body.append(h('p.muted', { style: { fontSize: '13px', marginBottom: '8px' } }, 'مقاطع تجريبية (30 ثانية). أضف مفتاح يوتيوب في الإعدادات لتشغيل الأغاني كاملة وتحميلها.'));
           rows = items.map((r) => recRow(r, () => { close(); player.playItems([{ type: 'preview', url: r.preview, title: r.title, artist: r.artist, cover: r.coverBig || r.cover }]); }));
         } else {
           body.innerHTML = '';
@@ -221,51 +221,62 @@ export function ytRow(it, onClick) {
   return row;
 }
 
-/** The "tap a video → options" sheet. */
+/** The "tap a video → options" sheet. Works for YouTube and any other supported link. */
 export function ytSheet(it) {
   const vid = it.id || api.ytId(it.url);
+  const url = it.url || `https://www.youtube.com/watch?v=${vid}`;
+  const isYT = !!vid;
   const thumb = it.thumbnail || (vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : '');
   sheet((close) => {
-    const preview = h('div.preview', h('img', { src: thumb, alt: '' }),
-      h('div.playov', h('span', ic('play'))));
-    preview.addEventListener('click', () => {
-      preview.innerHTML = '';
-      player.pause();
-      preview.append(h('iframe', {
-        src: `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&playsinline=1&rel=0`,
-        allow: 'autoplay; encrypted-media; picture-in-picture', allowfullscreen: true,
-      }));
-    }, { once: true });
+    let preview = null;
+    if (isYT) {
+      preview = h('div.preview', h('img', { src: thumb, alt: '' }), h('div.playov', h('span', ic('play'))));
+      preview.addEventListener('click', () => {
+        preview.innerHTML = '';
+        player.pause();
+        preview.append(h('iframe', {
+          src: `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&playsinline=1&rel=0`,
+          allow: 'autoplay; encrypted-media; picture-in-picture', allowfullscreen: true,
+        }));
+      }, { once: true });
+    } else if (thumb) {
+      preview = h('div.preview', h('img', { src: thumb, alt: '' }));
+    }
     const dl = (kind, quality, format) => {
       close();
-      api.startDownload({ id: vid, url: it.url, title: it.title, channel: it.channel, thumbnail: thumb, kind, quality, format });
+      api.startDownload({ id: vid, url, title: it.title, channel: it.channel, thumbnail: thumb, kind, quality, format });
       toast('بدأ التحميل — تابعه من «التحميلات»', { action: { label: 'عرض', fn: () => go('#/downloads') } });
     };
     const q = (iconName, title, sub, fn, rec) => h('button.qbtn' + (rec ? '.rec' : ''), { onclick: fn }, ic(iconName), h('div', h('b', title), h('small', sub)));
-    const have = lib.findByYt(vid);
+    const have = isYT && lib.findByYt(vid);
+    const server = api.hasServer();
+    const audio = server
+      ? [q('note', 'M4A', 'أفضل جودة للآيفون', () => dl('audio', null, 'm4a'), lib.settings.audioFormat === 'm4a'),
+        q('note', 'MP3', '192 كيلوبت', () => dl('audio', null, 'mp3'), lib.settings.audioFormat === 'mp3')]
+      : [q('note', 'MP3', 'جودة عالية 256k', () => dl('audio', null, 'mp3'), true)];
+    const video = isYT
+      ? ['360', '480', '720', '1080'].map((r) => q('video', r + 'p', { 360: 'حجم صغير', 480: 'متوسط', 720: 'HD', 1080: 'Full HD' }[r], () => dl('video', r), lib.settings.videoQuality === r))
+      : [q('video', 'فيديو', 'أفضل جودة متاحة', () => dl('video', 'max'), true)];
     return h('div.ysheet', preview,
-      h('h3', it.title || 'مقطع يوتيوب'),
-      h('div.ch', [it.channel, it.duration ? fmtTime(it.duration) : ''].filter(Boolean).join(' · ')),
+      h('h3', it.title || (isYT ? 'مقطع يوتيوب' : `مقطع من ${api.siteName(url)}`)),
+      h('div.ch', [it.channel, it.duration ? fmtTime(it.duration) : '', !isYT ? api.siteName(url) : ''].filter(Boolean).join(' · ')),
       have ? h('div.banner', ic('check'), h('div', h('b', 'موجودة في مكتبتك'), have.kind === 'video' ? 'كفيديو' : 'كصوت')) : null,
       h('div.qlabel', 'صوت فقط'),
-      h('div.qgrid',
-        q('note', 'M4A', 'أفضل جودة للآيفون', () => dl('audio', null, 'm4a'), lib.settings.audioFormat === 'm4a'),
-        q('note', 'MP3', '192 كيلوبت', () => dl('audio', null, 'mp3'), lib.settings.audioFormat === 'mp3')),
+      h('div.qgrid', audio),
       h('div.qlabel', 'فيديو'),
-      h('div.qgrid',
-        ['360', '480', '720', '1080'].map((r) => q('video', r + 'p', { 360: 'حجم صغير', 480: 'متوسط', 720: 'HD', 1080: 'Full HD' }[r], () => dl('video', r), lib.settings.videoQuality === r))),
-      h('div.actions', { style: { marginTop: '6px' } },
-        h('button.action', { onclick: () => { close(); player.playItems([ytToItem(it)], 0, { context: 'يوتيوب' }); } }, ic('play'), h('span', 'شغّل الآن بدون تحميل')),
-        h('button.action', { onclick: () => { close(); player.addToQueue(ytToItem(it)); toast('أُضيف لقائمة الانتظار'); } }, ic('queue'), h('span', 'أضف لقائمة الانتظار')),
-        h('button.action', { onclick: async () => {
+      h('div.qgrid', video),
+      isYT ? h('div.actions', { style: { marginTop: '6px' } },
+        h('button.action', { onclick: () => { close(); player.playItems([ytToItem({ ...it, id: vid })], 0, { context: 'يوتيوب' }); } }, ic('play'), h('span', 'شغّل الآن بدون تحميل')),
+        h('button.action', { onclick: () => { close(); player.addToQueue(ytToItem({ ...it, id: vid })); toast('أُضيف لقائمة الانتظار'); } }, ic('queue'), h('span', 'أضف لقائمة الانتظار')),
+        api.canSearch() ? h('button.action', { onclick: async () => {
           close();
           try {
-            const items = await api.related(vid, 30);
-            player.playItems([ytToItem(it), ...items.map(ytToItem)], 0, { context: 'ميكس يوتيوب' });
+            const items = await api.related(vid, 25, it);
+            player.playItems([ytToItem({ ...it, id: vid }), ...items.map(ytToItem)], 0, { context: api.canMix() ? 'ميكس يوتيوب' : `أغاني ${it.channel || ''}` });
           } catch (e) { toast(e.message, { error: true }); }
-        } }, ic('sparkle'), h('span', 'شغّل ميكس مشابه')),
+        } }, ic('sparkle'), h('span', api.canMix() ? 'شغّل ميكس مشابه' : 'شغّل أغاني مشابهة')) : null,
         h('button.action', { onclick: () => window.open(`https://www.youtube.com/watch?v=${vid}`, '_blank') }, ic('link'), h('span', 'افتح في يوتيوب')),
-      ));
+      ) : null);
   });
 }
 

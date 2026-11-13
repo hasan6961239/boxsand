@@ -151,7 +151,7 @@ export function tasteRadio() {
   let pos = 0;
   let recs = [];
   let recPos = 0;
-  const mix = lib.settings.mixNew && api.hasServer();
+  const mix = lib.settings.mixNew && api.canSearch();
   if (mix) {
     const c = cachedRecs();
     if (c && c.items) recs = shuffle(c.items);
@@ -186,6 +186,5 @@ export async function ytMix({ ytId, artist, title }) {
     if (!hit) throw new Error('لم أجد الأغنية على يوتيوب');
     id = hit.id;
   }
-  const items = await api.related(id, 30);
-  return items;
+  return api.related(id, 30, { title: `${artist || ''} - ${title || ''}`, channel: artist });
 }

@@ -139,18 +139,21 @@ class Player extends EventTarget {
         art: await artURL(t.art, 'full'), trackId: t.id, lyrics: t.lyrics,
       };
     } else if (item.type === 'yt' || item.type === 'ytq') {
-      if (!api.hasServer()) throw new Error('هذا المقطع يحتاج خادم التحميل');
       if (!item.ytId) {
+        if (!api.canSearch()) throw new Error('للأغاني الجديدة كاملة أضف مفتاح يوتيوب من الإعدادات');
         const hit = await api.findOnYouTube(item.artist || '', item.title || '');
         if (!hit) throw new Error('لم أجد الأغنية على يوتيوب');
         item.ytId = hit.id;
         item.thumbnail = item.thumbnail || hit.thumbnail;
       }
-      const vid = !!item.video && lib.settings.videoMode;
+      const vid = !!item.video && lib.settings.videoMode && api.hasServer();
+      if (!api.hasServer()) toast('يجهّز الأغنية… (ثوانٍ)');
+      const p = await api.playableURL(item.ytId, { video: vid });
       r = {
-        src: api.streamURL(item.ytId, vid ? 'video' : 'audio'), isVideo: vid,
+        src: p.url, isVideo: vid,
         title: item.title, artist: item.artist, album: item.type === 'ytq' ? 'اكتشاف على ذوقك' : 'يوتيوب',
         duration: item.duration, art: item.cover || item.thumbnail, ytId: item.ytId, stream: true,
+        streamBlob: p.blob || null,
       };
     } else if (item.type === 'preview') {
       r = { src: item.url, title: item.title, artist: item.artist, album: 'مقطع تجريبي', duration: 30, art: item.cover, preview: true };

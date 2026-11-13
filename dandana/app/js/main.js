@@ -3,6 +3,7 @@ import * as api from './api.js';
 import { player, unlockMedia } from './player.js';
 import { initPlayerUI, dismissNP } from './nowplaying.js';
 import { icon } from './icons.js';
+import * as themes from './themes.js';
 import { $, $$, toast } from './util.js';
 import * as views from './views.js';
 import { reelsView } from './reels.js';
@@ -56,14 +57,6 @@ function route() {
   requestAnimationFrame(() => { view.scrollTop = scrolls.get(hash) || 0; });
 }
 
-function applyTheme() {
-  const r = document.documentElement;
-  r.dataset.theme = lib.settings.theme || 'dark';
-  r.dataset.accent = lib.settings.accent || 'gold';
-  const dark = r.dataset.theme === 'dark' || (r.dataset.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]').content = dark ? '#0c0a10' : '#f6f4f9';
-}
-
 function updateBadge() {
   const n = api.activeCount();
   const b = $('#dl-badge');
@@ -75,13 +68,14 @@ async function boot() {
   for (const el of $$('[data-ic]')) el.innerHTML = icon(el.dataset.ic);
   try {
     await lib.loadSettings();
-    applyTheme();
+    themes.apply();
     await lib.load();
   } catch (e) {
     console.error(e);
     toast('تعذّر فتح قاعدة البيانات: ' + e.message, { error: true, ms: 8000 });
   }
-  lib.on('settings', (k) => { if (k === 'theme' || k === 'accent') applyTheme(); });
+  lib.on('settings', (k) => { if (k === 'theme' || k === 'accent') themes.apply(); });
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (lib.settings.theme === 'auto') themes.apply(); });
   initPlayerUI();
   document.body.classList.add('no-mini');
   window.addEventListener('hashchange', route);
