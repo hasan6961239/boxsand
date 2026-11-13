@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <title>دندنة</title>
+  <meta name="description" content="مكتبتك الموسيقية على الآيفون: أغانيك، تحميل من يوتيوب، ريلز، راديو، واقتراحات على ذوقك.">
+  <meta name="theme-color" content="#0c0a10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="دندنة">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="boot"><div class="boot-logo"></div></div>
+
+  <main id="view" tabindex="-1"></main>
+
+  <div id="mini" class="hidden" role="button" aria-label="المشغّل"></div>
+
+  <nav id="tabs" aria-label="التنقل">
+    <a href="#/home" data-tab="home"><span class="tab-ic" data-ic="home"></span><span>الرئيسية</span></a>
+    <a href="#/library" data-tab="library"><span class="tab-ic" data-ic="library"></span><span>مكتبتي</span></a>
+    <a href="#/discover" data-tab="discover"><span class="tab-ic" data-ic="compass"></span><span>اكتشف</span><i class="badge" id="dl-badge"></i></a>
+    <a href="#/reels" data-tab="reels"><span class="tab-ic" data-ic="reels"></span><span>ريلز</span></a>
+    <a href="#/radio" data-tab="radio"><span class="tab-ic" data-ic="radio"></span><span>راديو</span></a>
+  </nav>
+
+  <section id="np" aria-hidden="true"></section>
+  <div id="sheets"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="importer" class="hidden"></div>
+
+  <audio id="audio" playsinline preload="auto"></audio>
+  <input type="file" id="file-input" multiple hidden
+         accept="audio/*,video/*,.mp3,.m4a,.aac,.wav,.flac,.aiff,.caf,.opus,.ogg,.mp4,.m4v,.mov,.webm,.zip,application/zip">
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
