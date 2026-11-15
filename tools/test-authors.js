@@ -361,7 +361,9 @@ const check = (name, ok, got) => {
     check('ربح الكتاب في تفصيل المبيعات بعد الحصة: 2×(100−40−10) = 100', near(det.find(x => x.name === 'فيزياء أساسية').prof, 100), det);
     await pg.evaluate(() => { location.hash = '#/settings'; App.route(); }); await sleep(300);
     await pg.evaluate(y => Rep.doArchive(y), lastYear); await sleep(300);
-    await clickModal(pg, 'أرشف سنة ' + lastYear); await sleep(1200);
+    await clickModal(pg, 'أرشف سنة ' + lastYear);
+    /* نسخة احتياطية ثم قراءة الأرشيف ثم كتابته: على ويندوز قد تأخذ ثوانٍ */
+    for (let i = 0; i < 60 && await pg.evaluate(() => App.S.invoices.length) !== 1; i++) await sleep(250);
     const ar = await pg.evaluate(() => ({ n: App.S.invoices.length, arch: App.S.authors[0].arch }));
     check('الأرشفة نقلت فواتير السنة الماضية', ar.n === 1, ar);
     check('حصة المؤلف من الفواتير المؤرشفة محفوظة عليه (20)', ar.arch && near(ar.arch[lastYear], 20), ar.arch);
