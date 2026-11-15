@@ -250,6 +250,10 @@ function ink(png, dpi) {
       await print(pg, 'م-كشف زبون قصير', () => ev(() => People.printStatement(App.S.customers.filter(c => c.balance > 0)[3].id)), { w: 210, maxPages: 3 });
       await print(pg, 'م-كشف مورد', async () => { await ev(() => People.supStatement('sup1')); await sleep(300); await pg.click('#modalHost button:has-text("طباعة الكشف")'); }, { w: 210, maxPages: 4 });
       await closeModals(pg);
+      /* فاتورة مشتريات برقمها (4.3): من «عرض» في فواتير المشتريات */
+      await ev(() => { const p = App.S.purchases.find(x => x.supplierId === 'sup1'); if (p) p.ref = '311'; });
+      await print(pg, 'م-فاتورة مشتريات', async () => { await ev(() => Inv.showPurchase(App.S.purchases.find(x => x.ref === '311').id)); await sleep(300); await pg.click('#modalHost .m-foot button:has-text("طباعة")'); }, { w: 210, maxPages: 2 });
+      await closeModals(pg);
       await print(pg, 'م-كشف كتب على المباع', () => ev(() => Consign.printStatement('own1')), { w: 210, maxPages: 3 });
 
       console.log('\n== مصراتة: التقارير والجرد (A4) ==');
@@ -326,6 +330,21 @@ function ink(png, dpi) {
       const st = await print(pg, 'ط-البضاعة الراكدة', () => ev(() => Stale.print()), { w: 210, maxPages: 200, show: 1 });
       ok(st && !/مال مجمّد/.test(await ev(() => document.getElementById('printArea').textContent)), 'طرابلس: قائمة الراكد المطبوعة بلا «مال مجمّد»');
       await print(pg, 'ط-كشف مورد', () => ev(() => People.printSupStatement('sup1')), { w: 210, maxPages: 4 });
+      /* كشف مؤلف (4.3): فواتير بِيع فيها كتابه، وإرجاع، وتسديد */
+      await ev(() => {
+        const bk = App.S.books.filter(x => x.price > 0).slice(0, 2), t = App.today();
+        App.S.authors.push({ id: 'auP', name: 'أحمد رحيل', phone: '0911', defT: 'pct', defV: 10, opening: 120, created: '2026-01-02 10:00' });
+        bk.forEach(b => { b.royAu = 'auP'; b.royT = 'pct'; b.royV = 10; });
+        for (let i = 0; i < 18; i++) {
+          const b = bk[i % 2], q = 1 + (i % 4), ru = App.r3(b.price / 10);
+          App.S.invoices.push({ id: 'roy' + i, no: 9000 + i, kind: i % 7 === 6 ? 'return' : 'sale', refNo: i % 7 === 6 ? 9000 + i - 1 : undefined, date: t, at: t + ' 1' + (i % 10) + ':00',
+            items: [{ type: 'book', id: b.id, name: b.title, qty: q, price: b.price, cost: 0, au: 'auP', rt: 'pct', rv: 10, ru: ru }],
+            subtotal: b.price * q, discount: 0, total: b.price * q, profit: 0, method: 'cash', customerId: '', paid: b.price * q, due: 0 });
+        }
+        App.S.authorPays.push({ id: 'apP', authorId: 'auP', amount: 50, date: t, at: t + ' 18:00', note: 'نقداً', fromDrawer: true });
+      });
+      await print(pg, 'ط-كشف مؤلف', () => ev(() => People.printAuthorStatement('auP')), { w: 210, maxPages: 3 });
+      ok(/كشف حساب المؤلف — أحمد رحيل/.test(await ev(() => document.getElementById('printArea').textContent)), 'طرابلس: كشف المؤلف المطبوع باسمه');
       await ev(d => { location.hash = '#/stocktake'; App.route(); Rep.setStk('date', d); Rep.setStk('kind', 'day'); }, ctxT.day); await sleep(400);
       await print(pg, 'ط-تقرير الجرد-اليوم', () => ev(() => Rep.printStocktake()), { w: 210, maxPages: 10, show: 1 });
       console.log('\n== طرابلس: اللاصقات ==');

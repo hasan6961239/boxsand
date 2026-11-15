@@ -1941,3 +1941,34 @@ body #rail.fit-s #nav .nav-item .count { top: 0; inset-inline-end: 4px; min-widt
 #rail > #navMore[hidden] { display: none; }
 @keyframes navMore { 50% { transform: translate(-50%, 3px); } }
 @media (prefers-reduced-motion: reduce) { #rail > #navMore { animation: none; } }
+
+/* ---------- طرابلس: حصة المؤلف (sales.js: الفاتورة والإرجاع والتعديل) ----------
+   حصة المؤلف بلون واحد في كل مكان، فتنقرأ «للمؤلف 10 · للمكتبة 90» بنظرة */
+.roy-a { color: var(--amber); font-weight: 700; }
+.roy-sum { color: var(--amber); font-weight: 700; }
+
+/* ---------- فواتير المشتريات: رقم الفاتورة زر يفتحها (inventory.js، people.js) ---------- */
+.btn.pur-no { font-variant-numeric: tabular-nums; min-width: 64px; justify-content: center; }
+
+/* ---------- «عمليات التحويل المطلوبة» تحت المخازن (branches.js) ----------
+   طلب من فرع آخر = أحمر واضح بزرّي موافقة ورفض؛ شحنة في الطريق = زر تأكيد الاستلام */
+.xfer-card { border-inline-start: 4px solid var(--stamp); }
+.xfer-card .card-head h3 { color: var(--stamp); }
+.xfer-card.hot { background: var(--stamp-wash); box-shadow: 0 0 0 1px #EFC9C3 inset; }
+.xfer-body { padding-top: 4px; padding-bottom: 4px; }
+.xfer-row { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.xfer-row:last-child { border-bottom: 0; }
+.xfer-row .xf-main { flex: 1; min-width: 0; line-height: 1.9; }
+.xfer-row .xf-act { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.xfer-row.in .xf-main > b { color: var(--stamp); }
+.xfer-row.go .xf-main > b { color: var(--blue); }
+.xfer-row.wait { opacity: .78; }
+.xfer-alert {
+  display: flex; width: 100%; align-items: center; gap: 10px; margin-bottom: 14px; padding: 12px 16px;
+  background: var(--stamp); color: #fff; border: 0; border-radius: var(--r, 12px); cursor: pointer;
+  font: inherit; font-weight: 700; text-align: start; box-shadow: 0 8px 20px -12px rgba(168,54,42,.9);
+}
+.xfer-alert:hover { filter: brightness(1.07); }
+@media (max-width: 760px) { .xfer-row { flex-direction: column; align-items: stretch; } .xfer-row .xf-act { justify-content: flex-start; } }
+.badge.roy-b { background: var(--amber-wash); color: var(--amber); border-color: #EAD3A0; font-weight: 700; }
+table.tbl td.nowrap { white-space: nowrap; }

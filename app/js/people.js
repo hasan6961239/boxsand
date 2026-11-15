@@ -379,6 +379,7 @@ var People = (function () {
       {
         h: "علينا", cls: "num", c: function (s) {
           var d = supDebt(s);
+          if (d < -0.0005) return '<span class="badge warn">دفعنا زيادة ' + App.money0(-d) + "</span>";
           return d > 0 ? '<b style="color:var(--stamp)">' + App.money0(d) + "</b>" : '<span class="badge ok">خالص</span>';
         }
       },
@@ -452,18 +453,32 @@ var People = (function () {
     });
   }
 
+  /* كشف المورد بالتفصيل: كل فاتورة منه برقمها وتاريخها (الآجل تنضاف للدين، والنقدي
+     مدفوعة وقتها فتظهر عليه وله معاً)، والتسديدات، والرصيد بعد كل حركة */
   function supStatementRows(id) {
     var s = supplier(id), rows = [];
     if (s && App.num(s.opening) > 0) {
       rows.push({ date: String(s.created || "").slice(0, 10) || "—", at: "", id: "", t: "دين سابق (رصيد افتتاحي)", dr: App.num(s.opening), cr: 0 });
     }
-    supCredits(id).forEach(function (p) {
-      rows.push({ date: p.date, at: p.at, id: p.id, pid: p.id, dr: App.num(p.total), cr: 0,
-        t: "فاتورة شراء آجل" + (p.note ? " — " + p.note : "") + (p.past ? " (سابقة)" : "") });
-    });
-    supLater(id).forEach(function (p) {
-      rows.push({ date: p.date, at: p.at, id: p.id, pid: p.id, dr: 0, cr: 0, later: App.num(p.total),
-        t: "فاتورة آجل — دينها مؤجّل، مش محسوب (" + App.money0(p.total) + ")" + (p.note ? " — " + p.note : "") });
+    function inv(p) {
+      var pieces = (p.lines || []).reduce(function (t, l) { return t + App.num(l.qty); }, 0);
+      return { date: p.date, at: p.at || (p.date + " 00:00"), id: p.id, pid: p.id, ref: p.ref ? String(p.ref) : "",
+        items: (p.lines || []).length + " صنف · " + pieces + " قطعة" + (p.note && p.note !== "فاتورة " + p.ref ? " — " + p.note : "") };
+    }
+    S().purchases.forEach(function (p) {
+      if (p.supplierId !== id) return;
+      var r = inv(p);
+      if (p.pay === "credit") { r.dr = App.num(p.total); r.cr = 0; r.t = "فاتورة شراء آجل" + (p.past ? " (سابقة)" : ""); }
+      else if (p.pay === "later") {
+        r.dr = 0; r.cr = 0; r.later = App.num(p.total);
+        r.t = "فاتورة آجل — دينها مؤجّل، مش محسوب (" + App.money0(p.total) + ")";
+      } else {
+        /* نقداً (أو إدخال قديم بلا طريقة دفع): دُفعت وقتها، ما تغيّرش الرصيد */
+        r.dr = App.num(p.total); r.cr = App.num(p.total);
+        r.t = p.pay === "cash" ? "فاتورة شراء نقداً — دُفعت وقتها" : "إدخال بضاعة (قبل خانة الدفع)";
+        r.cash = true;
+      }
+      rows.push(r);
     });
     supPays(id).forEach(function (p) {
       rows.push({ date: p.date, at: p.at, id: p.id, dr: 0, cr: App.num(p.amount),
@@ -480,23 +495,37 @@ var People = (function () {
   function supStatement(id) {
     var s = supplier(id);
     if (!s) return;
-    var run = 0;
+    var run = 0, rows = supStatementRows(id);
+    var nInv = rows.filter(function (r) { return r.pid; }).length;
+    var bought = S().purchases.filter(function (p) { return p.supplierId === id; }).reduce(function (t, p) { return t + App.num(p.total); }, 0);
+    var paid = supPays(id).reduce(function (t, p) { return t + App.num(p.amount); }, 0);
     App.modal({
       title: "كشف حساب المورد — " + s.name,
       size: "wide",
-      body: App.table([
-        { h: "التاريخ", c: function (r) { return App.esc(r.date); } },
-        {
-          h: "البيان", c: function (r) {
-            return App.esc(r.t) + (r.pid ? ' <button class="btn sm ghost" onclick="Inv.showPurchase(\'' + r.pid + '\')">الأصناف</button>' : "");
-          }
-        },
-        { h: "علينا", cls: "num", c: function (r) { return r.dr ? App.money0(r.dr) : "—"; } },
-        { h: "دفعنا", cls: "num", c: function (r) { return r.cr ? App.money0(r.cr) : "—"; } },
-        { h: "الرصيد", cls: "num", c: function (r) { run += r.dr - r.cr; return "<b>" + App.money0(Math.max(run, 0)) + "</b>"; } }
-      ], supStatementRows(id), { emptyIcon: "books", emptyTitle: "لا توجد حركات", emptyText: "لم تُسجَّل فواتير آجلة لهذا المورد." }) +
+      body: '<div class="row small" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">' +
+        '<span class="badge">' + nInv + " فاتورة بـ " + App.money0(bought) + "</span>" +
+        '<span class="badge">سدّدنا ' + App.money0(paid) + "</span>" +
+        (s.phone ? '<span class="badge">' + App.esc(s.phone) + "</span>" : "") +
+        '<span class="muted">اضغط رقم الفاتورة تشوف أصنافها</span></div>' +
+        App.table([
+          { h: "التاريخ", cls: "nowrap", c: function (r) { return App.esc(r.date); } },
+          {
+            h: "رقم الفاتورة", c: function (r) {
+              if (!r.pid) return '<span class="muted">—</span>';
+              return '<button class="btn sm pur-no" onclick="Inv.showPurchase(\'' + r.pid + '\')">' + (r.ref ? App.esc(r.ref) : "عرض") + "</button>";
+            }
+          },
+          {
+            h: "البيان", c: function (r) {
+              return App.esc(r.t) + (r.items ? '<div class="sub">' + App.esc(r.items) + "</div>" : "");
+            }
+          },
+          { h: "علينا", cls: "num", c: function (r) { return r.dr ? App.money0(r.dr) : "—"; } },
+          { h: "دفعنا", cls: "num", c: function (r) { return r.cr ? App.money0(r.cr) : "—"; } },
+          { h: "الرصيد", cls: "num", c: function (r) { run = App.r3(run + r.dr - r.cr); return '<b><bdi dir="ltr">' + App.money0(run) + "</bdi></b>"; } }
+        ], rows, { emptyIcon: "books", emptyTitle: "لا توجد حركات", emptyText: "لم تُسجَّل فواتير لهذا المورد." }) +
         '<div class="row" style="margin-top:14px;font-size:17px;font-weight:700"><div class="spacer"></div>' +
-        "علينا حالياً: " + App.money(supDebt(s)) + "</div>",
+        (supDebt(s) < -0.0005 ? "دفعنا له زيادة: " + App.money(-supDebt(s)) : "علينا حالياً: " + App.money(supDebt(s))) + "</div>",
       actions: [
         { label: "طباعة الكشف", kind: "primary", click: function () { printSupStatement(id); } },
         { label: "تسديد", click: function (close) { close(); supPay(id); } }
@@ -510,17 +539,433 @@ var People = (function () {
     var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
       '<div class="c">كشف حساب المورد — ' + App.esc(s.name) + (s.phone ? " · " + App.esc(s.phone) : "") + "</div>" +
       '<div class="c">حتى ' + App.dateAr(App.today()) + "</div><hr>" +
-      "<table><thead><tr><th>التاريخ</th><th>البيان</th><th>علينا</th><th>دفعنا</th><th>الرصيد</th></tr></thead><tbody>";
+      "<table><thead><tr><th>التاريخ</th><th>رقم الفاتورة</th><th>البيان</th><th>علينا</th><th>دفعنا</th><th>الرصيد</th></tr></thead><tbody>";
     supStatementRows(id).forEach(function (r) {
-      run += r.dr - r.cr;
-      h += "<tr><td>" + App.esc(r.date) + "</td><td>" + App.esc(r.t) + '</td><td class="num">' +
+      run = App.r3(run + r.dr - r.cr);
+      h += "<tr><td>" + App.esc(r.date) + '</td><td class="num">' + App.esc(r.ref || "") + "</td><td>" + App.esc(r.t) +
+        (r.items ? '<div style="font-size:.85em;opacity:.75">' + App.esc(r.items) + "</div>" : "") + '</td><td class="num">' +
         (r.dr ? App.money0(r.dr) : "") + '</td><td class="num">' + (r.cr ? App.money0(r.cr) : "") +
-        '</td><td class="num">' + App.money0(Math.max(run, 0)) + "</td></tr>";
+        '</td><td class="num"><bdi dir="ltr">' + App.money0(run) + "</bdi></td></tr>";
     });
-    h += '</tbody></table><hr><div class="tot g"><span>علينا حالياً</span><span class="num">' +
-      App.money0(supDebt(s)) + " " + App.esc(S().meta.currency) + "</span></div>" +
+    var debtP = supDebt(s);
+    h += '</tbody></table><hr><div class="tot g"><span>' + (debtP < -0.0005 ? "دفعنا له زيادة" : "علينا حالياً") + '</span><span class="num">' +
+      App.money0(Math.abs(debtP)) + " " + App.esc(S().meta.currency) + "</span></div>" +
       '<br><div style="display:flex;justify-content:space-between"><span>توقيع المورد: ..............</span>' +
       "<span>توقيع المحل: ..............</span></div></div>";
+    App.printHtml(h);
+  }
+
+  /* ============================================================
+     المؤلفون (طرابلس) — حصة المؤلف من كل نسخة تُباع
+     ------------------------------------------------------------
+     المكتبة تطبع كتب مؤلفين، ولكل نسخة تُباع حصة للمؤلف: نسبة من سعر
+     البيع (10% من 100 = 10، فللمكتبة 90) أو مبلغ ثابت للنسخة (10 دينار).
+     - الحصة تُحسب وقت البيع وتُحفظ على سطر الفاتورة (au المؤلف، rt/rv
+       النوع والقيمة وقتها، ru حصة النسخة الواحدة): تغيير نسبة الكتاب بعدين
+       لا يغيّر فاتورة قديمة.
+     - ربح الفاتورة بعد طرح حصة المؤلف: الربح مش كله للمكتبة.
+     - الإرجاع يطرح حصة ما رجع (بنفس ru)، والتعديل يعيد حسابها، وحذف
+       الفاتورة يشيلها معها.
+     - ما علينا للمؤلف لا يُخزَّن رقماً يتعدّل، بل يُحسب كل مرة من سجلات لا
+       تتغيّر: رصيد سابق + حصته من الفواتير (البيع ناقص الإرجاع) + حصته من
+       الفواتير المؤرشفة − ما دفعناه له. فلا يضيع شيء بين جهازين ولا بعد
+       حذف فاتورة أو إرجاع.
+     ============================================================ */
+
+  var ROY_TYPES = [{ v: "pct", t: "نسبة مئوية من سعر البيع" }, { v: "fix", t: "مبلغ ثابت لكل نسخة" }];
+
+  function authorsOn() { return !!(App.isX4 && App.isX4()); }
+
+  function author(id) {
+    if (!id) return null;
+    var r = null;
+    (S().authors || []).forEach(function (a) { if (a.id === id) r = a; });
+    return r;
+  }
+
+  /* حصة النسخة الواحدة على سعر بيعها: نسبة (pct) أو مبلغ ثابت (fix). النسخة المجانية ما فيها حصة */
+  function royUnit(t, v, price) {
+    price = App.num(price); v = App.num(v);
+    if (price <= 0 || v <= 0) return 0;
+    if (t === "fix") return App.r3(v);
+    return App.r3(price * v / 100);
+  }
+
+  /* حصة نسخة من هذا الكتاب لو انباعت بهذا السعر (0 لو ما عندوش مؤلف مدفوع) */
+  function royFor(it, price) {
+    if (!it || !it.royAu || !author(it.royAu)) return 0;
+    return royUnit(it.royT === "fix" ? "fix" : "pct", it.royV, price);
+  }
+
+  function royText(t, v) {
+    return t === "fix" ? App.money0(v) + " " + (S().meta.currency || "") + " للنسخة" : App.num(v) + "%";
+  }
+
+  /* سطر فاتورة جديد: يُختم بحصة المؤلف من كتابه الآن */
+  function stampRoy(line, it) {
+    if (!line) return line;
+    delete line.au; delete line.rt; delete line.rv; delete line.ru;
+    if (line.type !== "book") return line;
+    it = it || App.findItem("book", line.id);
+    var ru = royFor(it, line.price);
+    if (ru <= 0) return line;
+    line.au = it.royAu; line.rt = it.royT === "fix" ? "fix" : "pct"; line.rv = App.num(it.royV); line.ru = ru;
+    return line;
+  }
+
+  /* سطر كان في الفاتورة (التعديل): نفس المؤلف ونفس الحصة وقت البيع، على السعر الجديد */
+  function keepRoy(line, old) {
+    delete line.au; delete line.rt; delete line.rv; delete line.ru;
+    if (!old || !old.au) return line;
+    var t = old.rt === "fix" ? "fix" : "pct";
+    var ru = royUnit(t, old.rv, line.price);
+    if (ru <= 0) return line;
+    line.au = old.au; line.rt = t; line.rv = App.num(old.rv); line.ru = ru;
+    return line;
+  }
+
+  function lineRoy(l) { return l && l.au ? App.r3(App.num(l.ru) * App.num(l.qty)) : 0; }
+  function invRoy(items) {
+    return App.r3((items || []).reduce(function (s, l) { return s + lineRoy(l); }, 0));
+  }
+
+  /* حصة كل مؤلف من الفواتير وما دفعناه له — مرة واحدة على كل الفواتير */
+  function authorTotals() {
+    var t = {};
+    function T(id) { return t[id] || (t[id] = { roy: 0, sold: 0, back: 0, paid: 0, inv: 0 }); }
+    S().invoices.forEach(function (v) {
+      var ret = v.kind === "return", seen = {};
+      (v.items || []).forEach(function (l) {
+        if (!l.au) return;
+        var x = T(l.au), r = lineRoy(l), q = App.num(l.qty);
+        if (ret) { x.roy -= r; x.back += q; } else { x.roy += r; x.sold += q; }
+        if (!ret && !seen[l.au]) { seen[l.au] = 1; x.inv++; }
+      });
+    });
+    (S().authorPays || []).forEach(function (p) { T(p.authorId).paid += App.num(p.amount); });
+    Object.keys(t).forEach(function (k) { t[k].roy = App.r3(t[k].roy); t[k].paid = App.r3(t[k].paid); });
+    return t;
+  }
+
+  /* حصته من الفواتير المؤرشفة (تنتقل لملف الأرشيف، وحسابه يبقى) */
+  function archSum(a) {
+    var s = 0, m = a && a.arch;
+    if (m && typeof m === "object") Object.keys(m).forEach(function (y) { s += App.num(m[y]); });
+    return App.r3(s);
+  }
+
+  /* ما علينا له الآن */
+  function authorDue(a, tot) {
+    if (!a) return 0;
+    var x = (tot || authorTotals())[a.id] || { roy: 0, paid: 0 };
+    return App.r3(App.num(a.opening) + archSum(a) + x.roy - x.paid);
+  }
+
+  /* الأرشفة تنقل فواتير سنة: حصة المؤلفين فيها تُحفظ على المؤلف قبل أن تخرج الفواتير */
+  function archRoy(rows, year) {
+    var by = {};
+    (rows || []).forEach(function (v) {
+      var sign = v.kind === "return" ? -1 : 1;
+      (v.items || []).forEach(function (l) { if (l.au) by[l.au] = App.r3(App.num(by[l.au]) + sign * lineRoy(l)); });
+    });
+    Object.keys(by).forEach(function (id) {
+      var a = author(id);
+      if (!a || !by[id]) return;
+      if (!a.arch || typeof a.arch !== "object") a.arch = {};
+      a.arch[year] = App.r3(App.num(a.arch[year]) + by[id]);
+    });
+  }
+
+  /* خيارات «مؤلف مدفوع» في بيانات الكتاب */
+  function royAuthorOptions() {
+    return [{ v: "", t: "— لا يوجد (الربح كله للمكتبة) —" }].concat((S().authors || []).slice()
+      .sort(function (a, b) { return String(a.name) < String(b.name) ? -1 : 1; })
+      .map(function (a) { return { v: a.id, t: a.name + (App.num(a.defV) > 0 ? " (" + royText(a.defT, a.defV) + ")" : "") }; }))
+      .concat([{ v: "__new__", t: "➕ إضافة مؤلف جديد…" }]);
+  }
+
+  /* ---------- الصفحة ---------- */
+
+  var aq = "";
+
+  function authorsTab() {
+    var list = S().authors || [], tot = authorTotals();
+    var owe = 0, nOwe = 0;
+    list.forEach(function (a) { var d = authorDue(a, tot); if (d > 0.0005) { owe += d; nOwe++; } });
+    var month = App.today().slice(0, 7);
+    var paidMonth = (S().authorPays || []).filter(function (p) { return String(p.date).slice(0, 7) === month; })
+      .reduce(function (t, p) { return t + App.num(p.amount); }, 0);
+    var nBooks = S().books.filter(function (b) { return b.royAu && author(b.royAu); }).length;
+
+    var h = '<div class="grid g3" style="margin-bottom:16px">' +
+      '<div class="card stat bad"><div class="lbl">إجمالي ما علينا للمؤلفين</div><div class="val">' + App.money0(owe) +
+      '</div><div class="foot">' + nOwe + " مؤلف له علينا</div></div>" +
+      '<div class="card stat accent"><div class="lbl">عدد المؤلفين</div><div class="val">' + list.length +
+      '</div><div class="foot">' + nBooks + " كتاب فيه حصة لمؤلف</div></div>" +
+      '<div class="card stat blue"><div class="lbl">دفعنا لهم هذا الشهر</div><div class="val">' + App.money0(paidMonth) + "</div></div></div>";
+
+    h += '<div class="row" style="margin-bottom:14px">' +
+      '<div class="search-wrap"><span class="mag">⌕</span>' +
+      '<input class="inp" placeholder="ابحث باسم المؤلف أو رقم هاتفه…" value="' + App.esc(aq) + '" oninput="People.setAQ(this.value)"></div>' +
+      '<div class="spacer"></div>' +
+      '<button class="btn primary" onclick="People.editAuthor()">+ مؤلف جديد</button></div>' +
+      '<div class="card"><div id="aList"></div></div>' +
+      '<p class="muted small" style="line-height:1.9;margin-top:12px">المؤلف يتربط بكتابه من بيانات الكتاب ← «مؤلف مدفوع». ' +
+      "كل نسخة تنباع تنضاف حصته هنا وحدها (نسبة من سعر البيع أو مبلغ ثابت للنسخة)، والإرجاع ينقصها، وحذف الفاتورة يشيلها. " +
+      "والربح في التقارير بعد طرح حصته.</p>";
+    setTimeout(paintAuthors, 0);
+    return h;
+  }
+
+  function paintAuthors() {
+    var host = document.getElementById("aList");
+    if (!host) return;
+    var tot = authorTotals(), nb = {};
+    S().books.forEach(function (b) { if (b.royAu) nb[b.royAu] = (nb[b.royAu] || 0) + 1; });
+    var list = (S().authors || []).slice().sort(function (a, b) { return authorDue(b, tot) - authorDue(a, tot); });
+    var rows = App.rank(list, aq, function (a) { return [a.name, a.phone]; });
+    host.innerHTML = App.table([
+      {
+        h: "المؤلف", c: function (a) {
+          return '<div class="name">' + App.esc(a.name) + "</div>" +
+            '<div class="sub">' + App.esc(a.phone || "بدون رقم") + (App.num(a.defV) > 0 ? " · حصته عادةً " + App.esc(royText(a.defT, a.defV)) : "") + "</div>";
+        }
+      },
+      { h: "كتبه", cls: "num", c: function (a) { return nb[a.id] || 0; } },
+      {
+        h: "النسخ المباعة", cls: "num", c: function (a) {
+          var x = tot[a.id];
+          return x ? (x.sold - x.back) + (x.back ? '<div class="sub">رجع ' + x.back + "</div>" : "") : 0;
+        }
+      },
+      { h: "حصته من المبيعات", cls: "num", c: function (a) { var x = tot[a.id]; return App.money0(x ? x.roy : 0); } },
+      { h: "دفعنا له", cls: "num", c: function (a) { var x = tot[a.id]; return App.money0(x ? x.paid : 0); } },
+      {
+        h: "له علينا", cls: "num", c: function (a) {
+          var d = authorDue(a, tot);
+          if (d > 0.0005) return '<b style="color:var(--stamp)">' + App.money0(d) + "</b>";
+          if (d < -0.0005) return '<span class="badge warn">دفعنا زيادة ' + App.money0(-d) + "</span>";
+          return '<span class="badge ok">خالص</span>';
+        }
+      },
+      {
+        h: "", cls: "act", c: function (a) {
+          return (authorDue(a, tot) > 0.0005 ? '<button class="btn sm primary" onclick="People.authorPay(\'' + a.id + '\')">تسديد</button> ' : "") +
+            '<button class="btn sm" onclick="People.authorStatement(\'' + a.id + '\')">كشف حساب</button> ' +
+            '<button class="btn sm ghost" onclick="People.editAuthor(\'' + a.id + '\')">تعديل</button> ' +
+            '<button class="btn sm ghost" onclick="People.delAuthor(\'' + a.id + '\')">حذف</button>';
+        }
+      }
+    ], rows, {
+      rowClass: function (a) { return authorDue(a, tot) > 0.0005 ? "low" : ""; },
+      emptyIcon: "people",
+      emptyTitle: (S().authors || []).length ? "لا نتيجة مطابقة" : "لا يوجد مؤلفون",
+      emptyText: "سجّل المؤلفين اللي لهم حصة من كل نسخة تنباع من كتبهم.",
+      emptyAction: (S().authors || []).length ? "" : '<button class="btn primary" onclick="People.editAuthor()">+ إضافة مؤلف</button>'
+    });
+  }
+
+  function setAQ(v) { aq = v; paintAuthors(); }
+
+  /* cb: من بيانات الكتاب («➕ إضافة مؤلف جديد…»): يرجع المؤلف الجديد ولا تُعاد الصفحة */
+  function editAuthor(id, cb) {
+    var a = id ? author(id) : null;
+    App.form({
+      title: a ? "تعديل مؤلف" : "مؤلف جديد",
+      values: a || { defT: "pct", defV: 10, opening: 0 },
+      fields: [
+        { k: "name", label: "اسم المؤلف", required: true, full: true },
+        { k: "phone", label: "رقم الهاتف" },
+        {
+          k: "opening", label: "رصيد سابق له علينا", type: "money", min: 0,
+          hint: a ? "عدّله بحذر — حصته من الفواتير والتسديدات تنحسب وحدها" : "اتركه صفراً إن ما عندوش علينا شي من قبل"
+        },
+        { k: "defT", label: "حصته عادةً", type: "select", options: ROY_TYPES, hint: "تنكتب وحدها لما تختاره لكتاب، وتقدر تغيّرها لكل كتاب" },
+        { k: "defV", label: "قيمة حصته", type: "number", min: 0, hint: "مثال: 10 = 10% من سعر البيع، أو 10 دينار للنسخة حسب النوع" },
+        { k: "note", label: "ملاحظة", type: "textarea", full: true }
+      ],
+      onSave: function (v) {
+        v.name = String(v.name || "").trim();
+        var dup = null;
+        (S().authors || []).forEach(function (x) { if (x !== a && App.norm(x.name) === App.norm(v.name)) dup = x; });
+        if (dup) { App.toast("المؤلف «" + dup.name + "» مسجّل من قبل.", "warn"); return false; }
+        v.opening = App.r3(Math.max(App.num(v.opening), 0));
+        v.defT = v.defT === "fix" ? "fix" : "pct";
+        v.defV = App.r3(Math.max(App.num(v.defV), 0));
+        if (v.defT === "pct" && v.defV >= 100) { App.toast("نسبة المؤلف لازم أقل من 100%.", "warn"); return false; }
+        var saved;
+        if (a) {
+          Object.keys(v).forEach(function (k) { a[k] = v[k]; });
+          App.log("تعديل مؤلف", a.name);
+          saved = a;
+        } else {
+          v.id = App.uid(); v.created = App.nowStamp();
+          S().authors.push(v);
+          App.log("إضافة مؤلف", v.name);
+          saved = v;
+        }
+        App.save();
+        if (cb) cb(saved); else App.rerender();
+        App.toast("حُفظ المؤلف: " + saved.name);
+      }
+    });
+  }
+
+  function delAuthor(id) {
+    var a = author(id);
+    if (!a) return;
+    if (!App.allow("delete", function () { delAuthor(id); })) return;
+    var due = authorDue(a);
+    if (Math.abs(due) > 0.009) {
+      App.toast(due > 0 ? "ما ينحذفش: للمؤلف علينا " + App.money(due) + ". سدّد له أولاً."
+        : "ما ينحذفش: دفعنا له زيادة " + App.money(-due) + " — صحّح حسابه أولاً.", "warn");
+      return;
+    }
+    var books = S().books.filter(function (b) { return b.royAu === id; });
+    App.confirm("سيُحذف المؤلف «" + a.name + "»" +
+      (books.length ? "، ويتشال من " + books.length + " كتاب: الكتب تبقى، والنسخ اللي تنباع بعدها ما فيهاش حصة له" : "") +
+      ". الفواتير القديمة تبقى كما هي، لكن كشف حسابه يروح معاه.", function () {
+        books.forEach(function (b) { delete b.royAu; delete b.royT; delete b.royV; b.updated = App.nowStamp(); });
+        S().authors.splice(S().authors.indexOf(a), 1);
+        App.log("حذف مؤلف", a.name);
+        App.save(); App.rerender();
+      }, { danger: true, yes: "حذف" });
+  }
+
+  function authorPay(id) {
+    var a = author(id);
+    if (!a) return;
+    var due = authorDue(a);
+    App.form({
+      title: "تسديد للمؤلف — " + a.name,
+      size: "narrow",
+      values: { amount: Math.max(Math.round(due * 100) / 100, 0), date: App.today(), drawer: "yes" },
+      fields: [
+        { k: "amount", label: "المبلغ المدفوع له", type: "money", min: 0, required: true, full: true, hint: "له علينا حالياً: " + App.money(due) },
+        {
+          k: "drawer", label: "من أين دُفع؟", type: "select", full: true,
+          options: [{ v: "yes", t: "من درج المحل (يُخصم من النقد المفروض)" }, { v: "no", t: "من خارج الدرج" }],
+          hint: "ما يُدفع من الدرج يُطرح من «النقد المفروض» عند إقفال اليوم، فلا يظهر عجز غير حقيقي."
+        },
+        { k: "date", label: "التاريخ", type: "date", full: true },
+        { k: "note", label: "ملاحظة", full: true }
+      ],
+      saveLabel: "تسجيل التسديد",
+      onSave: function (v) {
+        var amt = App.r3(App.num(v.amount)), now = authorDue(a);
+        if (amt <= 0) { App.toast("أدخل مبلغاً صحيحاً.", "warn"); return false; }
+        if (amt > now + 0.009) { App.toast("للمؤلف علينا " + App.money(now) + " بس — ما تدفعش أكثر منه.", "warn"); return false; }
+        S().authorPays.unshift({
+          id: App.uid(), authorId: a.id, amount: amt,
+          date: v.date || App.today(), at: App.nowStamp(), note: v.note || "",
+          fromDrawer: v.drawer !== "no"
+        });
+        App.log("تسديد لمؤلف", a.name + " " + App.money0(amt));
+        App.saveNow(); App.rerender();
+        App.toast("سُجّل التسديد. الباقي له علينا: " + App.money(authorDue(a)));
+      }
+    });
+  }
+
+  /* كشف الحساب: كل فاتورة انباع فيها كتابه (سطر لكل كتاب)، والإرجاعات، والتسديدات */
+  function authorRows(id) {
+    var a = author(id), rows = [];
+    if (!a) return rows;
+    if (App.num(a.opening) > 0) {
+      rows.push({ date: String(a.created || "").slice(0, 10) || "—", at: "", id: "", t: "رصيد سابق له علينا", cr: App.num(a.opening), dr: 0 });
+    }
+    var arch = a.arch && typeof a.arch === "object" ? a.arch : {};
+    Object.keys(arch).sort().forEach(function (y) {
+      var v = App.num(arch[y]);
+      if (!v) return;
+      rows.push({ date: y + "-12-31", at: y + "-12-31 23:59", id: "", t: "حصته من فواتير سنة " + y + " (مؤرشفة)", cr: Math.max(v, 0), dr: Math.max(-v, 0) });
+    });
+    S().invoices.forEach(function (v) {
+      var ret = v.kind === "return";
+      (v.items || []).forEach(function (l, i) {
+        if (l.au !== id) return;
+        var r = lineRoy(l);
+        rows.push({
+          date: v.date, at: v.at, id: v.id + ":" + i, inv: v.id, no: v.no, ret: ret,
+          t: ret ? "إرجاع من فاتورة " + v.refNo : "فاتورة رقم " + v.no,
+          book: l.name, qty: App.num(l.qty), price: App.num(l.price), share: royText(l.rt, l.rv), unit: App.num(l.ru),
+          cr: ret ? 0 : r, dr: ret ? r : 0
+        });
+      });
+    });
+    (S().authorPays || []).forEach(function (p) {
+      if (p.authorId !== id) return;
+      rows.push({ date: p.date, at: p.at, id: p.id, pay: true, cr: 0, dr: App.num(p.amount),
+        t: "دفعنا له" + (p.fromDrawer ? " من الدرج" : "") + (p.note ? " — " + p.note : "") });
+    });
+    rows.sort(function (x, y) {
+      var p = String(x.at || ""), q = String(y.at || "");
+      if (p !== q) return p < q ? -1 : 1;
+      return String(x.id || "") < String(y.id || "") ? -1 : 1;
+    });
+    return rows;
+  }
+
+  function authorStatement(id) {
+    var a = author(id);
+    if (!a) return;
+    var rows = authorRows(id), run = 0;
+    var books = S().books.filter(function (b) { return b.royAu === id; });
+    App.modal({
+      title: "كشف حساب المؤلف — " + a.name,
+      size: "wide",
+      body: (books.length ? '<div class="small" style="margin-bottom:12px;line-height:2">كتبه: ' + books.map(function (b) {
+        return '<span class="badge">' + App.esc(b.title) + " · " + App.esc(royText(b.royT, b.royV)) + "</span>";
+      }).join(" ") + "</div>" : "") +
+        App.table([
+          { h: "التاريخ", cls: "nowrap", c: function (r) { return App.esc(r.date); } },
+          {
+            h: "البيان", c: function (r) {
+              if (r.inv) return '<button class="btn sm ' + (r.ret ? "ghost" : "") + '" onclick="Sales.showInvoice(\'' + r.inv + '\')">' +
+                App.esc(r.t) + "</button>" + (r.ret ? ' <span class="badge bad">إرجاع</span>' : "");
+              return App.esc(r.t);
+            }
+          },
+          { h: "الكتاب", c: function (r) { return r.book ? App.esc(r.book) : '<span class="muted">—</span>'; } },
+          { h: "النسخ", cls: "num", c: function (r) { return r.inv ? '<bdi dir="ltr">' + (r.ret ? "−" : "") + r.qty + "</bdi>" : "—"; } },
+          {
+            h: "حصته", cls: "num", c: function (r) {
+              return r.inv ? App.esc(r.share) + '<div class="sub">' + App.money0(r.unit) + " للنسخة من " + App.money0(r.price) + "</div>" : "—";
+            }
+          },
+          { h: "له", cls: "num", c: function (r) { return r.cr ? App.money0(r.cr) : "—"; } },
+          { h: "خُصم / دفعنا", cls: "num", c: function (r) { return r.dr ? App.money0(r.dr) : "—"; } },
+          { h: "الرصيد", cls: "num", c: function (r) { run = App.r3(run + r.cr - r.dr); return '<b><bdi dir="ltr">' + App.money0(run) + "</bdi></b>"; } }
+        ], rows, { emptyIcon: "books", emptyTitle: "لا توجد حركات", emptyText: "ما انباعتش نسخ من كتبه بعد." }) +
+        '<div class="row" style="margin-top:14px;font-size:17px;font-weight:700"><div class="spacer"></div>' +
+        (authorDue(a) < -0.0005 ? "دفعنا له زيادة: " + App.money(-authorDue(a)) : "له علينا حالياً: " + App.money(authorDue(a))) + "</div>",
+      actions: [
+        { label: "طباعة الكشف", kind: "primary", click: function () { printAuthorStatement(id); } },
+        { label: "تسديد", click: function (close) { close(); authorPay(id); } }
+      ]
+    });
+  }
+
+  function printAuthorStatement(id) {
+    var a = author(id);
+    if (!a) return;
+    var run = 0;
+    var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
+      '<div class="c">كشف حساب المؤلف — ' + App.esc(a.name) + (a.phone ? " · " + App.esc(a.phone) : "") + "</div>" +
+      '<div class="c">حتى ' + App.dateAr(App.today()) + "</div><hr>" +
+      "<table><thead><tr><th>التاريخ</th><th>البيان</th><th>الكتاب</th><th>النسخ</th><th>حصته</th><th>له</th><th>خُصم / دفعنا</th><th>الرصيد</th></tr></thead><tbody>";
+    authorRows(id).forEach(function (r) {
+      run = App.r3(run + r.cr - r.dr);
+      h += "<tr><td>" + App.esc(r.date) + "</td><td>" + App.esc(r.t) + "</td><td>" + App.esc(r.book || "") + '</td><td class="num">' +
+        (r.inv ? '<bdi dir="ltr">' + (r.ret ? "−" : "") + r.qty + "</bdi>" : "") + '</td><td class="num">' + (r.inv ? App.esc(r.share) : "") + '</td><td class="num">' +
+        (r.cr ? App.money0(r.cr) : "") + '</td><td class="num">' + (r.dr ? App.money0(r.dr) : "") +
+        '</td><td class="num"><bdi dir="ltr">' + App.money0(run) + "</bdi></td></tr>";
+    });
+    var dueP = authorDue(a);
+    h += '</tbody></table><hr><div class="tot g"><span>' + (dueP < -0.0005 ? "دفعنا له زيادة" : "له علينا حالياً") + '</span><span class="num">' +
+      App.money0(Math.abs(dueP)) + " " + App.esc(S().meta.currency) + "</span></div>" +
+      '<br><div style="display:flex;justify-content:space-between"><span>توقيع المؤلف: ..............</span>' +
+      "<span>توقيع المكتبة: ..............</span></div></div>";
     App.printHtml(h);
   }
 
@@ -528,7 +973,22 @@ var People = (function () {
      الموردون
      ============================================================ */
 
+  /* طرابلس: المؤلفون ودور النشر والموردون في تبويبات (مصراتة كما كانت: دور النشر ثم الموردون) */
+  var spTab = "auth";
+  function setSpTab(t) { spTab = t; App.rerender(); }
+
   function suppliers() {
+    if (!authorsOn()) return publishersCard() + suppliersList();
+    var h = '<div class="seg" style="margin-bottom:16px;max-width:560px">' +
+      '<button class="' + (spTab === "auth" ? "on" : "") + '" onclick="People.setSpTab(\'auth\')">المؤلفون</button>' +
+      '<button class="' + (spTab === "pub" ? "on" : "") + '" onclick="People.setSpTab(\'pub\')">دور النشر</button>' +
+      '<button class="' + (spTab === "sup" ? "on" : "") + '" onclick="People.setSpTab(\'sup\')">الموردون</button></div>';
+    if (spTab === "pub") return h + publishersCard();
+    if (spTab === "sup") return h + suppliersList();
+    return h + authorsTab();
+  }
+
+  function publishersCard() {
     var h = '<div class="card" style="margin-bottom:18px;border-inline-start:3px solid var(--blue)">' +
       '<div class="card-head"><h3>دور النشر ونسبها</h3><div class="spacer"></div>' +
       '<button class="btn primary" onclick="People.editPublisher()">+ دار نشر جديدة</button></div>' +
@@ -555,15 +1015,18 @@ var People = (function () {
         emptyText: "سجّل دار النشر ونسبتها ليُحسب سعر البيع وحده عند إدخال كتبها.",
         emptyAction: '<button class="btn primary" onclick="People.editPublisher()">+ إضافة دار نشر</button>'
       }) + "</div>";
+    return h;
+  }
 
-    h += '<div class="row" style="margin-bottom:14px"><div class="spacer"></div>' +
+  function suppliersList() {
+    var h = '<div class="row" style="margin-bottom:14px"><div class="spacer"></div>' +
       '<button class="btn primary" onclick="People.editSupplier()">+ مورد جديد</button></div>' +
       '<div class="card">' +
       App.table([
         { h: "المورد", c: function (s) { return '<div class="name">' + App.esc(s.name) + '</div><div class="sub">' + App.esc(s.phone || "") + "</div>"; } },
         { h: "المدينة / العنوان", c: function (s) { return App.esc(s.city || "—"); } },
         {
-          h: "عدد الإدخالات", cls: "num", c: function (s) {
+          h: "عدد الفواتير", cls: "num", c: function (s) {
             return S().purchases.filter(function (p) { return p.supplierId === s.id; }).length;
           }
         },
@@ -576,7 +1039,8 @@ var People = (function () {
         { h: "ملاحظة", c: function (s) { return App.esc(s.note || "—"); } },
         {
           h: "", cls: "act", c: function (s) {
-            return '<button class="btn sm" onclick="People.editSupplier(\'' + s.id + '\')">تعديل</button> ' +
+            return '<button class="btn sm" onclick="People.supStatement(\'' + s.id + '\')">كشف حساب</button> ' +
+              '<button class="btn sm ghost" onclick="People.editSupplier(\'' + s.id + '\')">تعديل</button> ' +
               '<button class="btn sm ghost" onclick="People.delSupplier(\'' + s.id + '\')">حذف</button>';
           }
         }
@@ -673,6 +1137,13 @@ var People = (function () {
     supCountLater: supCountLater,
     setSQ: setSQ, setSDebtOnly: setSDebtOnly,
     suppliers: suppliers, supplier: supplier, editSupplier: editSupplier, delSupplier: delSupplier,
-    publisher: publisher, editPublisher: editPublisher, delPublisher: delPublisher
+    publisher: publisher, editPublisher: editPublisher, delPublisher: delPublisher,
+    setSpTab: setSpTab,
+    /* المؤلفون (طرابلس) */
+    ROY_TYPES: ROY_TYPES, authorsOn: authorsOn, author: author, royUnit: royUnit, royFor: royFor, royText: royText,
+    stampRoy: stampRoy, keepRoy: keepRoy, lineRoy: lineRoy, invRoy: invRoy, authorTotals: authorTotals,
+    authorDue: authorDue, archRoy: archRoy, royAuthorOptions: royAuthorOptions,
+    setAQ: setAQ, editAuthor: editAuthor, delAuthor: delAuthor, authorPay: authorPay,
+    authorRows: authorRows, authorStatement: authorStatement, printAuthorStatement: printAuthorStatement
   };
 })();

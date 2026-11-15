@@ -410,14 +410,24 @@ function site(cfg) {
       const req = await TM.ev(() => { const q = Stock.requests().find(x => x._status === 'pending' && x.to === App.S.branch.id); return q && { id: q.id, n: q.lines[0].n, qty: q.lines[0].qty }; });
       ok(req && req.qty === 5, 'الطلب وصل طرابلس (5 نسخ)', req);
       if (req) {
-        await TM.ev(id => Stock.respond(id, 'shipped'), req.id); await sleep(300);
+        /* طرابلس ترى الطلب بالأحمر تحت المخازن، وعلامة على «المخزون والفروع»، وتوافق من هناك */
+        await TM.ev(() => { location.hash = '#/stock'; App.route(); Stock.back(); App.refreshBadges(); }); await sleep(900);
+        const tv = await TM.ev(() => {
+          const c = document.getElementById('xferCard'), bd = document.querySelector('.nav-item[data-k="stock"] [data-reqcount]');
+          return { card: !!c && c.classList.contains('hot') && /عمليات التحويل المطلوبة/.test(c.textContent) && /× 5/.test(c.textContent),
+            badge: bd && !bd.hidden ? Number(bd.textContent) : 0, alert: !!document.querySelector('.xfer-alert') };
+        });
+        ok(tv.card && tv.badge >= 1 && tv.alert, 'طرابلس: «عمليات التحويل المطلوبة» بالأحمر تحت المخازن، وعلامة على المخزون', tv);
+        await TM.page.click('#xferCard button:has-text("موافقة وتحويل")', { timeout: 5000 }); await sleep(300);
         await clickModal(TM, 'موافقة وشحن'); await sleep(2500);
         bump('tripoli', tri.books[50].id, -5);
         await MM.ev(() => Stock.sync(true)); await sleep(2500);
         const st = await MM.ev(id => (Stock.requests().find(x => x.id === id) || {})._status, req.id);
         ok(st === 'shipped', 'مصراتة ترى أن طرابلس شحنت', st);
-        await MM.ev(id => Stock.confirmReceipt(id), req.id); await sleep(300);
-        await clickModal(MM, 'تأكيد'); await sleep(1500);
+        await MM.ev(() => { location.hash = '#/stock'; App.route(); Stock.back(); }); await sleep(900);
+        ok(await MM.ev(() => /وافق وأرسل لك/.test((document.getElementById('xferCard') || {}).textContent || '')), 'مصراتة: «وافق وأرسل لك» بزر تأكيد الاستلام');
+        await MM.page.click('#xferCard button:has-text("تأكيد الاستلام")', { timeout: 5000 }); await sleep(300);
+        await clickModal(MM, 'تأكيد الاستلام'); await sleep(1500);
         bump('misrata', mis.books[20].id, +5);
         await MM.ev(() => Stock.sync(true)); await TM.ev(() => Stock.sync(true)); await sleep(2500);
         ok(await TM.ev(id => (Stock.requests().find(x => x.id === id) || {})._status, req.id) === 'done', 'وطرابلس ترى أن مصراتة استلمت');

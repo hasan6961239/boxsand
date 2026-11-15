@@ -390,7 +390,7 @@ var Inv = (function () {
       {
         h: "الكتاب", c: function (b) {
           return '<div class="name">' + lblMark(b) + App.esc(b.title) + "</div>" +
-            '<div class="sub">' + App.esc(b.author || "بدون مؤلف") + (b.publisher ? " · " + App.esc(b.publisher) : "") + "</div>";
+            '<div class="sub">' + App.esc(b.author || "بدون مؤلف") + (b.publisher ? " · " + App.esc(b.publisher) : "") + royBadge(b) + "</div>";
         }
       },
       { h: "الموقع", c: function (b) { return App.locChip(b); } },
@@ -572,8 +572,10 @@ var Inv = (function () {
   function editBook(id) {
     var b = id ? App.findItem("book", id) : null;
     var lb = S().meta.lastBook || {};
+    var roy = !!(typeof People !== "undefined" && People.authorsOn && People.authorsOn());
     dupOK = false;
     newDest = "shelf";
+    royPrev = b && b.royAu ? b.royAu : "";
     var fm = App.form({
       title: b ? "تعديل كتاب" : "كتاب جديد",
       size: "wide",
@@ -585,9 +587,13 @@ var Inv = (function () {
         cat: lb.cat || "",
         publisher: lb.publisher || "",
         qty: App.num(lb.qty) || 2,
-        min: 0
+        min: 0,
+        royT: "pct"
       },
       onChange: function (key, val, scope, vals) {
+        /* طرابلس: «مؤلف مدفوع» — اختيار من المؤلفين، وخانتا حصته تظهران بعد الاختيار */
+        if (key === "royAu" || key === "royT" || key === "royV" || key === "price") royChange(key, val, scope);
+        if (key === "royAu" || key === "royT" || key === "royV") return;
         if (key === "publisher" && val === "__new__") { App.setField(scope, "publisher", ""); newPublisher(scope); return; }
         if (key === "supplierId" && val === "__new__") { App.setField(scope, "supplierId", ""); newSupplier(scope); return; }
         if (key !== "publisher" && key !== "price") return;
@@ -602,6 +608,11 @@ var Inv = (function () {
       fields: [
         { k: "title", label: "اسم الكتاب", required: true, full: true },
         { k: "author", label: "المؤلف", list: authorList() },
+        /* طرابلس: مؤلف له حصة من كل نسخة تنباع (يُختار من «المؤلفون»، لا يُكتب) */
+        roy ? { k: "royAu", label: "مؤلف مدفوع", type: "select", options: People.royAuthorOptions(),
+          hint: "مؤلف ياخذ حصة من كل نسخة تنباع — اختاره من القائمة" } : null,
+        roy ? { k: "royT", label: "نوع حصة المؤلف", type: "select", options: People.ROY_TYPES } : null,
+        roy ? { k: "royV", label: "قيمة حصة المؤلف", type: "number", min: 0, hint: " " } : null,
         {
           k: "publisher", label: "دار النشر", type: "select",
           options: [{ v: "", t: "— بدون —" }].concat(pubList().map(function (p) {
@@ -649,6 +660,29 @@ var Inv = (function () {
           ["price", "priceW", "cost"].forEach(function (k) { v[k] = b[k]; });
           App.toast("تعديل الأسعار يحتاج صلاحية — حُفظ الباقي والأسعار كما كانت.", "warn");
         }
+        /* حصة المؤلف: مؤلف من القائمة وقيمة صحيحة، أو لا شيء. تغييرها في كتاب موجود بصلاحية الأسعار */
+        if (roy) {
+          var ra = String(v.royAu || "").trim();
+          if (ra === "__new__" || !People.author(ra)) ra = "";
+          if (ra) {
+            v.royAu = ra;
+            v.royT = v.royT === "fix" ? "fix" : "pct";
+            v.royV = App.r3(App.num(v.royV));
+          } else { delete v.royAu; delete v.royT; delete v.royV; }
+          if (b && !App.can("price") && ((v.royAu || "") !== (b.royAu || "") ||
+              (v.royAu && (v.royT !== (b.royT === "fix" ? "fix" : "pct") || App.num(v.royV) !== App.num(b.royV))))) {
+            if (b.royAu) { v.royAu = b.royAu; v.royT = b.royT; v.royV = b.royV; } else { delete v.royAu; delete v.royT; delete v.royV; }
+            App.toast("تغيير حصة المؤلف يحتاج صلاحية الأسعار — بقيت كما كانت.", "warn");
+          }
+          if (v.royAu) {
+            if (!(App.num(v.royV) > 0)) { App.toast("اكتب قيمة حصة المؤلف (نسبة أو مبلغ)، أو اختار «لا يوجد».", "warn"); return false; }
+            if (v.royT === "pct" && App.num(v.royV) >= 100) { App.toast("نسبة المؤلف لازم أقل من 100%.", "warn"); return false; }
+            if (v.royT === "fix" && App.num(v.price) > 0 && App.num(v.royV) > App.num(v.price)) {
+              App.toast("حصة المؤلف (" + App.money0(v.royV) + ") أكبر من سعر الكتاب (" + App.money0(v.price) + ") — راجعها.", "warn");
+              return false;
+            }
+          }
+        } else { delete v.royAu; delete v.royT; delete v.royV; }
         // لا أسعار ولا كميات سالبة
         ["cost", "price", "priceW", "qty", "min"].forEach(function (k) {
           if (App.num(v[k]) < 0) v[k] = 0;
@@ -685,6 +719,7 @@ var Inv = (function () {
           qty: App.num(v.qty) || 2, min: 0
         };
         if (b) {
+          if (roy && !v.royAu) { delete b.royAu; delete b.royT; delete b.royV; }
           Object.keys(v).forEach(function (k) { b[k] = v[k]; });
           b.updated = App.nowStamp();
           App.log("تعديل كتاب", b.title);
@@ -700,6 +735,78 @@ var Inv = (function () {
         App.save(); App.rerender();
       }
     });
+    if (roy) royShow(fm.el);
+  }
+
+  /* ---------- «مؤلف مدفوع» في بيانات الكتاب (طرابلس) ---------- */
+  var royPrev = "";
+
+  /* في جدول الكتب: الكتاب اللي له مؤلف مدفوع يبان (اسمه وحصته) */
+  function royBadge(b) {
+    if (!b.royAu || typeof People === "undefined" || !People.author) return "";
+    var a = People.author(b.royAu);
+    return a ? ' <span class="badge roy-b" title="مؤلف مدفوع">✍ ' + App.esc(a.name) + " · " + App.esc(People.royText(b.royT, b.royV)) + "</span>" : "";
+  }
+
+  function royWrap(scope, k) { var e = scope.querySelector("#f_" + k); return e ? e.closest(".field") : null; }
+
+  /* خانتا الحصة تظهران لما يُختار مؤلف، ومعاهن مثال بسعر الكتاب: «للمؤلف 10 · للمكتبة 90» */
+  function royShow(scope) {
+    var au = scope.querySelector("#f_royAu");
+    if (!au) return;
+    var on = !!au.value && au.value !== "__new__";
+    ["royT", "royV"].forEach(function (k) { var w = royWrap(scope, k); if (w) w.style.display = on ? "" : "none"; });
+    royPreview(scope);
+  }
+
+  function royPreview(scope) {
+    var w = royWrap(scope, "royV");
+    var hint = w ? w.querySelector(".hint") : null;
+    if (!hint) return;
+    var t = (scope.querySelector("#f_royT") || {}).value === "fix" ? "fix" : "pct";
+    var v = App.num(App.digits((scope.querySelector("#f_royV") || {}).value || ""));
+    var price = App.num(App.digits((scope.querySelector("#f_price") || {}).value || ""));
+    var base = price > 0 ? price : 100;
+    var ru = People.royUnit(t, v, base);
+    hint.textContent = (t === "fix" ? "مبلغ بالدينار لكل نسخة تنباع. " : "نسبة من سعر البيع: 10 تعني 10%. ") +
+      (v > 0 ? (price > 0 ? "بسعر الكتاب " : "مثال: كتاب ") + App.money0(base) + " ← للمؤلف " + App.money0(ru) +
+        " · للمكتبة " + App.money0(App.r3(base - ru)) : "");
+  }
+
+  function royChange(key, val, scope) {
+    if (key === "royAu" && val === "__new__") {
+      App.setField(scope, "royAu", royPrev);
+      royShow(scope);
+      People.editAuthor(null, function (a) {
+        var sel = scope.querySelector("#f_royAu");
+        if (!sel) return;
+        var o = document.createElement("option");
+        o.value = a.id;
+        o.textContent = a.name + (App.num(a.defV) > 0 ? " (" + People.royText(a.defT, a.defV) + ")" : "");
+        sel.insertBefore(o, sel.options[sel.options.length - 1]);
+        sel.value = a.id;
+        royPick(scope, a.id);
+      });
+      return;
+    }
+    if (key === "royAu") { royPick(scope, val); return; }
+    royPreview(scope);
+  }
+
+  /* اختيار مؤلف: حصته المعتادة تنكتب (لو تغيّر المؤلف أو الخانة فاضية)، واسمه في «المؤلف» لو فاضي */
+  function royPick(scope, id) {
+    var a = People.author(id);
+    if (a) {
+      var vEl = scope.querySelector("#f_royV");
+      if (App.num(a.defV) > 0 && (id !== royPrev || !vEl || !(App.num(App.digits(vEl.value)) > 0))) {
+        App.setField(scope, "royT", a.defT === "fix" ? "fix" : "pct");
+        App.setField(scope, "royV", a.defV);
+      }
+      var nm = scope.querySelector("#f_author");
+      if (nm && !String(nm.value || "").trim()) nm.value = a.name;
+    }
+    royPrev = id || "";
+    royShow(scope);
   }
 
   /* إضافة سريعة من داخل نموذج الصنف — بلا مغادرة الشاشة */
@@ -2035,21 +2142,53 @@ var Inv = (function () {
 
   function purchases() {
     ensureDraft();
-    var past = !!draft.past, credit = draft.pay === "credit";
+    var h = purEntryCard(false);
 
-    var h = '<div class="card" style="margin-bottom:18px">' +
-      '<div class="card-head"><h3>' + (past ? "تسجيل فاتورة شراء سابقة" : "إدخال بضاعة جديدة") + '</h3><div class="spacer"></div>' +
+    h += '<div class="card"><div class="card-head"><h3>سجل الإدخالات السابقة</h3><div class="spacer"></div>' +
+      '<button class="btn" onclick="Inv.pastImport()">تحميل فواتير سابقة من ملف</button></div>' +
+      App.table([
+        { h: "التاريخ", c: function (p) { return App.esc(p.date); } },
+        { h: "رقم الفاتورة", c: function (p) { return p.ref ? '<b class="num">' + App.esc(p.ref) + "</b>" : '<span class="muted">—</span>'; } },
+        { h: "المورد", c: function (p) { var s = People.supplier(p.supplierId); return s ? App.esc(s.name) : '<span class="muted">—</span>'; } },
+        { h: "عدد الأصناف", cls: "num", c: function (p) { return p.lines.length; } },
+        { h: "إجمالي القطع", cls: "num", c: function (p) { return p.lines.reduce(function (s, l) { return s + App.num(l.qty); }, 0); } },
+        { h: "التكلفة", cls: "num", c: function (p) { return "<b>" + App.money0(p.total) + "</b>"; } },
+        { h: "الدفع", c: function (p) { return purPayBadge(p); } },
+        { h: "ملاحظة", c: function (p) { return App.esc(p.note || "—"); } },
+        { h: "", cls: "act", c: function (p) { return '<button class="btn sm" onclick="Inv.showPurchase(\'' + p.id + '\')">تفاصيل</button>'; } }
+      ], S().purchases, { emptyIcon: "goods", emptyTitle: "لا توجد إدخالات بعد", emptyText: "كل بضاعة تدخل المحل سجّلها هنا لتتبع التكاليف والموردين." }) +
+      "</div>";
+
+    setTimeout(paintPurLines, 0);
+    return h;
+  }
+
+  /* الإدخالات القديمة (قبل خانة الدفع) لا نعرف كيف دُفعت */
+  function purPayBadge(p) {
+    return (p.pay === "credit" ? '<span class="badge warn">آجل</span>' : p.pay === "cash" ? '<span class="badge ok">نقداً</span>' :
+      p.pay === "later" ? '<span class="badge bad" title="آجل، ودينه ما انحسبش بعد">آجل — مؤجّل</span>' : '<span class="muted">—</span>') +
+      (p.past ? ' <span class="badge info">سابقة</span>' : "");
+  }
+
+  /* بطاقة فاتورة الشراء: في «إدخال بضاعة ← إضافة كمية»، وفي «الفواتير ← فواتير المشتريات» (inInv) */
+  function purEntryCard(inInv) {
+    var past = !!draft.past, credit = draft.pay === "credit";
+    return '<div class="card pur-entry" style="margin-bottom:18px">' +
+      '<div class="card-head"><h3>' + (inInv ? (past ? "فاتورة مشتريات سابقة" : "فاتورة مشتريات جديدة") :
+        past ? "تسجيل فاتورة شراء سابقة" : "إدخال بضاعة جديدة") + '</h3><div class="spacer"></div>' +
       '<span class="muted small">' + (past ? "الفاتورة تتسجل بس — الكميات والأسعار ما تتغيّرش"
         : "تُضاف الكميات للمخزون وتُحدَّث أسعار الجملة") + "</span></div>" +
       '<div class="card-body">' +
       (past ? "" : '<div style="margin-bottom:16px">' + destTabs(purTo(), "Inv.purSetTo") + "</div>") +
-      '<div class="grid g3 pur-meta">' +
-      '<div class="field"><label>المورد</label><select class="inp" onchange="Inv.pd(\'supplierId\',this.value)">' +
+      '<div class="grid g4 pur-meta">' +
+      '<div class="field"><label>المورد</label><select class="inp" id="purSup" onchange="Inv.purSup(this.value)">' +
       '<option value="">— بدون مورد —</option>' +
       S().suppliers.map(function (s) { return '<option value="' + s.id + '"' + (draft.supplierId === s.id ? " selected" : "") + ">" + App.esc(s.name) + "</option>"; }).join("") +
+      '<option value="__new__">➕ إضافة مورد جديد…</option>' +
       "</select></div>" +
+      '<div class="field"><label>رقم فاتورة المورد</label><input class="inp num" id="purRef" placeholder="مثال: 90" value="' + App.esc(draft.ref || "") + '" oninput="Inv.pd(\'ref\',this.value)"></div>' +
       '<div class="field"><label>التاريخ</label><input type="date" class="inp" value="' + draft.date + '" onchange="Inv.pd(\'date\',this.value)"></div>' +
-      '<div class="field"><label>ملاحظة / رقم فاتورة المورد</label><input class="inp" value="' + App.esc(draft.note) + '" oninput="Inv.pd(\'note\',this.value)"></div>' +
+      '<div class="field"><label>ملاحظة</label><input class="inp" value="' + App.esc(draft.note) + '" oninput="Inv.pd(\'note\',this.value)"></div>' +
       "</div>" +
       '<div class="grid g2 pur-meta">' +
       '<div class="field"><label>الدفع</label><div class="seg">' +
@@ -2066,42 +2205,118 @@ var Inv = (function () {
       'oninput="Inv.purSuggest(this.value)" onfocus="Inv.purSuggest(this.value)" onblur="Inv.purBlur()" onkeydown="Inv.purKey(event)">' +
       '<button class="clr" type="button" title="مسح البحث" onclick="Inv.purClearQ()">✕</button></div>' +
       '<div id="purSug"></div>' +
-      '<div class="hint">أو اختر من القائمة بالأسفل</div></div>' +
-      quickPick() +
+      '<div class="hint">' + (inInv ? "اكتب الاسم أو امسح الباركود لكل صنف في الفاتورة" : "أو اختر من القائمة بالأسفل") + "</div></div>" +
+      (inInv ? "" : quickPick()) +
 
       '<div id="purLines"></div>' +
 
       '<div class="row" style="margin-top:14px">' +
       '<div class="spacer"></div>' +
       '<div style="font-size:17px;font-weight:700">الإجمالي: <span class="num" id="purTotal">0.00</span></div>' +
+      (inInv ? '<button class="btn ghost" onclick="Inv.purCancel()">إلغاء</button>' : "") +
       '<button class="btn" onclick="Inv.purClear()">مسح</button>' +
       '<button class="btn primary lg" onclick="Inv.purSave()">' +
       (past ? "حفظ الفاتورة السابقة" : purTo() === "store" ? "حفظ — للمخزن" : "حفظ — للرفوف") + "</button>" +
       "</div></div></div>";
+  }
 
-    h += '<div class="card"><div class="card-head"><h3>سجل الإدخالات السابقة</h3><div class="spacer"></div>' +
-      '<button class="btn" onclick="Inv.pastImport()">تحميل فواتير سابقة من ملف</button></div>' +
+  /* ============================================================
+     فواتير المشتريات — تبويب في «الفواتير»
+     ------------------------------------------------------------
+     كل فاتورة شراء (إدخال بضاعة، فاتورة سابقة، أو محمّلة من ملف) برقم
+     فاتورة المورد. زر «إضافة فاتورة مشتريات» يفتح بطاقة الإدخال نفسها
+     فوق القائمة، ورقم الفاتورة يفتح ما فيها.
+     ============================================================ */
+  var pf = { q: "", sup: "", from: "", to: "", adding: false, shown: 200 };
+
+  function purInvoicesTab() {
+    var h = '<div class="row" style="margin-bottom:14px">' +
+      '<div class="search-wrap"><span class="mag">⌕</span>' +
+      '<input class="inp" placeholder="ابحث برقم الفاتورة أو المورد أو الصنف…" value="' + App.esc(pf.q) + '" oninput="Inv.pfSet(\'q\',this.value)"></div>' +
+      '<select class="inp" style="width:auto;max-width:220px" onchange="Inv.pfSet(\'sup\',this.value)"><option value="">كل الموردين</option>' +
+      S().suppliers.map(function (x) { return '<option value="' + x.id + '"' + (pf.sup === x.id ? " selected" : "") + ">" + App.esc(x.name) + "</option>"; }).join("") +
+      "</select>" +
+      '<div class="field"><label class="small">من</label><input type="date" class="inp" value="' + pf.from + '" onchange="Inv.pfSet(\'from\',this.value)"></div>' +
+      '<div class="field"><label class="small">إلى</label><input type="date" class="inp" value="' + pf.to + '" onchange="Inv.pfSet(\'to\',this.value)"></div>' +
+      '<div class="spacer"></div>' +
+      (pf.adding ? "" : '<button class="btn primary" onclick="Inv.purNew()">+ إضافة فاتورة مشتريات</button>') + "</div>";
+    if (pf.adding) {
+      ensureDraft();
+      h += purEntryCard(true);
+      setTimeout(paintPurLines, 0);
+    }
+    h += '<div class="card"><div id="purInvList"></div></div>';
+    setTimeout(paintPurInvoices, 0);
+    return h;
+  }
+
+  function pfSet(k, v) { pf[k] = v; pf.shown = 200; paintPurInvoices(); }
+  function pfMore() { pf.shown += 200; paintPurInvoices(); }
+
+  function purNew() {
+    if (!draft || !draft.lines.length) draft = null;     // مسوّدة فيها أصناف تكمل كما هي
+    ensureDraft();
+    pf.adding = true;
+    App.rerender();
+    setTimeout(function () { var e = document.getElementById("purSup"); if (e) e.focus(); }, 60);
+  }
+
+  function purCancel() { pf.adding = false; draft = null; App.rerender(); }
+
+  function filteredPurchases() {
+    var rows = S().purchases.filter(function (p) {
+      if (pf.sup && p.supplierId !== pf.sup) return false;
+      if (pf.from && String(p.date) < pf.from) return false;
+      if (pf.to && String(p.date) > pf.to) return false;
+      return true;
+    });
+    return App.rank(rows, pf.q, function (p) {
+      var s = People.supplier(p.supplierId);
+      return [String(p.ref || ""), s ? s.name : "", p.note || ""].concat((p.lines || []).map(function (l) { return l.name; }));
+    });
+  }
+
+  function paintPurInvoices() {
+    var host = document.getElementById("purInvList");
+    if (!host) return;
+    var rows = filteredPurchases();
+    var total = 0, credit = 0;
+    rows.forEach(function (p) { total += App.num(p.total); if (p.pay === "credit") credit += App.num(p.total); });
+    host.innerHTML = (rows.length ? '<div class="row small muted" style="padding:12px 16px 0">' + rows.length + " فاتورة · المجموع <b class=\"num\" style=\"margin:0 4px\">" +
+      App.money0(total) + "</b>" + (credit ? " · منها آجل <b class=\"num\" style=\"margin:0 4px\">" + App.money0(credit) + "</b>" : "") + "</div>" : "") +
       App.table([
-        { h: "التاريخ", c: function (p) { return App.esc(p.date); } },
-        { h: "المورد", c: function (p) { var s = People.supplier(p.supplierId); return s ? App.esc(s.name) : '<span class="muted">—</span>'; } },
-        { h: "عدد الأصناف", cls: "num", c: function (p) { return p.lines.length; } },
-        { h: "إجمالي القطع", cls: "num", c: function (p) { return p.lines.reduce(function (s, l) { return s + App.num(l.qty); }, 0); } },
-        { h: "التكلفة", cls: "num", c: function (p) { return "<b>" + App.money0(p.total) + "</b>"; } },
         {
-          h: "الدفع", c: function (p) {
-            /* الإدخالات القديمة (قبل خانة الدفع) لا نعرف كيف دُفعت */
-            return (p.pay === "credit" ? '<span class="badge warn">آجل</span>' : p.pay === "cash" ? '<span class="badge ok">نقداً</span>' :
-              p.pay === "later" ? '<span class="badge bad" title="آجل، ودينه ما انحسبش بعد">آجل — مؤجّل</span>' : '<span class="muted">—</span>') +
-              (p.past ? ' <span class="badge info">سابقة</span>' : "");
+          h: "رقم الفاتورة", c: function (p) {
+            return '<button class="btn sm pur-no" onclick="Inv.showPurchase(\'' + p.id + '\')">' +
+              (p.ref ? "فاتورة " + App.esc(p.ref) : "بدون رقم") + "</button>";
           }
         },
-        { h: "ملاحظة", c: function (p) { return App.esc(p.note || "—"); } },
-        { h: "", cls: "act", c: function (p) { return '<button class="btn sm" onclick="Inv.showPurchase(\'' + p.id + '\')">تفاصيل</button>'; } }
-      ], S().purchases, { emptyIcon: "goods", emptyTitle: "لا توجد إدخالات بعد", emptyText: "كل بضاعة تدخل المحل سجّلها هنا لتتبع التكاليف والموردين." }) +
-      "</div>";
-
-    setTimeout(paintPurLines, 0);
-    return h;
+        { h: "التاريخ", c: function (p) { return App.esc(p.date); } },
+        {
+          h: "المورد", c: function (p) {
+            var s = People.supplier(p.supplierId);
+            return s ? '<a href="javascript:void 0" onclick="People.supStatement(\'' + s.id + '\')">' + App.esc(s.name) + "</a>" : '<span class="muted">—</span>';
+          }
+        },
+        {
+          h: "الأصناف", c: function (p) {
+            return '<div class="sub">' + App.esc((p.lines || []).map(function (l) { return l.name + "×" + App.num(l.qty); }).join("، ").slice(0, 70)) + "</div>";
+          }
+        },
+        { h: "القطع", cls: "num", c: function (p) { return (p.lines || []).reduce(function (s, l) { return s + App.num(l.qty); }, 0); } },
+        { h: "الإجمالي", cls: "num", c: function (p) { return "<b>" + App.money0(p.total) + "</b>"; } },
+        { h: "الدفع", c: function (p) { return purPayBadge(p); } },
+        {
+          h: "", cls: "act", c: function (p) {
+            return '<button class="btn sm" onclick="Inv.showPurchase(\'' + p.id + '\')">عرض</button> ' +
+              '<button class="btn sm ghost" onclick="Inv.delPurchase(\'' + p.id + '\')">حذف</button>';
+          }
+        }
+      ], rows, {
+        limit: pf.shown, moreAction: "Inv.pfMore()",
+        emptyIcon: "goods", emptyTitle: S().purchases.length ? "لا نتيجة مطابقة" : "لا توجد فواتير مشتريات",
+        emptyText: "اضغط «إضافة فاتورة مشتريات» وسجّل فاتورة المورد برقمها وأصنافها."
+      });
   }
 
   /* قائمة البضاعة الموجودة للاختيار السريع */
@@ -2119,11 +2334,38 @@ var Inv = (function () {
 
   /* المسوّدة قد تُستدعى قبل رسم الصفحة — ننشئها عند الحاجة */
   function ensureDraft() {
-    if (!draft) draft = { supplierId: "", date: App.today(), note: "", lines: [], pay: "cash", past: false };
+    if (!draft) draft = { supplierId: "", ref: "", date: App.today(), note: "", lines: [], pay: "cash", past: false };
     return draft;
   }
 
   function pd(k, v) { ensureDraft()[k] = v; }
+
+  /* المورد في فاتورة الشراء — أو مورد جديد بلا مغادرة الفاتورة */
+  function purSup(v) {
+    if (v !== "__new__") { pd("supplierId", v); return; }
+    var sel = document.getElementById("purSup");
+    if (sel) sel.value = ensureDraft().supplierId || "";
+    App.form({
+      title: "مورّد جديد",
+      size: "narrow",
+      fields: [
+        { k: "name", label: "اسم المورّد", required: true, full: true },
+        { k: "phone", label: "رقم الهاتف", full: true },
+        { k: "city", label: "المدينة", full: true }
+      ],
+      onSave: function (s2) {
+        var same = null;
+        S().suppliers.forEach(function (x) { if (App.norm(x.name) === App.norm(s2.name)) same = x; });
+        if (same) { App.toast("المورد «" + same.name + "» موجود — اخترناه.", "warn"); ensureDraft().supplierId = same.id; App.rerender(); return; }
+        s2.id = App.uid(); s2.opening = 0; s2.created = App.nowStamp();
+        S().suppliers.push(s2);
+        ensureDraft().supplierId = s2.id;
+        App.log("مورد", s2.name);
+        App.save(); App.rerender();
+        App.toast("أُضيف المورّد: " + s2.name);
+      }
+    });
+  }
 
   /* نقداً أو آجل، وفاتورة سابقة (بضاعتها في المحل من قبل) */
   function purPay(v) { ensureDraft().pay = v === "credit" ? "credit" : "cash"; App.rerender(); }
@@ -2263,6 +2505,20 @@ var Inv = (function () {
     if (!draft.lines.length) { App.toast("أضف صنفاً واحداً على الأقل.", "warn"); return; }
     var credit = draft.pay === "credit", past = !!draft.past;
     if (credit && !People.supplier(draft.supplierId)) { App.toast("الشراء بالآجل يحتاج مورد — اختر المورد أولاً.", "warn"); return; }
+    /* نفس رقم الفاتورة من نفس المورد: غالباً متسجلة من قبل */
+    var ref = String(draft.ref || "").trim();
+    if (ref && draft.supplierId && !purSave.dupOk) {
+      var dup = null;
+      S().purchases.forEach(function (p) { if (!dup && p.supplierId === draft.supplierId && String(p.ref || "").trim() === ref) dup = p; });
+      if (dup) {
+        App.confirm("فاتورة رقم " + ref + " من «" + People.supplier(draft.supplierId).name + "» متسجلة من قبل (" + dup.date + " بـ " +
+          App.money(dup.total) + ").\n\nتبي تسجلها مرة ثانية؟", function () {
+            purSave.dupOk = true;
+            try { purSave(); } finally { purSave.dupOk = false; }
+          }, { yes: "سجّلها مرة ثانية" });
+        return;
+      }
+    }
     var total = App.r3(draft.lines.reduce(function (s, l) { return s + App.num(l.qty) * App.num(l.cost); }, 0));
     draft.lines.forEach(function (l) {
       if (past) { l.st = 0; return; }          // فاتورة سابقة: بضاعتها محسوبة من قبل
@@ -2279,35 +2535,115 @@ var Inv = (function () {
       pay: credit ? "credit" : "cash"
     };
     if (past) rec.past = true;
+    if (ref) rec.ref = ref;
     S().purchases.unshift(rec);
     var sup = People.supplier(draft.supplierId);
-    App.log(past ? "فاتورة شراء سابقة" : "إدخال بضاعة", draft.lines.length + " صنف بقيمة " + App.money0(total) +
+    App.log(past ? "فاتورة شراء سابقة" : "إدخال بضاعة", (ref ? "فاتورة " + ref + " — " : "") + draft.lines.length + " صنف بقيمة " + App.money0(total) +
       (credit ? " — آجل على " + sup.name : ""));
     App.toast((past ? "سُجّلت الفاتورة السابقة — الكميات ما تغيّرتش." : "أُدخلت البضاعة وحُدِّث المخزون.") +
       (credit ? " علينا لـ" + sup.name + " الآن: " + App.money(People.supDebt(sup)) : ""));
     draft = null;
+    pf.adding = false;
     App.saveNow(); App.rerender();
   }
 
-  function showPurchase(id) {
+  function getPurchase(id) {
     var p = null;
     S().purchases.forEach(function (x) { if (x.id === id) p = x; });
+    return p;
+  }
+
+  /* حذف فاتورة شراء: ما دخل منها يُخصم من المخزون (أو يبقى)، ودين المورد يُحسب من جديد وحده */
+  function delPurchase(id) {
+    var p = getPurchase(id);
+    if (!p) return;
+    if (!App.allow("delete", function () { delPurchase(id); })) return;
+    var s = People.supplier(p.supplierId);
+    var body = document.createElement("div");
+    body.innerHTML = '<p style="margin-top:0;line-height:1.8">ستُحذف فاتورة المشتريات ' + (p.ref ? "رقم <b>" + App.esc(p.ref) + "</b> " : "") +
+      (s ? "من <b>" + App.esc(s.name) + "</b> " : "") + "بتاريخ " + App.esc(p.date) + " بقيمة <b>" + App.money(p.total) + "</b>.</p>" +
+      (p.pay === "credit" ? '<p class="small" style="margin-top:0;line-height:1.8;color:var(--stamp)">كانت آجل: مبلغها يتشال من دين المورد.</p>' : "") +
+      (p.past ? '<p class="muted small" style="margin-top:0">فاتورة سابقة — ما زادتش الكمية، فالمخزون ما يتغيّرش.</p>' :
+        '<div class="field"><label>الكميات اللي دخلت بهذه الفاتورة؟</label><select class="inp" id="purDelStock">' +
+        '<option value="yes">أخصمها من المخزون (رجّعناها للمورد أو تسجلت غلط)</option>' +
+        '<option value="no">اترك المخزون كما هو</option></select></div>');
+    App.modal({
+      title: "حذف فاتورة مشتريات",
+      size: "narrow",
+      body: body,
+      cancelLabel: "تراجع",
+      actions: [{
+        label: "تأكيد الحذف", kind: "danger", click: function (close, ov) {
+          var sel = ov.querySelector("#purDelStock");
+          var back = !p.past && (!sel || sel.value === "yes");
+          if (back) {
+            (p.lines || []).forEach(function (l) {
+              var it = l.type ? App.findItem(l.type, l.id) : null;
+              if (!it) return;
+              var st = Math.min(App.num(l.st), App.storeQty(it));
+              if (st > 0) it.store = App.storeQty(it) - st;
+              it.qty = App.num(it.qty) - App.num(l.qty);
+              it.updated = App.nowStamp();
+            });
+          }
+          var i = S().purchases.indexOf(p);
+          if (i >= 0) S().purchases.splice(i, 1);
+          App.log("حذف فاتورة مشتريات", (p.ref ? "رقم " + p.ref + " — " : "") + (s ? s.name + " — " : "") + App.money0(p.total) +
+            (back ? " — خُصمت الكميات" : ""));
+          App.saveNow(); close(); App.rerender();
+          App.toast("حُذفت فاتورة المشتريات" + (back ? " وخُصمت كمياتها من المخزون." : ".") +
+            (s && p.pay === "credit" ? " علينا لـ" + s.name + " الآن: " + App.money(People.supDebt(s)) : ""));
+        }
+      }]
+    });
+  }
+
+  function printPurchase(id) {
+    var p = getPurchase(id);
     if (!p) return;
     var s = People.supplier(p.supplierId);
+    var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
+      '<div class="c">فاتورة مشتريات' + (p.ref ? " رقم " + App.esc(p.ref) : "") + (s ? " — " + App.esc(s.name) : "") + "</div>" +
+      '<div class="c">' + App.dateAr(p.date) + (p.pay === "credit" ? " · آجل" : p.pay === "cash" ? " · نقداً" : p.pay === "later" ? " · آجل (دينه مؤجّل)" : "") + "</div><hr>" +
+      "<table><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الشراء</th><th>الإجمالي</th></tr></thead><tbody>" +
+      (p.lines || []).map(function (l) {
+        return "<tr><td>" + App.esc(l.name) + '</td><td class="num">' + App.num(l.qty) + '</td><td class="num">' + App.money0(l.cost) +
+          '</td><td class="num">' + App.money0(App.num(l.qty) * App.num(l.cost)) + "</td></tr>";
+      }).join("") +
+      '</tbody></table><hr><div class="tot g"><span>الإجمالي</span><span class="num">' + App.money0(p.total) + " " + App.esc(S().meta.currency) + "</span></div>" +
+      (p.note ? "<div>ملاحظة: " + App.esc(p.note) + "</div>" : "") + "</div>";
+    App.printHtml(h);
+  }
+
+  function showPurchase(id) {
+    var p = getPurchase(id);
+    if (!p) return;
+    var s = People.supplier(p.supplierId);
+    var pieces = (p.lines || []).reduce(function (t, l) { return t + App.num(l.qty); }, 0);
     App.modal({
-      title: (p.past ? "فاتورة شراء سابقة — " : "إدخال بضاعة — ") + p.date,
-      body: '<div class="row small muted" style="margin-bottom:12px">المورد: ' + App.esc(s ? s.name : "—") +
-        (p.pay === "credit" ? " · آجل" : p.pay === "cash" ? " · نقداً" : p.pay === "later" ? " · آجل (دينه مؤجّل)" : "") +
-        (p.past ? " · سابقة (ما زادتش الكمية)" : "") +
-        (p.note ? " · " + App.esc(p.note) : "") + "</div>" +
+      title: "فاتورة مشتريات" + (p.ref ? " رقم " + p.ref : "") + (s ? " — " + s.name : "") + (p.ref || s ? "" : " — " + p.date),
+      size: "wide",
+      body: '<div class="row small" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">' +
+        '<span class="badge">التاريخ: ' + App.esc(p.date) + "</span>" +
+        '<span class="badge">المورد: ' + App.esc(s ? s.name : "—") + "</span>" +
+        purPayBadge(p) +
+        '<span class="badge">' + (p.lines || []).length + " صنف · " + pieces + " قطعة</span>" +
+        (p.past ? '<span class="muted">سابقة: ما زادتش الكمية</span>' : "") +
+        (p.st || (p.lines || []).some(function (l) { return App.num(l.st) > 0; }) ? '<span class="muted">دخلت للمخزن</span>' : "") + "</div>" +
+        (p.note ? '<div class="small" style="margin:-4px 0 12px">ملاحظة: ' + App.esc(p.note) + "</div>" : "") +
         App.table([
-          { h: "الصنف", c: function (l) { return App.esc(l.name); } },
+          { h: "الصنف", c: function (l) { return App.esc(l.name) + (l.type ? "" : ' <span class="badge">مش مسجّل في المنظومة</span>'); } },
           { h: "الكمية", cls: "num", c: function (l) { return App.num(l.qty); } },
-          { h: "الجملة", cls: "num", c: function (l) { return App.money0(l.cost); } },
+          { h: "سعر الشراء", cls: "num", c: function (l) { return App.money0(l.cost); } },
           { h: "الإجمالي", cls: "num", c: function (l) { return App.money0(App.num(l.qty) * App.num(l.cost)); } }
-        ], p.lines) +
+        ], p.lines || []) +
         '<div class="row" style="margin-top:12px;font-size:16px;font-weight:700"><div class="spacer"></div>الإجمالي: ' +
-        App.money(p.total) + "</div>"
+        App.money(p.total) + "</div>",
+      actions: [
+        { label: "طباعة", kind: "primary", click: function () { printPurchase(id); } },
+        s ? { label: "كشف حساب المورد", click: function () { People.supStatement(s.id); } } : null,
+        { label: "حذف الفاتورة", kind: "danger", click: function (close) { close(); delPurchase(id); } }
+      ].filter(function (x) { return x; })
     });
   }
 
@@ -2945,6 +3281,8 @@ var Inv = (function () {
     pd: pd, purSuggest: purSuggest, purKey: purKey, purAdd: purAdd, purClearQ: purClearQ, purBlur: purBlur,
     purSet: purSet, purDel: purDel, purClear: purClear, purSave: purSave, showPurchase: showPurchase, purSetTo: purSetTo,
     purPay: purPay, purPast: purPast, pastImport: pastImport, __pastPlan: pastPlan, __pastApply: pastApply,
+    purInvoicesTab: purInvoicesTab, pfSet: pfSet, pfMore: pfMore, purNew: purNew, purCancel: purCancel, purSup: purSup,
+    delPurchase: delPurchase, printPurchase: printPurchase,
     exportBooks: exportBooks, exportStat: exportStat, exportGoods: exportGoods, importItems: importItems,
     oldImport: oldImport, __oldPlan: oldPlan, __oldApply: oldApply,
     subjectsPage: subjectsPage, sjFind: sjFind, sjOpen: sjOpen, sjBack: sjBack, sjSearch: sjSearch, sjRename: sjRename, subjectStats: subjectStats,

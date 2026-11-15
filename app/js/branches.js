@@ -538,8 +538,6 @@ var Stock = (function () {
       }
       if (!skipUp) S().sync.lastHash = h;
       kvFast = (App.num(res.kvv) || App.num(res.v)) >= 3;
-      var seenBefore = {};
-      requests().forEach(function (r) { seenBefore[r.id] = 1; });
       mergeRemotes(res.branches || []);
       notePhones(res.branches || []);
       var gotPhone = takePhoneOrders(res.branches || []) + takePhoneEdits(res.branches || []);
@@ -548,15 +546,24 @@ var Stock = (function () {
         // التأكيد يصل للتلفون الآن، لا في التحديث القادم بعد دقائق
         setTimeout(function () { sync(false); }, 1500);
       }
-      if (typeof Notify !== "undefined") {
-        try {
-          requests().forEach(function (r) {
-            if (!seenBefore[r.id] && r.to === S().branch.id && r._status === "pending") {
-              Notify.transferRequest(branchName(r.from), r.lines);
-            }
-          });
-        } catch (e) { }
-      }
+      /* طلب تحويل جديد من فرع آخر: تنبيه على الشاشة (بالأحمر) وللتلفون إن كانت الإشعارات مفعّلة —
+         مرة واحدة لكل طلب (المعرّفات في meta.reqSeen، لا تتكرّر مع كل فتح للمنظومة) */
+      try {
+        var seen = Array.isArray(S().meta.reqSeen) ? S().meta.reqSeen.slice() : null, fresh = 0;
+        requests().forEach(function (r) {
+          if (r.to !== S().branch.id || r._status !== "pending") return;
+          if (seen && seen.indexOf(r.id) >= 0) return;
+          if (!seen) seen = [];
+          seen.push(r.id); fresh++;
+          App.toast("طلب تحويل جديد من " + branchName(r.from) + ": " +
+            (r.lines || []).map(function (l) { return l.n + " ×" + App.num(l.qty); }).join("، ") + " — شوفه في «المخزون والفروع».", "bad");
+          if (typeof Notify !== "undefined") Notify.transferRequest(branchName(r.from), r.lines);
+        });
+        if (fresh) {
+          S().meta.reqSeen = seen.slice(-200);
+          if (location.hash.indexOf("#/stock") === 0 && view.where === "hub") setTimeout(function () { App.rerenderKeep ? App.rerenderKeep("findAll") : App.rerender(); }, 0);
+        }
+      } catch (e) { }
       S().sync.lastOk = true;
       S().sync.lastError = "";
       S().sync.lastAt = App.nowStamp();
@@ -718,14 +725,17 @@ var Stock = (function () {
       saveLabel: "إرسال الطلب",
       onSave: function (v) {
         if (App.num(v.qty) <= 0) { App.toast("أدخل كمية صحيحة.", "warn"); return false; }
+        /* السعر والمؤلف والتخصص والناشر: لو الكتاب مش مسجّل عندك يتسجّل وحده لما يوصل */
         pushMsg({
           kind: "req", to: branchId, note: v.note || "",
-          lines: [{ n: ri.n, b: ri.b || "", k: ri.k || "", t: ri.t, qty: App.num(v.qty) }]
+          lines: [{ n: ri.n, b: ri.b || "", k: ri.k || "", t: ri.t, qty: App.num(v.qty),
+            p: App.num(ri.p) || undefined, a: ri.a || undefined, c: ri.c || undefined, d: ri.d || undefined }]
         });
         App.log("طلب تحويل", ri.n + " × " + App.num(v.qty) + " من " + branchName(branchId));
         App.saveNow();
-        App.toast("أُرسل الطلب. سيصلهم عند أول اتصال بالإنترنت.");
+        App.toast("أُرسل الطلب لـ" + branchName(branchId) + ". يطلع عندهم في «عمليات التحويل المطلوبة» مع أول تحديث.");
         sync(true);
+        if (view.where === "hub") App.rerender();
       }
     });
   }
@@ -776,19 +786,87 @@ var Stock = (function () {
     requests().forEach(function (x) { if (x.id === reqId) r = x; });
     if (!r) return;
     App.confirm("سيتم إضافة الكمية إلى مخزونك. تأكد أن البضاعة وصلت فعلاً.", function () {
-      var missing = [];
+      var made = [];
       r.lines.forEach(function (l) {
         var x = resolveLocal(l);
         if (x) { x.it.qty = App.num(x.it.qty) + App.num(l.qty); x.it.updated = App.nowStamp(); }
-        else missing.push(l);
+        else made.push(addFromTransfer(l, r));
       });
       pushMsg({ kind: "rcv", ref: reqId, to: r.to });
-      App.log("استلام تحويل", "من " + branchName(r.to));
+      App.log("استلام تحويل", "من " + branchName(r.to) + ": " + r.lines.map(function (l) { return l.n + " × " + App.num(l.qty); }).join("، "));
       App.saveNow(); App.rerender(); sync(true);
-      if (missing.length) {
-        App.toast("وصلت. لكن " + missing.length + " صنف غير مسجّل عندك — أضفه من صفحة الكتب أو القرطاسية.", "warn");
+      if (made.length) {
+        App.toast("وصلت وانضافت لمخزونك. " + (made.length === 1 ? "«" + made[0] + "» ما كانش مسجّل عندك: تسجّل" : made.length + " صنف ما كانوش مسجّلين عندك: تسجّلوا") +
+          " في غرفة الخزين، وسعر الشراء صفر — عدّله من «إدخال بضاعة ← عرض وتعديل».", "warn");
       } else App.toast("أُضيفت الكمية إلى مخزونك.");
     }, { yes: "تأكيد الاستلام" });
+  }
+
+  /* صنف وصل بتحويل وما هوش مسجّل هنا: يتسجّل باسمه وباركوده وسعر بيعه في الفرع الآخر،
+     في غرفة الخزين (بلا رف حتى يُنقل)، وسعر شرائه صفر (لا يُرسل بين الفروع أبداً) */
+  function addFromTransfer(l, r) {
+    var now = App.nowStamp(), q = Math.max(App.num(l.qty), 0);
+    var note = "وصل بتحويل من " + branchName(r.to) + " " + App.today();
+    if (l.t === "stat") {
+      S().stationery.unshift({
+        id: App.uid(), code: App.nextCode("stat"), name: l.n, brand: l.a || "", barcode: l.b || "", cat: l.c || "",
+        unit: "قطعة", loc: "", cost: 0, price: App.num(l.p), qty: q, min: 0, note: note, created: now, updated: now
+      });
+    } else {
+      S().books.unshift({
+        id: App.uid(), code: App.nextCode("book"), title: l.n, author: l.a || "", publisher: l.d || "", barcode: l.b || "",
+        cat: l.c || "", lib: "", shelf: "", cost: 0, price: App.num(l.p), qty: q, store: q, min: 0,
+        note: note, created: now, updated: now
+      });
+    }
+    return l.n;
+  }
+
+  /* «عمليات التحويل المطلوبة» تحت المخازن: ما يطلبه فرع آخر منك (بالأحمر: موافقة أو رفض)، وما
+     شحنه لك فرع آخر (تأكيد الاستلام)، وما طلبته أنت وما زال ينتظر ردهم */
+  function xferLists() {
+    var me = S().branch && S().branch.id;
+    if (!me) return { inc: [], arriving: [], waiting: [] };
+    var all = requests();
+    return {
+      inc: all.filter(function (r) { return r.to === me && r._status === "pending"; }),
+      arriving: all.filter(function (r) { return r.from === me && r._status === "shipped"; }),
+      waiting: all.filter(function (r) { return r.from === me && r._status === "pending"; })
+    };
+  }
+
+  function xferLines(r, mine) {
+    return (r.lines || []).map(function (l) {
+      var x = mine ? resolveLocal(l) : null;
+      return "«" + App.esc(l.n) + "» × <b class=\"num\">" + App.num(l.qty) + "</b>" +
+        (mine ? ' <span class="muted small">(عندك ' + (x ? App.num(x.it.qty) : "ما هوش مسجّل") + ")</span>" : "");
+    }).join("، ");
+  }
+
+  function xferSection(x) {
+    if (!x.inc.length && !x.arriving.length && !x.waiting.length) return "";
+    var h = '<div class="card xfer-card' + (x.inc.length ? " hot" : "") + '" id="xferCard" style="margin-top:18px">' +
+      '<div class="card-head"><h3>⚠ عمليات التحويل المطلوبة</h3>' +
+      (x.inc.length ? '<span class="badge bad">' + x.inc.length + " تنتظر ردك</span>" : "") +
+      '<div class="spacer"></div><button class="btn sm ghost" onclick="Stock.openRequests()">كل الطلبات</button></div>' +
+      '<div class="card-body xfer-body">';
+    x.inc.forEach(function (r) {
+      h += '<div class="xfer-row in"><div class="xf-main"><b>' + App.esc(branchName(r.from)) + " يطلب تحويل:</b> " + xferLines(r, true) +
+        '<div class="sub">' + App.esc(r.at) + (r.note ? " — " + App.esc(r.note) : "") + "</div></div>" +
+        '<div class="xf-act"><button class="btn primary" onclick="Stock.respond(\'' + r.id + '\',\'shipped\')">موافقة وتحويل</button> ' +
+        '<button class="btn danger" onclick="Stock.respond(\'' + r.id + '\',\'rejected\')">رفض</button></div></div>';
+    });
+    x.arriving.forEach(function (r) {
+      h += '<div class="xfer-row go"><div class="xf-main"><b>' + App.esc(branchName(r.to)) + " وافق وأرسل لك:</b> " + xferLines(r, false) +
+        '<div class="sub">طلبته ' + App.esc(r.at) + " · " + statusBadge(r._status) + "</div></div>" +
+        '<div class="xf-act"><button class="btn primary" onclick="Stock.confirmReceipt(\'' + r.id + '\')">وصلت — تأكيد الاستلام</button></div></div>';
+    });
+    x.waiting.forEach(function (r) {
+      h += '<div class="xfer-row wait"><div class="xf-main">طلبت من <b>' + App.esc(branchName(r.to)) + "</b>: " + xferLines(r, false) +
+        '<div class="sub">' + App.esc(r.at) + "</div></div>" +
+        '<div class="xf-act">' + statusBadge(r._status) + "</div></div>";
+    });
+    return h + "</div></div>";
   }
 
   /* ============================================================
@@ -810,14 +888,26 @@ var Stock = (function () {
 
   function afterRender() { paintSyncState(); }
 
+  /* أعلى الصفحة: فرع آخر يطلب منك ⇦ شريط أحمر ينزل بك لـ«عمليات التحويل المطلوبة» */
+  function xferAlert(xf) {
+    if (!xf.inc.length) return "";
+    var from = {};
+    xf.inc.forEach(function (r) { from[branchName(r.from)] = 1; });
+    return '<button class="xfer-alert" onclick="var c=document.getElementById(\'xferCard\');if(c)c.scrollIntoView({behavior:\'smooth\',block:\'start\'})">' +
+      "⚠ " + App.esc(Object.keys(from).join(" و")) + " " + (xf.inc.length === 1 ? "يطلب تحويل كتاب" : "يطلب " + xf.inc.length + " عمليات تحويل") +
+      " — شوف «عمليات التحويل المطلوبة» تحت المخازن ⇩</button>";
+  }
+
   function hub() {
     var mineItems = App.allItems();
     var minePieces = mineItems.reduce(function (s, x) { return s + App.num(x.it.qty); }, 0);
     var x4 = App.isX4 && App.isX4();
     var mineValue = x4 ? 0 : mineItems.reduce(function (s, x) { return s + App.num(x.it.qty) * App.num(x.it.cost); }, 0);
     var pend = pendingCount();
+    var xf = xferLists();
 
-    var h = (App.holdBanner ? App.holdBanner() : "") + '<div class="row" style="margin-bottom:16px">' +
+    var h = (App.holdBanner ? App.holdBanner() : "") +
+      xferAlert(xf) + '<div class="row" style="margin-bottom:16px">' +
       '<div class="search-wrap" style="max-width:520px"><span class="mag">⌕</span>' +
       '<input class="inp" id="findAll" placeholder="ابحث عن صنف في كل الفروع والمخازن…" value="' + App.esc(find) + '" ' +
       'oninput="Stock.setFind(this.value)"></div>' +
@@ -889,6 +979,8 @@ var Stock = (function () {
       "الفروع التي عندها منظومة تظهر وحدها بعد الربط.</div></button>";
 
     h += "</div>";
+
+    h += xferSection(xf);
 
     /* الربط في «الإعدادات ← الأجهزة والفروع» (مصراتة وطرابلس)، وهنا سطر يدلّ عليه */
     if (!configured()) {

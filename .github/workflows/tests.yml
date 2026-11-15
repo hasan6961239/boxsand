@@ -145,6 +145,7 @@ jobs:
           for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:17845/ && break; sleep 0.5; done
           node tools/test.js
           node tools/test-money.js
+          node tools/test-authors.js
           node tools/test-big.js
           node tools/test-rail.js
 

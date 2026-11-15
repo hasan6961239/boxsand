@@ -241,7 +241,15 @@ var Sales = (function () {
     var gross = cart.reduce(function (s, l) {
       return s + (App.num(l.price) - App.num(l.cost)) * App.num(l.qty);
     }, 0);
-    return App.r3(gross - discountNow());
+    return App.r3(gross - discountNow() - cartRoy());
+  }
+  /* طرابلس: حصة المؤلفين في السلة — الربح بعدها، مش كله للمكتبة */
+  function cartRoy() {
+    if (typeof People === "undefined" || !People.royFor) return 0;
+    return App.r3(cart.reduce(function (s, l) {
+      if (l.type !== "book") return s;
+      return s + People.royFor(App.findItem("book", l.id), l.price) * App.num(l.qty);
+    }, 0));
   }
 
   function paint() {
@@ -688,25 +696,30 @@ var Sales = (function () {
     var t = total();
     var beforeQty = (typeof Notify !== "undefined") ? Notify.snapshotQty() : {};
     S().counters.invoice++;
+    /* كل سطر لكتاب له مؤلف مدفوع يُختم بحصته وقت البيع (طرابلس) */
+    var items = cart.map(function (l) {
+      var x = { type: l.type, id: l.id, name: l.name, qty: App.num(l.qty), price: App.num(l.price), cost: App.num(l.cost) };
+      return People.stampRoy(x);
+    });
+    var roy = People.invRoy(items);
     var inv = {
       id: App.uid(),
       no: S().counters.invoice,
       kind: "sale",
       date: App.today(),
       at: App.nowStamp(),
-      items: cart.map(function (l) {
-        return { type: l.type, id: l.id, name: l.name, qty: App.num(l.qty), price: App.num(l.price), cost: App.num(l.cost) };
-      }),
+      items: items,
       subtotal: subtotal(),
       discount: discountNow(),
       total: t,
-      profit: profit(),
+      profit: App.r3(items.reduce(function (s, l) { return s + (l.price - l.cost) * l.qty; }, 0) - discountNow() - roy),
       method: method,
       mode: mode,
       customerId: method === "credit" ? customerId : "",
       paid: method === "credit" ? Math.min(App.num(paid), t) : t
     };
     inv.due = App.r3(Math.max(t - inv.paid, 0));
+    if (roy) inv.roy = roy;                                   // حصة المؤلفين في الفاتورة
     if (typeof Staff !== "undefined") Staff.stamp(inv);       // X4: الموظف والجهاز
     discOk = false;
 
@@ -779,8 +792,8 @@ var Sales = (function () {
         App.log("تسعير عند البيع", App.itemName(hit.it) + " ← " + App.money0(l.p) + " (من التلفون)");
         if (o.by && typeof Staff !== "undefined" && Staff.stampAs) Staff.stampAs(S().log[0], o.by, device);
       }
-      lines.push({ type: hit.type, id: hit.it.id, name: App.itemName(hit.it), qty: q,
-        price: App.num(l.p), cost: App.num(hit.it.cost) });
+      lines.push(People.stampRoy({ type: hit.type, id: hit.it.id, name: App.itemName(hit.it), qty: q,
+        price: App.num(l.p), cost: App.num(hit.it.cost) }, hit.it));
     });
     if (!lines.length) {
       App.log("بيع من التلفون", "طلب " + o.id + " لم يُسجَّل: أصناف غير موجودة");
@@ -789,7 +802,8 @@ var Sales = (function () {
     var sub = App.r3(lines.reduce(function (a, l) { return a + l.price * l.qty; }, 0));
     var disc = Math.min(Math.max(App.num(o.disc), 0), sub);
     var t = App.r3(sub - disc);
-    var prof = App.r3(lines.reduce(function (a, l) { return a + (l.price - l.cost) * l.qty; }, 0) - disc);
+    var roy = People.invRoy(lines);
+    var prof = App.r3(lines.reduce(function (a, l) { return a + (l.price - l.cost) * l.qty; }, 0) - disc - roy);
     var m = ["cash", "card", "credit"].indexOf(o.method) >= 0 ? o.method : "cash";
     var cust = (m === "credit" && o.cust) ? People.customer(o.cust) : null;
     if (m === "credit" && !cust) m = "cash";          // زبون حُذف من هنا ⇦ يُسجَّل نقداً
@@ -807,6 +821,7 @@ var Sales = (function () {
       note: missing.length ? "لم تُسجَّل (غير موجودة هنا): " + missing.join("، ") : ""
     };
     inv.due = App.r3(Math.max(t - inv.paid, 0));
+    if (roy) inv.roy = roy;
     if (o.by && typeof Staff !== "undefined" && Staff.on && Staff.on()) Staff.stampAs(inv, o.by, inv.device);
 
     inv.items.forEach(function (l) {
@@ -833,10 +848,19 @@ var Sales = (function () {
      الفواتير
      ============================================================ */
 
+  /* تبويبان: فواتير البيع، وفواتير المشتريات (inventory.js) لمن يُدخل البضاعة */
+  var invTab = "sale";
+  function setInvTab(t) { invTab = t === "pur" ? "pur" : "sale"; App.rerender(); }
+
   function invoices() {
+    var canPur = typeof Inv !== "undefined" && Inv.purInvoicesTab && App.can(["goods", "items"]);
+    var tabs = canPur ? '<div class="seg inv-tabs" style="margin-bottom:16px;max-width:440px">' +
+      '<button class="' + (invTab === "pur" ? "" : "on") + '" onclick="Sales.setInvTab(\'sale\')">فواتير البيع</button>' +
+      '<button class="' + (invTab === "pur" ? "on" : "") + '" onclick="Sales.setInvTab(\'pur\')">فواتير المشتريات</button></div>' : "";
+    if (canPur && invTab === "pur") return tabs + Inv.purInvoicesTab();
     if (!invF.from && !invF.to && !invF.q) invF.from = defaultInvFrom();
     invF.shown = INV_PAGE;
-    var h = '<div class="row" style="margin-bottom:14px">' +
+    var h = tabs + '<div class="row" style="margin-bottom:14px">' +
       '<div class="search-wrap"><span class="mag">⌕</span>' +
       '<input class="inp" placeholder="ابحث برقم الفاتورة أو اسم الزبون أو الصنف…" value="' + App.esc(invF.q) + '" oninput="Sales.setInvF(\'q\',this.value)"></div>' +
       '<div class="field"><label class="small">من</label><input type="date" class="inp" value="' + invF.from + '" onchange="Sales.setInvF(\'from\',this.value)"></div>' +
@@ -921,6 +945,10 @@ var Sales = (function () {
     var v = getInvoice(id);
     if (!v) return;
     var c = People.customer(v.customerId);
+    /* طرابلس: كتاب له مؤلف مدفوع — كل سطر يبيّن حصة المؤلف وحصة المكتبة */
+    var ret = v.kind === "return";
+    var roy = Math.abs(People.invRoy(v.items));
+    var hasRoy = v.items.some(function (l) { return l.au; });
     App.modal({
       title: (v.kind === "return" ? "إرجاع رقم " : "فاتورة رقم ") + v.no,
       size: "wide",
@@ -932,13 +960,28 @@ var Sales = (function () {
           { h: "الصنف", c: function (l) { return App.esc(l.name); } },
           { h: "الكمية", cls: "num", c: function (l) { return App.num(l.qty); } },
           { h: "السعر", cls: "num", c: function (l) { return App.money0(l.price); } },
-          { h: "الإجمالي", cls: "num", c: function (l) { return App.money0(App.num(l.price) * App.num(l.qty)); } }
+          { h: "الإجمالي", cls: "num", c: function (l) { return App.money0(App.num(l.price) * App.num(l.qty)); } },
+          hasRoy ? {
+            h: ret ? "يُخصم من المؤلف · من المكتبة" : "للمؤلف · للمكتبة", cls: "num", c: function (l) {
+              if (!l.au) return '<span class="muted">—</span>';
+              var a = People.author(l.au), r = People.lineRoy(l), lt = App.r3(App.num(l.price) * App.num(l.qty));
+              return '<span class="roy-a">' + (ret ? "من المؤلف " : "للمؤلف ") + App.money0(r) + "</span> · " +
+                (ret ? "من المكتبة " : "للمكتبة ") + App.money0(App.r3(lt - r)) +
+                '<div class="sub">' + App.esc(a ? a.name : "مؤلف محذوف") + " — " + App.esc(People.royText(l.rt, l.rv)) +
+                " (" + App.money0(l.ru) + " للنسخة)</div>";
+            }
+          } : null
         ], v.items) +
         '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">' +
         '<div class="t-row" style="display:flex;justify-content:space-between"><span>المجموع</span><span class="num">' + App.money0(v.subtotal) + "</span></div>" +
         (App.num(v.discount) ? '<div style="display:flex;justify-content:space-between"><span>الخصم</span><span class="num">' + App.money0(Math.abs(App.num(v.discount))) + "</span></div>" : "") +
         '<div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;margin-top:6px"><span>الصافي</span><span class="num">' + App.money0(v.total) + "</span></div>" +
         (App.num(v.due) > 0 ? '<div style="display:flex;justify-content:space-between;color:var(--stamp)"><span>المتبقي ديناً</span><span class="num">' + App.money0(v.due) + "</span></div>" : "") +
+        (hasRoy ? '<div class="roy-sum" style="display:flex;justify-content:space-between;margin-top:6px"><span>' +
+          (ret ? "انخصم من حصة المؤلفين" : "منها حصة المؤلفين") + '</span><span class="num">' + App.money0(roy) + "</span></div>" +
+          '<div style="display:flex;justify-content:space-between;font-weight:700"><span>' +
+          (ret ? "يرجع من نصيب المكتبة" : "للمكتبة بعد حصة المؤلفين") + '</span><span class="num">' +
+          App.money0(App.r3(Math.abs(App.num(v.total)) - roy)) + "</span></div>" : "") +
         "</div>",
       actions: [
         { label: "طباعة", kind: "primary", click: function () { printInvoice(id); } },
@@ -996,10 +1039,14 @@ var Sales = (function () {
     }
     var warn = "";
 
+    var dRoy = Math.abs(People.invRoy(v.items));
     var body = document.createElement("div");
     body.innerHTML = warn +
       '<p style="margin-top:0;line-height:1.8">ستُحذف ' + (v.kind === "return" ? "عملية الإرجاع" : "الفاتورة") +
       " رقم <b>" + v.no + "</b> بقيمة <b>" + App.money(Math.abs(v.total)) + "</b> نهائياً.</p>" +
+      (dRoy ? '<p class="small" style="margin-top:0;line-height:1.8;color:var(--stamp)">' +
+        (v.kind === "return" ? "حصة المؤلف اللي انخصمت بهذا الإرجاع (" + App.money0(dRoy) + ") ترجع لحسابه."
+          : "حصة المؤلف في هذه الفاتورة (" + App.money0(dRoy) + ") تنشال من حسابه.") + "</p>" : "") +
       '<div class="field"><label>ماذا نفعل بالأصناف؟</label>' +
       '<select class="inp" id="delRestock">' +
       '<option value="yes">' + (v.kind === "return" ? "أخصمها من المخزون (لم تعد فعلاً)" : "أرجعها للمخزون (الزبون أعادها)") + "</option>" +
@@ -1021,7 +1068,7 @@ var Sales = (function () {
           var i = S().invoices.indexOf(v);
           if (i >= 0) S().invoices.splice(i, 1);
           App.log("حذف فاتورة", "رقم " + v.no + " بقيمة " + App.money0(v.total) +
-            (restock ? " — أُعيدت الأصناف" : " — بلا إرجاع") + (why ? " — " + why : ""));
+            (restock ? " — أُعيدت الأصناف" : " — بلا إرجاع") + (dRoy ? " — حصة المؤلف " + App.money0(dRoy) : "") + (why ? " — " + why : ""));
           App.saveNow(); close(); App.rerender();
           App.toast("حُذفت الفاتورة رقم " + v.no + (restock ? " وأُعيدت الأصناف للمخزون." : "."));
         }
@@ -1054,7 +1101,8 @@ var Sales = (function () {
         return {
           type: l.type, id: l.id, name: l.name,
           qty: App.num(l.qty), orig: App.num(l.qty),
-          price: App.num(l.price), cost: App.num(l.cost), added: false
+          price: App.num(l.price), cost: App.num(l.cost), added: false,
+          au: l.au, rt: l.rt, rv: l.rv                    // حصة المؤلف وقت البيع
         };
       }),
       discount: App.num(v.discount),
@@ -1112,6 +1160,12 @@ var Sales = (function () {
     host.innerHTML = h;
 
     var total = Math.max(sub - App.num(ed.discount), 0);
+    /* حصة المؤلفين بعد التعديل: سطر قديم بحصته وقت البيع، وكتاب مضاف بحصة كتابه */
+    var eRoy = App.r3(ed.lines.reduce(function (a, l) {
+      var ru = l.added ? People.royFor(App.findItem(l.type, l.id), l.price)
+        : (l.au ? People.royUnit(l.rt === "fix" ? "fix" : "pct", l.rv, l.price) : 0);
+      return a + ru * App.num(l.qty);
+    }, 0));
     var foot = document.getElementById("edFoot");
     if (!foot) return;
     foot.innerHTML =
@@ -1141,6 +1195,8 @@ var Sales = (function () {
       '<option value="no"' + (ed.restock === "no" ? " selected" : "") + ">لا — اترك المخزون كما هو</option></select>" +
       '<div class="hint">إن أنقصت كمية بِعتها، «نعم» تعيدها للمخزون.</div></div>' +
       '<div class="row" style="margin-top:14px;padding-top:12px;border-top:2px solid var(--ink)">' +
+      (eRoy ? '<span class="roy-a small">منها للمؤلفين <b class="num">' + App.money0(eRoy) + "</b> · للمكتبة <b class=\"num\">" +
+        App.money0(App.r3(total - eRoy)) + "</b></span>" : "") +
       '<div class="spacer"></div><div style="font-size:19px;font-weight:700">الصافي: <span class="num">' +
       App.money0(total) + "</span></div></div>";
   }
@@ -1250,17 +1306,23 @@ var Sales = (function () {
        معدَّلة بـ30 يعطي صافياً 0 وربحاً −470 يفسد تقارير الشهر. */
     var disc2 = Math.min(Math.max(App.num(ed.discount), 0), subtotal2);
     var total2 = App.r3(subtotal2 - disc2);
+    /* حصة المؤلف: سطر كان في الفاتورة يبقى بحصته وقت البيع (على السعر الجديد)،
+       وكتاب أُضيف الآن بحصة كتابه الآن */
+    var items2 = keep.map(function (l) {
+      var x = { type: l.type, id: l.id, name: l.name, qty: App.num(l.qty), price: App.num(l.price), cost: App.num(l.cost) };
+      return l.added ? People.stampRoy(x) : People.keepRoy(x, l);
+    });
+    var roy2 = People.invRoy(items2);
     var profit2 = App.r3(keep.reduce(function (a, l) {
       return a + App.num(l.qty) * (App.num(l.price) - App.num(l.cost));
-    }, 0) - disc2);
+    }, 0) - disc2 - roy2);
 
-    v.items = keep.map(function (l) {
-      return { type: l.type, id: l.id, name: l.name, qty: App.num(l.qty), price: App.num(l.price), cost: App.num(l.cost) };
-    });
+    v.items = items2;
     v.subtotal = subtotal2;
     v.discount = disc2;
     v.total = total2;
     v.profit = profit2;
+    if (roy2) v.roy = roy2; else delete v.roy;
     v.method = ed.method;
     v.customerId = ed.method === "credit" ? ed.customerId : "";
     v.paid = ed.method === "credit" ? Math.min(App.num(ed.paid), total2) : total2;
@@ -1354,19 +1416,25 @@ var Sales = (function () {
     }
     // نسبة ما دُفع فعلاً من المجموع: 80 من 100 ⇦ كل قطعة تُردّ بـ80٪ من سعرها
     var ratio = App.num(v.subtotal) > 0 ? App.num(v.total) / App.num(v.subtotal) : 1;
+    var rRoy = v.items.some(function (l) { return l.au && App.num(l.ru) > 0; });
 
     var box = document.createElement("div");
     box.innerHTML = '<p class="muted" style="margin-top:0">حدّد الكمية الإرجاعة من كل صنف. تُعاد للمخزون تلقائياً.</p>' +
       (ratio < 0.9999 ? '<p class="small" style="margin-top:0;color:var(--amber)">على هذه الفاتورة خصم — يُردّ ' +
         "للزبون ما دفعه فعلاً بعد الخصم.</p>" : "") +
-      '<table class="tbl"><thead><tr><th>الصنف</th><th>المُباع</th><th>المتاح للإرجاع</th><th>الإرجاع</th><th>يُردّ للقطعة</th></tr></thead><tbody>' +
+      (rRoy ? '<p class="small" style="margin-top:0;color:var(--stamp)">فيها كتب لها مؤلف مدفوع — حصته عن النسخ الراجعة تنخصم من حسابه.</p>' : "") +
+      '<table class="tbl"><thead><tr><th>الصنف</th><th>المُباع</th><th>المتاح للإرجاع</th><th>الإرجاع</th><th>يُردّ للقطعة</th>' +
+      (rRoy ? "<th>يُخصم من المؤلف للنسخة</th>" : "") + "</tr></thead><tbody>" +
       v.items.map(function (l, i) {
         return "<tr><td>" + App.esc(l.name) + '</td><td class="num">' + App.num(l.qty) + "</td>" +
           '<td class="num">' + left[i] + (left[i] < App.num(l.qty) ? ' <span class="muted small">(أُرجع ' +
             (App.num(l.qty) - left[i]) + ")</span>" : "") + "</td>" +
           '<td><input class="inp num ret-q" data-i="' + i + '" style="width:82px" type="number" min="0" max="' +
             left[i] + '" value="0"' + (left[i] ? "" : " disabled") + "></td>" +
-          '<td class="num">' + App.money0(App.r3(App.num(l.price) * ratio)) + "</td></tr>";
+          '<td class="num">' + App.money0(App.r3(App.num(l.price) * ratio)) + "</td>" +
+          (rRoy ? '<td class="num">' + (l.au && App.num(l.ru) > 0 ? App.money0(l.ru) + '<div class="sub">' +
+            App.esc((People.author(l.au) || {}).name || "مؤلف محذوف") + "</div>" : '<span class="muted">—</span>') + "</td>" : "") +
+          "</tr>";
       }).join("") + "</tbody></table>";
 
     App.modal({
@@ -1375,7 +1443,7 @@ var Sales = (function () {
       body: box,
       actions: [{
         label: "تسجيل الإرجاع", kind: "danger", click: function (close, ov) {
-          var lines = [], gross = 0, cost = 0;
+          var lines = [], gross = 0, cost = 0, roy = 0;
           back = returnedQty(v);                     // من جديد: لو سُجّل إرجاع في نافذة أخرى
           ov.querySelectorAll(".ret-q").forEach(function (inp) {
             var q = App.num(inp.value);
@@ -1384,14 +1452,21 @@ var Sales = (function () {
             var can = Math.max(App.num(src.qty) - App.num(back[src.type + ":" + src.id]), 0);
             q = Math.min(q, can);
             if (q <= 0) return;
-            lines.push({ type: src.type, id: src.id, name: src.name, qty: q, price: src.price, cost: src.cost });
+            var ln = { type: src.type, id: src.id, name: src.name, qty: q, price: src.price, cost: src.cost };
+            /* حصة المؤلف عن النسخ الراجعة تنخصم من حسابه: نفس حصة النسخة وقت البيع */
+            if (src.au && App.num(src.ru) > 0) {
+              ln.au = src.au; ln.rt = src.rt; ln.rv = src.rv; ln.ru = App.num(src.ru);
+              roy += q * App.num(src.ru);
+            }
+            lines.push(ln);
             gross += q * App.num(src.price);
             cost += q * App.num(src.cost);
           });
           if (!lines.length) { App.toast("لم تحدد أي كمية للإرجاع.", "warn"); return; }
 
           var tot = App.r3(gross * ratio);            // ما دفعه الزبون فعلاً عن هذه القطع
-          var prof = App.r3(tot - cost);
+          roy = App.r3(roy);
+          var prof = App.r3(tot - cost - roy);        // ربح المكتبة الذي يرجع: بعد حصة المؤلف
 
           /* الآجل: يُنقص الدين أولاً، وما زاد عنه يُردّ نقداً */
           var debtCut = 0, c = v.customerId ? People.customer(v.customerId) : null;
@@ -1409,6 +1484,7 @@ var Sales = (function () {
             method: v.method, customerId: v.customerId,
             paid: -cashBack, due: -debtCut, cashBack: cashBack, debtCut: debtCut
           };
+          if (roy) r.roy = -roy;
           lines.forEach(function (l) {
             var it = App.findItem(l.type, l.id);
             if (it) {
@@ -1426,7 +1502,8 @@ var Sales = (function () {
           App.saveNow(); close(); App.rerender();
           App.toast("سُجّل الإرجاع وأُعيدت الكميات للمخزون." +
             (debtCut ? " أُنقص من دين الزبون " + App.money0(debtCut) + "." : "") +
-            (cashBack ? " يُردّ نقداً " + App.money0(cashBack) + "." : ""));
+            (cashBack ? " يُردّ نقداً " + App.money0(cashBack) + "." : "") +
+            (roy ? " وانخصم من حصة المؤلف " + App.money0(roy) + "." : ""));
         }
       }]
     });
@@ -1712,7 +1789,7 @@ var Sales = (function () {
     complete: complete,
     /* للاختبار فقط: قراءة الحالة الداخلية بلا تعديلها */
     __cartLen: function () { return cart.length; }, __disc: function () { return discount; },
-    invoices: invoices, setInvF: setInvF, showInvoice: showInvoice,
+    invoices: invoices, setInvTab: setInvTab, setInvF: setInvF, showInvoice: showInvoice,
     allInvoices: allInvoices, moreInvoices: moreInvoices,
     printInvoice: printInvoice, startReturn: startReturn, exportInvoices: exportInvoices,
     deleteInvoice: deleteInvoice, editInvoice: editInvoice,

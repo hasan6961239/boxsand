@@ -428,9 +428,11 @@ const check = (name, ok, got) => {
     await pg.evaluate(() => People.supStatement('sp1')); await sleep(300);
     const st = await pg.evaluate(() => {
       const rows = [...document.querySelectorAll('#modalHost .overlay:last-child tbody tr')];
-      return { n: rows.length, last: rows.length ? rows[rows.length - 1].lastElementChild.textContent.trim() : '' };
+      return { n: rows.length, last: rows.length ? rows[rows.length - 1].lastElementChild.textContent.trim() : '',
+        cash: rows.some(r => /نقداً — دُفعت وقتها/.test(r.textContent)) };
     });
-    check('كشف الحساب: دين سابق + فاتورتين آجلة + تسديدين، والرصيد الأخير 80', st.n === 5 && /^80(\.00)?$/.test(st.last), JSON.stringify(st));
+    /* الكشف بالتفصيل (4.3): الفاتورة النقدية تظهر كذلك، عليه وله نفس المبلغ فلا تغيّر الرصيد */
+    check('كشف الحساب: دين سابق + فاتورتين آجلة + النقدية + تسديدين، والرصيد الأخير 80', st.n === 6 && st.cash && /^80(\.00)?$/.test(st.last), JSON.stringify(st));
     await pg.evaluate(() => document.querySelectorAll('#modalHost .overlay').forEach(o => o.remove()));
 
     await pg.evaluate(() => App.saveNow()); await sleep(500);

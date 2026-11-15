@@ -51,6 +51,8 @@ var App = (function () {
       },
       consignors: [], consignments: [], consPayments: [], closings: [], publishers: [],
       supPayments: [],
+      /* طرابلس: المؤلفون الذين لهم حصة من كل نسخة تُباع، وما دُفع لهم */
+      authors: [], authorPays: [],
       counts: [], countSession: null,
       remotes: [],
       warehouses: [],
@@ -82,7 +84,8 @@ var App = (function () {
     for (var c in b.counters) { if (typeof s.counters[c] !== "number") s.counters[c] = b.counters[c]; }
     ["books", "stationery", "customers", "suppliers", "invoices", "payments", "purchases", "log",
       "remotes", "warehouses", "outbox",
-      "consignors", "consignments", "consPayments", "closings", "publishers", "counts", "supPayments", "staff", "roles"]
+      "consignors", "consignments", "consPayments", "closings", "publishers", "counts", "supPayments", "staff", "roles",
+      "authors", "authorPays"]
       .forEach(function (k) { if (!Array.isArray(s[k])) s[k] = []; });
     return s;
   }
@@ -2162,7 +2165,8 @@ var App = (function () {
     { g: "الحسابات" },
     { k: "customers", perm: ["debts", "pay"], t: "الزبائن والديون", ic: "people", f: function () { return People.customers(); } },
     { k: "consign", perm: "consign", t: "كتب على المباع", ic: "consign", f: function () { return Consign.page(); }, badge3: true },
-    { k: "suppliers", perm: "debts", t: "الموردون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
+    /* طرابلس: المؤلفون (لهم حصة من كل نسخة تُباع) في الصفحة نفسها، بتبويب */
+    { k: "suppliers", perm: "debts", t: "الموردون ودور النشر", t4: "المؤلفون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
     { g: "أخرى" },
     { k: "profits", perm: "profits", t: "الأرباح والتقارير", ic: "chart", f: function () { return Rep.profits(); } },
     /* inSet: صارت تبويباً داخل الإعدادات (الرابط القديم يفتح التبويب) */
@@ -2173,6 +2177,9 @@ var App = (function () {
     { k: "logs", perm: "logs", x4: true, t: "السجلات", ic: "logs", f: function () { return Staff.logsPage(); } },
     { k: "devices", perm: "devices", x4: true, inSet: "devices", t: "الأجهزة", ic: "device", f: function () { return Staff.devicesPage(); } }
   ];
+
+  /* اسم الصفحة: طرابلس قد يكون لها اسم آخر (t4) */
+  function pageName(p) { return (isX4() && p.t4) || p.t; }
 
   function buildNav() {
     var nav = document.getElementById("nav");
@@ -2187,9 +2194,9 @@ var App = (function () {
       }
       if (!pageOk(p) || p.inSet) return;
       h += '<button class="nav-item" data-k="' + p.k + '" onclick="location.hash=\'#/' + p.k + '\'">' +
-        icon(p.ic, 19) + "<span>" + esc(p.t) + "</span>" +
+        icon(p.ic, 19) + "<span>" + esc(pageName(p)) + "</span>" +
         (p.badge ? '<span class="count" data-lowcount hidden></span>' : "") +
-        (p.badge2 ? '<span class="count" data-reqcount hidden></span>' : "") +
+        (p.badge2 ? '<span class="count bad" data-reqcount hidden title="عمليات تحويل مطلوبة"></span>' : "") +
         (p.badge3 ? '<span class="count" data-conscount hidden></span>' : "") +
         (p.badge4 ? '<span class="count" data-stalecount hidden></span>' : "") +
         (p.badge5 ? '<span class="count bad" data-lblcount hidden></span>' : "") +
@@ -2662,7 +2669,7 @@ var App = (function () {
     document.querySelectorAll(".nav-item").forEach(function (b) {
       b.classList.toggle("on", b.dataset.k === k);
     });
-    document.getElementById("pageTitle").textContent = page.t;
+    document.getElementById("pageTitle").textContent = pageName(page);
     paintBranchTag();
     applyUiSize();
     applyTheme();

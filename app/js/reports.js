@@ -60,10 +60,18 @@ var Rep = (function () {
       if (to && p.date > to) return;
       supOut += App.num(p.amount);
     });
+    /* طرابلس: ما دُفع للمؤلفين من الدرج يخرج من النقد كذلك */
+    var authOut = 0;
+    (S().authorPays || []).forEach(function (p) {
+      if (!p.fromDrawer) return;
+      if (from && p.date < from) return;
+      if (to && p.date > to) return;
+      authOut += App.num(p.amount);
+    });
     return {
       salesCash: App.r3(cash), upfront: App.r3(upfront), debtPaid: App.r3(debtPaid), nPaid: nPaid,
-      refundCredit: App.r3(refundCredit), consOut: App.r3(consOut), supOut: App.r3(supOut),
-      cash: App.r3(cash + upfront + debtPaid - refundCredit - consOut - supOut),
+      refundCredit: App.r3(refundCredit), consOut: App.r3(consOut), supOut: App.r3(supOut), authOut: App.r3(authOut),
+      cash: App.r3(cash + upfront + debtPaid - refundCredit - consOut - supOut - authOut),
       card: App.r3(card),
       due: App.r3(inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0))
     };
@@ -359,7 +367,9 @@ var Rep = (function () {
 
     h += '<div class="grid g4" style="margin-bottom:18px">';
     h += card("accent", "إجمالي المبيعات", App.money0(sum(inv, function (v) { return v.total; })), real.length + " فاتورة");
-    h += card("blue", "صافي الربح", App.money0(sum(inv, function (v) { return v.profit; })), "بعد الخصومات والإرجاعات");
+    var royR = sum(inv, function (v) { return v.roy; });
+    h += card("blue", "صافي الربح", App.money0(sum(inv, function (v) { return v.profit; })),
+      "بعد الخصومات والإرجاعات" + (royR ? " وحصة المؤلفين (" + App.money0(royR) + ")" : ""));
     h += card("accent", "متوسط الفاتورة", App.money0(real.length ? sum(real, function (v) { return v.total; }) / real.length : 0), "");
     h += card(rets.length ? "bad" : "accent", "الإرجاعات", App.money0(Math.abs(sum(rets, function (v) { return v.total; }))), rets.length + " عملية");
     h += "</div>";
@@ -398,7 +408,7 @@ var Rep = (function () {
         if (!counts[k]) counts[k] = { name: l.name, qty: 0, val: 0, prof: 0, type: l.type, id: l.id };
         counts[k].qty += sign * App.num(l.qty);
         counts[k].val += sign * App.num(l.qty) * App.num(l.price);
-        counts[k].prof += sign * App.num(l.qty) * (App.num(l.price) - App.num(l.cost));
+        counts[k].prof += sign * App.num(l.qty) * (App.num(l.price) - App.num(l.cost) - (l.au ? App.num(l.ru) : 0));
       });
     });
     var top = Object.keys(counts).map(function (k) { return counts[k]; })
@@ -536,7 +546,8 @@ var Rep = (function () {
 
     h += '<div class="grid g4" style="margin-bottom:18px">';
     h += card("accent", "إجمالي المبيعات", App.money0(total), real.length + " فاتورة · " + pieces + " قطعة");
-    if (App.canProfit()) h += card("blue", "صافي الربح", App.money0(profit), "");
+    var royS = sum(inv, function (v) { return v.roy; });
+    if (App.canProfit()) h += card("blue", "صافي الربح", App.money0(profit), royS ? "بعد حصة المؤلفين (" + App.money0(royS) + ")" : "");
     else h += card("blue", "عدد القطع", String(pieces), "");
     h += card(rets.length ? "bad" : "accent", "الإرجاعات", App.money0(Math.abs(sum(rets, function (v) { return v.total; }))), rets.length + " عملية");
     h += card("accent", "مبيعات الجملة", App.money0(sum(whole, function (v) { return v.total; })), whole.length + " فاتورة جملة");
@@ -553,7 +564,8 @@ var Rep = (function () {
         (tk.upfront ? " · مقدّم آجل " + App.money0(tk.upfront) : "") +
         (tk.refundCredit ? " · رُدّ " + App.money0(tk.refundCredit) : "") +
         (tk.consOut ? " · دُفع لأصحاب المباع " + App.money0(tk.consOut) : "") +
-        (tk.supOut ? " · دُفع لموردين " + App.money0(tk.supOut) : "") + "</div></div>" +
+        (tk.supOut ? " · دُفع لموردين " + App.money0(tk.supOut) : "") +
+        (tk.authOut ? " · دُفع لمؤلفين " + App.money0(tk.authOut) : "") + "</div></div>" +
       '<div class="paybox card"><div class="pb-t">' + App.esc(S().meta.cardName || "البطاقة المصرفية") + "</div>" +
       '<div class="pb-v num">' + App.money0(card2) + "</div>" +
       '<div class="pb-s">' + cntBy("card") + " فاتورة</div></div>" +
@@ -626,7 +638,7 @@ var Rep = (function () {
         var q = sign * App.num(l.qty);
         m[k].qty += q;
         m[k].rev += q * App.num(l.price);
-        m[k].prof += q * (App.num(l.price) - App.num(l.cost));
+        m[k].prof += q * (App.num(l.price) - App.num(l.cost) - (l.au ? App.num(l.ru) : 0));   // بعد حصة المؤلف
         m[k].price = App.num(l.price);
         m[k].cost = App.num(l.cost);
       });
@@ -709,6 +721,7 @@ var Rep = (function () {
       (tk.debtPaid ? '<div class="tot"><span>منها تسديد ديون</span><span class="num">' + App.money0(tk.debtPaid) + "</span></div>" : "") +
       (tk.consOut ? '<div class="tot"><span>دُفع لأصحاب المباع من الدرج</span><span class="num">−' + App.money0(tk.consOut) + "</span></div>" : "") +
       (tk.supOut ? '<div class="tot"><span>دُفع لموردين من الدرج</span><span class="num">−' + App.money0(tk.supOut) + "</span></div>" : "") +
+      (tk.authOut ? '<div class="tot"><span>دُفع لمؤلفين من الدرج</span><span class="num">−' + App.money0(tk.authOut) + "</span></div>" : "") +
       '<div class="tot"><span>آجل (لم يُقبض)</span><span class="num">' + App.money0(tk.due) + "</span></div>" +
       '<div class="tot g"><span>المقبوض فعلياً</span><span class="num">' + App.money0(cash + card2) + " " + App.esc(S().meta.currency) + "</span></div>" +
       "<hr>" +
@@ -1117,7 +1130,8 @@ var Rep = (function () {
           }).then(function () {
             var s2 = S();
             ["books", "stationery", "customers", "suppliers", "invoices", "payments", "purchases",
-              "log", "consignors", "consignments", "consPayments", "closings", "warehouses", "supPayments"].forEach(function (k) {
+              "log", "consignors", "consignments", "consPayments", "closings", "warehouses", "supPayments",
+              "authors", "authorPays"].forEach(function (k) {
                 s2[k] = [];
               });
             s2.counters = { invoice: 0, book: 0, stat: 0 };
@@ -1348,6 +1362,8 @@ var Rep = (function () {
         }).then(function (res) {
           if (!res || !res.ok) { App.toast((res && res.error) || "تعذّرت الأرشفة.", "bad"); return; }
           // لا نحذف من الحالة إلا بعد أن يؤكّد القرص أن الأرشيف كُتب
+          /* حصة المؤلفين في الفواتير المنقولة تبقى في حسابهم (ما علينا لهم يُحسب من الفواتير) */
+          if (typeof People !== "undefined" && People.archRoy) People.archRoy(rows, year);
           S().invoices = S().invoices.filter(function (v) { return String(v.date || "").slice(0, 4) !== year; });
           App.log("أرشفة", "نُقلت " + rows.length + " فاتورة من سنة " + year);
           App.saveNow().then(function () {
