@@ -3,6 +3,7 @@
 import * as lib from './library.js';
 import * as api from './api.js';
 import * as taste from './taste.js';
+import * as radioApi from './radio.js';
 import { player } from './player.js';
 import { coverEl, storeArt } from './art.js';
 import { collect, importAll } from './importer.js';
@@ -265,6 +266,12 @@ export function ytSheet(it) {
       h('div.qgrid', audio),
       h('div.qlabel', 'فيديو'),
       h('div.qgrid', video),
+      lib.settings.ashellOn
+        ? [h('div.qlabel', 'على الآيفون نفسه (a-Shell — أثبت ليوتيوب)'),
+          h('div.qgrid',
+            q('note', 'صوت M4A', 'بإنترنت الآيفون', () => { close(); runShortcut(url, 'audio'); }, true),
+            q('video', 'فيديو', isYT ? '360p · أو 720p مع ffmpeg' : 'أفضل جودة', () => { close(); runShortcut(url, isYT ? '720' : '1080'); }))]
+        : h('button.as-link', { onclick: () => { close(); ashellSetupSheet(); } }, ic('info'), 'التحميل فشل؟ حمّل بالآيفون نفسه (إعداد مرة وحدة)'),
       isYT ? h('div.actions', { style: { marginTop: '6px' } },
         h('button.action', { onclick: () => { close(); player.playItems([ytToItem({ ...it, id: vid })], 0, { context: 'يوتيوب' }); } }, ic('play'), h('span', 'شغّل الآن بدون تحميل')),
         h('button.action', { onclick: () => { close(); player.addToQueue(ytToItem({ ...it, id: vid })); toast('أُضيف لقائمة الانتظار'); } }, ic('queue'), h('span', 'أضف لقائمة الانتظار')),
@@ -344,4 +351,81 @@ export function playAllButtons(getIds, context) {
   return h('div.btn-row',
     btn('play', 'تشغيل', () => { const ids = getIds(); if (ids.length) player.playTracks(ids, 0, { context, shuffle: false }); }, 'primary'),
     btn('shuffle', 'عشوائي', () => { const ids = getIds(); if (ids.length) player.playTracks(ids, -1, { context, shuffle: true }); }));
+}
+
+// ---------------------------------------------------------------- radio
+
+export function stationInfoSheet(station, now) {
+  sheet(() => {
+    const box = h('div.stinfo');
+    const draw = (st) => {
+      box.innerHTML = '';
+      const tags = (st.tags || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 8);
+      const row = (iconName, label, value) => value ? h('div.st-row', ic(iconName), h('span.muted', label), h('b', String(value))) : null;
+      box.append(
+        h('div.st-head', coverEl({ name: st.name, artUrl: st.favicon }, { eager: true }),
+          h('div.grow', h('h3', st.name), h('div.muted', [st.country, st.state].filter(Boolean).join(' · ') || 'راديو'))),
+        now && now.song ? h('div.st-now', h('span.live', 'الآن'), h('b', now.song)) : null,
+        tags.length ? h('div.chips', { style: { margin: '10px 0 4px', padding: '0', flexWrap: 'wrap' } }, tags.map((t) => h('span.chip', t))) : null,
+        h('div.st-rows',
+          row('globe', 'اللغة', langName(st.language)),
+          row('wave', 'الجودة', [st.codec, st.bitrate ? st.bitrate + ' kbps' : ''].filter(Boolean).join(' · ')),
+          row('heart', 'تصويت المستمعين', st.votes),
+          row('fire', 'مرات التشغيل', st.clickcount),
+          row('check', 'آخر فحص للبث', st.lastcheckok === 1 ? 'شغّال ✓' : st.lastcheckok === 0 ? 'متوقف' : null),
+          now && now.listeners ? row('user', 'يستمع الآن', now.listeners) : null),
+        st.homepage ? h('div.btn-row', btn('link', 'موقع المحطة', () => window.open(st.homepage, '_blank'), 'primary')) : null,
+      );
+    };
+    draw(station);
+    radioApi.stationDetails(station).then(draw);
+    return box;
+  }, { title: 'معلومات المحطة' });
+}
+
+const LANGS = { arabic: 'العربية', english: 'الإنجليزية', french: 'الفرنسية', turkish: 'التركية', spanish: 'الإسبانية', italian: 'الإيطالية', german: 'الألمانية', persian: 'الفارسية', urdu: 'الأردية', kurdish: 'الكردية', berber: 'الأمازيغية', tamazight: 'الأمازيغية' };
+function langName(s) {
+  return (s || '').split(',').map((x) => LANGS[x.trim().toLowerCase()] || x.trim()).filter(Boolean).join('، ');
+}
+
+// ---------------------------------------------------------------- iPhone download (a-Shell)
+
+export const SHORTCUT_NAME = 'دندنة';
+export function runShortcut(url, mode) {
+  const u = `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT_NAME)}&input=text&text=${encodeURIComponent(url + ' ' + mode)}`;
+  location.href = u;
+}
+
+export function ashellSetupSheet() {
+  const base = location.origin + location.pathname.replace(/index\.html$/, '').replace(/#.*$/, '');
+  const cmds = [
+    'pip install -U yt-dlp yt-dlp-apple-webkit-jsi mutagen',
+    `curl -L ${base}ashell/dandana.py -o ~/Documents/dandana.py`,
+    'python3 ~/Documents/dandana.py "https://youtu.be/dQw4w9WgXcQ" audio',
+  ];
+  const copy = (t) => h('button.btn.sm', {
+    onclick: async () => { try { await navigator.clipboard.writeText(t); toast('انسخ ✓ — الصقه في a-Shell'); } catch { toast('انسخ النص يدوياً'); } },
+  }, ic('paste'), 'نسخ');
+  const step = (n, title, ...body) => h('div.as-step', h('div.as-n', String(n)), h('div.grow', h('b', title), ...body));
+  sheet((close) => h('div.guide.as-guide',
+    h('p', 'هذي الطريقة تحمّل من يوتيوب بإنترنت الآيفون نفسه، فيوتيوب يتعامل معها كأنها جوال عادي (مش سيرفر). تحتاج تطبيق a-Shell المجاني، وتجهيز مرة وحدة (5 دقائق):'),
+    step(1, 'ثبّت a-Shell من App Store', h('div', btn('link', 'افتح App Store', () => window.open('https://apps.apple.com/app/id1473805438', '_blank'), 'sm'))),
+    step(2, 'افتح a-Shell والصق هذا السطر واضغط Enter', h('div.code', cmds[0]), copy(cmds[0]), h('small.muted', 'ينتظر لين يخلص (دقيقة أو دقيقتين).')),
+    step(3, 'بعدها الصق هذا السطر', h('div.code', cmds[1]), copy(cmds[1])),
+    step(4, 'جرّب تحميل', h('div.code', cmds[2]), copy(cmds[2]), h('small.muted', 'لو طلع ✅ تم — كل شيء جاهز. الملف يكون في «الملفات» ← a-Shell ← Dandana.')),
+    step(5, 'اعمل اختصار «دندنة» (للمشاركة من يوتيوب)',
+      h('ol',
+        h('li', 'افتح تطبيق «الاختصارات» ← ＋ ← سمّه: ', h('b', SHORTCUT_NAME)),
+        h('li', 'أضف إجراء a-Shell: ', h('b', 'Execute Command'), ' واكتب فيه:'),
+      ),
+      h('div.code', 'python3 ~/Documents/dandana.py "'), h('small.muted', 'وبعدها اختر المتغيّر «Shortcut Input» (مدخل الاختصار) وسكّر بـ " — وخلّي التشغيل داخل التطبيق (Open/In App) مش في الخلفية.'),
+      h('ol', { start: 3 }, h('li', 'من إعدادات الاختصار فعّل ', h('b', 'Show in Share Sheet'), ' (روابط ونص).'))),
+    step(6, 'فعّل الطريقة في دندنة', h('div', h('button.btn.primary.sm', { onclick: async () => { await lib.setSetting('ashellOn', true); toast('تفعّل ✓ — تلقى أزرار «على الآيفون» في التحميل'); close(); } }, 'فعّل التحميل عبر الآيفون'))),
+    h('h2', 'الاستعمال'),
+    h('ul',
+      h('li', 'من تطبيق يوتيوب (أو تيك توك/إنستغرام): مشاركة ← «دندنة» — يحمّل صوت M4A.'),
+      h('li', 'أو من دندنة: اضغط أي فيديو ← «على الآيفون» واختر صوت أو فيديو.'),
+      h('li', 'بعد ما يخلص: دندنة ← مكتبتي ← ＋ ← تصفح ← a-Shell ← Dandana واختر الملفات. التطبيق يجيب الغلاف والاسم وحده.')),
+    h('p.muted', { style: { fontSize: '12.5px' } }, 'ملاحظة: ما جربناها على آيفون حقيقي بعد. لو فشل التحميل، حدّث بـ: pip install -U yt-dlp yt-dlp-apple-webkit-jsi'),
+  ), { title: 'التحميل على الآيفون نفسه' });
 }

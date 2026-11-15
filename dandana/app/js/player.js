@@ -12,6 +12,7 @@ import * as lib from './library.js';
 import * as db from './db.js';
 import * as api from './api.js';
 import { artURL } from './art.js';
+import { watchNowPlaying } from './radio.js';
 import { toast, shuffle as shuffled } from './util.js';
 
 const MS = 'mediaSession' in navigator;
@@ -71,6 +72,8 @@ class Player extends EventTarget {
     this.context = '';
     this.current = null;
     this.cache = new Map(); // item -> resolved source
+    this.pending = new Map(); // item -> in-flight resolve
+    this.bridging = false;
     this.token = 0;
     this.listened = 0;
     this.lastT = null;
@@ -99,11 +102,11 @@ class Player extends EventTarget {
     el.addEventListener('pause', () => { if (el === this.el) { this.emit('state'); this.posState(); } });
     el.addEventListener('waiting', () => el === this.el && this.emit('buffering', true));
     el.addEventListener('playing', () => el === this.el && this.emit('buffering', false));
-    el.addEventListener('timeupdate', () => el === this.el && this.onTime());
-    el.addEventListener('ended', () => el === this.el && this.onEnded());
+    el.addEventListener('timeupdate', () => el === this.el && !this.bridging && this.onTime());
+    el.addEventListener('ended', () => el === this.el && !this.bridging && this.onEnded());
     el.addEventListener('ratechange', () => el === this.el && this.posState());
     el.addEventListener('loadedmetadata', () => {
-      if (el !== this.el || !this.current) return;
+      if (el !== this.el || !this.current || this.bridging) return;
       const d = el.duration;
       if (isFinite(d) && d > 0) {
         this.current.duration = d;
@@ -114,7 +117,7 @@ class Player extends EventTarget {
       this.posState();
     });
     el.addEventListener('error', () => {
-      if (el !== this.el || !this.current || !el.getAttribute('src')) return;
+      if (el !== this.el || !this.current || !el.getAttribute('src') || this.bridging) return;
       const c = this.current;
       const msg = c.live ? 'تعذّر تشغيل المحطة' : c.trackId ? 'تعذّر تشغيل هذا الملف (صيغة غير مدعومة؟)' : 'تعذّر تشغيل المقطع';
       toast(msg, { error: true });
@@ -125,8 +128,19 @@ class Player extends EventTarget {
 
   // ------------------------------------------------------------ resolving
 
-  async resolve(item) {
-    if (this.cache.has(item)) return this.cache.get(item);
+  resolve(item, opts = {}) {
+    if (this.cache.has(item)) return Promise.resolve(this.cache.get(item));
+    if (this.pending.has(item)) return this.pending.get(item);
+    const p = this._resolve(item, opts).then((r) => {
+      this.pending.delete(item);
+      this.cache.set(item, r);
+      return r;
+    }, (e) => { this.pending.delete(item); throw e; });
+    this.pending.set(item, p);
+    return p;
+  }
+
+  async _resolve(item, { quiet = false } = {}) {
     let r;
     if (item.type === 'track') {
       const t = lib.tracks.get(item.id);
@@ -147,7 +161,7 @@ class Player extends EventTarget {
         item.thumbnail = item.thumbnail || hit.thumbnail;
       }
       const vid = !!item.video && lib.settings.videoMode && api.hasServer();
-      if (!api.hasServer()) toast('يجهّز الأغنية… (ثوانٍ)');
+      if (!api.hasServer() && !quiet) toast('يجهّز الأغنية… (ثوانٍ)');
       const p = await api.playableURL(item.ytId, { video: vid });
       r = {
         src: p.url, isVideo: vid,
@@ -167,13 +181,13 @@ class Player extends EventTarget {
     } else {
       throw new Error('عنصر غير معروف');
     }
-    this.cache.set(item, r);
     return r;
   }
 
   prune() {
-    // keep resolved sources only for current ±1 so blob URLs don't pile up
-    const keep = new Set([this.queue[this.index - 1], this.queue[this.index], this.queue[this.index + 1]]);
+    // keep resolved sources for previous, current and the next two so blob URLs don't pile up
+    const keep = new Set([this.queue[this.index - 1], this.queue[this.index], this.queue[this.index + 1], this.queue[this.index + 2]]);
+    if (this.repeat === 'all') keep.add(this.queue[0]);
     for (const [it, r] of this.cache) {
       if (!keep.has(it)) {
         if (r.blob) URL.revokeObjectURL(r.src);
@@ -182,9 +196,20 @@ class Player extends EventTarget {
     }
   }
 
+  /**
+   * Read the neighbours into memory ahead of time. With the screen locked a
+   * car/headphone "next" must switch src immediately: if it first waits on
+   * storage, iOS suspends the page and the next song stays silent until the
+   * phone is unlocked.
+   */
   prefetchNext() {
-    const n = this.queue[this.index + 1] || (this.repeat === 'all' ? this.queue[0] : null);
-    if (n && n.type === 'track') this.resolve(n).catch(() => {});
+    const next = this.queue[this.index + 1] || (this.repeat === 'all' ? this.queue[0] : null);
+    const take = (it, any) => it && (it.type === 'track' || (any && (it.type === 'yt' || it.type === 'ytq')));
+    if (take(next, true)) this.resolve(next, { quiet: true }).catch(() => {});
+    const prev = this.queue[this.index - 1];
+    if (take(prev, false)) this.resolve(prev, { quiet: true }).catch(() => {});
+    const after = this.queue[this.index + 2];
+    if (take(after, false)) setTimeout(() => this.resolve(after, { quiet: true }).catch(() => {}), 3000);
   }
 
   // ------------------------------------------------------------ queue ops
@@ -290,23 +315,67 @@ class Player extends EventTarget {
 
   // ------------------------------------------------------------ loading
 
-  async load(i, autoplay = true, startAt = 0) {
-    if (i < 0 || i >= this.queue.length) return;
+  load(i, autoplay = true, startAt = 0) {
+    if (i < 0 || i >= this.queue.length) return Promise.resolve();
     const token = ++this.token;
     this.index = i;
     const item = this.queue[i];
     this.emit('loading', item);
-    let src;
-    try {
-      src = await this.resolve(item);
-    } catch (e) {
+    const ready = this.cache.get(item);
+    if (ready) {
+      // synchronous: stays inside the lock-screen/car command or the 'ended' event
+      this.attach(ready, autoplay, startAt);
+      return Promise.resolve();
+    }
+    if (autoplay) this.bridge();
+    return this.resolve(item).then((src) => {
       if (token !== this.token) return;
+      this.attach(src, autoplay, startAt);
+    }, (e) => {
+      if (token !== this.token) return;
+      this.endBridge();
       toast(e.message || 'تعذّر التشغيل', { error: true });
       if (autoplay && this.queue.length > 1 && i < this.queue.length - 1) setTimeout(() => token === this.token && this.load(i + 1, true), 1200);
-      return;
+    });
+  }
+
+  /** Keep the audio session alive (near-silent loop) while the next file loads. */
+  bridge() {
+    const a = this.audio;
+    if (this.el !== a) {
+      this.el.pause();
+      this.el.removeAttribute('src');
+      this.el.load();
+      this.el = a;
+      this.emit('element');
     }
-    if (token !== this.token) return;
-    const useVideo = src.isVideo && lib.settings.videoMode;
+    this.bridging = true;
+    this.wantPlaying = true;
+    a.loop = true;
+    a.src = silentWav();
+    a.play().catch(() => {});
+  }
+  endBridge() {
+    if (!this.bridging) return;
+    this.bridging = false;
+    this.audio.loop = false;
+    this.audio.pause();
+  }
+
+  attach(src, autoplay, startAt) {
+    this.bridging = false;
+    if (this.stopWatch) { this.stopWatch(); this.stopWatch = null; }
+    if (src.live && src.station) {
+      src.now = null;
+      this.stopWatch = watchNowPlaying(src.station, (info) => {
+        if (this.current !== src) return;
+        if (src.now && src.now.song === info.song) return;
+        src.now = info;
+        this.updateMediaSession();
+        this.emit('meta', info);
+      });
+    }
+    const useVideo = src.isVideo && lib.settings.videoMode && !(document.hidden && lib.settings.bgAudio);
     const el = useVideo ? this.video : this.audio;
     if (el !== this.el) {
       this.el.pause();
@@ -315,6 +384,7 @@ class Player extends EventTarget {
       this.el = el;
       this.emit('element');
     }
+    el.loop = false;
     this.current = src;
     this.listened = 0; this.lastT = null; this.counted = false;
     el.src = src.src;
@@ -322,9 +392,6 @@ class Player extends EventTarget {
     if (startAt) {
       el.addEventListener('loadedmetadata', () => { try { el.currentTime = startAt; } catch { /* ignore */ } }, { once: true });
     }
-    this.updateMediaSession();
-    this.emit('track', src);
-    this.emit('queue');
     if (autoplay) {
       this.wantPlaying = true;
       el.play().catch((e) => {
@@ -333,6 +400,9 @@ class Player extends EventTarget {
     } else {
       el.load();
     }
+    this.updateMediaSession();
+    this.emit('track', src);
+    this.emit('queue');
     this.prune();
     this.prefetchNext();
     this.saveQueue();
@@ -503,23 +573,29 @@ class Player extends EventTarget {
     set('previoustrack', () => this.prev());
     set('nexttrack', () => this.next());
     set('seekto', (d) => this.seek(d.seekTime));
+    // No seekforward/seekbackward: on iOS they replace next/previous on the
+    // lock screen and in the car.
+    set('seekforward', null);
+    set('seekbackward', null);
     set('stop', () => this.pause());
   }
 
   updateMediaSession() {
     if (!MS || !this.current) return;
     const c = this.current;
-    const art = c.art ? [{ src: c.art, sizes: '512x512', type: 'image/jpeg' }] :
+    const cover = (c.now && c.now.cover) || c.art;
+    const art = cover ? [{ src: cover, sizes: '512x512', type: 'image/jpeg' }] :
       [{ src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }];
     try {
+      const now = c.live && c.now;
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: c.title || '', artist: c.artist || '', album: c.album || 'دندنة', artwork: art,
+        title: now ? now.song : c.title || '', artist: now ? c.title : c.artist || '', album: c.album || 'دندنة', artwork: art,
       });
     } catch { /* ignore */ }
   }
 
   posState() {
-    if (!MS || !navigator.mediaSession.setPositionState) return;
+    if (!MS || !navigator.mediaSession.setPositionState || this.bridging) return;
     const el = this.el;
     try {
       if (this.current && !this.current.live && isFinite(el.duration) && el.duration > 0) {

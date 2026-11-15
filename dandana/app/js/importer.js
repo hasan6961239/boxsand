@@ -1,7 +1,7 @@
 // Import pipeline: files / ZIP archives → tags + cover + duration → IndexedDB.
 import * as db from './db.js';
 import * as lib from './library.js';
-import { readTags, parseFileName, normLite, sane } from './tags.js';
+import { readTags, parseFileName, normLite, sane, cleanYouTubeTitle } from './tags.js';
 import { listZip, entryBlob } from './zip.js';
 import { storeArt, videoFrame } from './art.js';
 import { uid } from './util.js';
@@ -84,9 +84,20 @@ export async function importOne(item, extra = {}, knownArtists = null) {
   let kind = VIDEO.test(item.name) || /^video\//.test(mime) ? 'video' : 'audio';
   if (kind === 'video' && tags.hasVideo === false && e !== 'webm' && e !== 'mkv') kind = 'audio';
 
-  const fromName = parseFileName(item.name, knownArtists);
-  const title = extra.title || tags.title || fromName.title;
-  const artist = extra.artist ?? (tags.artist || fromName.artist || '');
+  // files saved by yt-dlp (a-Shell / computer) end in "[videoId]"
+  const ytm = item.name.match(/\s*\[([\w-]{11})\]\.[^.]+$/);
+  if (ytm && !extra.ytId) {
+    if (!extra.force && lib.findByYt(ytm[1])) return { skipped: 'dup', track: lib.findByYt(ytm[1]) };
+    extra = { ...extra, ytId: ytm[1], source: 'youtube' };
+  }
+  const fromName = parseFileName(ytm ? item.name.replace(ytm[0], '') : item.name, knownArtists);
+  let title = extra.title || tags.title || fromName.title;
+  let artist = extra.artist ?? (tags.artist || fromName.artist || '');
+  if (ytm && !extra.title) {
+    const c = cleanYouTubeTitle(tags.title || fromName.title, tags.artist || '');
+    title = c.title || title;
+    artist = c.artist || artist;
+  }
   const genericFolder = /^(music|songs|audio|mp3|my music|اغاني|أغاني|اغانيي|أغانيي|موسيقى)$/i.test(item.folder || '');
   const album = extra.album || tags.album || (item.folder && !genericFolder && item.folder !== artist ? sane(item.folder) : '');
 
@@ -95,6 +106,14 @@ export async function importOne(item, extra = {}, knownArtists = null) {
   let artId = null;
   if (tags.picture) artId = await storeArt(tags.picture.data, tags.picture.mime);
   if (!artId && extra.artBlob) artId = await storeArt(extra.artBlob);
+  if (!artId && extra.ytId) {
+    for (const u of [`https://i.ytimg.com/vi/${extra.ytId}/maxresdefault.jpg`, `https://i.ytimg.com/vi/${extra.ytId}/hqdefault.jpg`]) {
+      try {
+        const r = await fetch(u);
+        if (r.ok) { const b = await r.blob(); if (b.size > 3000) { artId = await storeArt(b); break; } }
+      } catch { /* offline: no cover */ }
+    }
+  }
   if (kind === 'video' && (!artId || !duration)) {
     const fr = await videoFrame(blob);
     if (fr) {

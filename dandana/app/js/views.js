@@ -7,18 +7,19 @@ import * as radioApi from './radio.js';
 import * as cobalt from './cobalt.js';
 import * as ytapi from './ytapi.js';
 import * as themes from './themes.js';
+import * as ai from './ailyrics.js';
 import { player } from './player.js';
 import { coverEl } from './art.js';
 import {
   trackRow, markPlaying, tile, openImport, playAllButtons, addToPlaylistSheet, deleteTracksFlow,
-  ytRow, ytSheet, ytToItem, recRow, go,
+  ytRow, ytSheet, ytToItem, recRow, go, stationInfoSheet, ashellSetupSheet,
 } from './ui.js';
 import {
   h, ic, btn, iconBtn, toast, sheet, actionSheet, confirmDialog, promptDialog, emptyState, debounce,
   fmtTime, fmtBytes, fmtDuration, songsCount, isStandalone, isIOS, norm, $,
 } from './util.js';
 
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 
 function page(root, ...kids) {
   const p = h('div.page', ...kids);
@@ -543,6 +544,10 @@ export function downloads(root) {
   const p = page(root);
   p.append(head('التحميلات', { back: '#/discover', actions: [btn(null, 'مسح المنتهية', () => api.clearFinished(), 'sm ghost')] }));
   p.append(h('p.muted', { style: { fontSize: '13px', marginBottom: '8px' } }, 'خلي التطبيق مفتوحاً أثناء التحميل — آيفون يوقف التطبيقات في الخلفية.'));
+  if (lib.settings.ashellOn) {
+    p.append(h('div.banner', ic('folder'), h('div.grow', h('b', 'حمّلت بالآيفون (a-Shell)؟'), 'استورد الملفات من «الملفات» ← a-Shell ← Dandana'),
+      btn('upload', 'استيراد', () => { toast('اختر: تصفح ← a-Shell ← Dandana', { ms: 5000 }); openImport(); }, 'sm primary')));
+  }
   const list = h('div');
   p.append(list);
   const label = (d) => ({
@@ -621,12 +626,13 @@ export function radio(root) {
       }, 'مفضلة', 'sm');
       if (isFav(s)) fav.style.color = 'var(--rose)';
       const needsProxy = (s.url_resolved || s.url || '').startsWith('http:') && !api.hasServer();
+      const info = iconBtn('info', (e) => { e.stopPropagation(); stationInfoSheet(s, player.current && player.current.station && player.current.station.stationuuid === s.stationuuid ? player.current.now : null); }, 'معلومات', 'sm');
       const row = h('div.station' + (playingId === s.stationuuid ? '.playing' : ''),
         coverEl({ name: s.name, artUrl: s.favicon }),
         h('div.grow',
           h('div.t', s.name),
           h('div.s', [s.country, (s.tags || '').split(',').slice(0, 2).join('، '), s.bitrate ? s.bitrate + 'kbps' : '', needsProxy ? '⚠︎ قد لا تعمل' : ''].filter(Boolean).join(' · '))),
-        fav);
+        info, fav);
       row.addEventListener('click', () => {
         radioApi.click(s.stationuuid);
         player.playItems([{ type: 'radio', station: s }], 0, { context: 'راديو' });
@@ -806,6 +812,40 @@ export function settings(root) {
   ));
   if (S.ytKey) testKey();
 
+  // ---- AI lyrics
+  const gKey = h('input.input.ltr', { value: S.geminiKey, placeholder: 'Gemini: AIza…', autocapitalize: 'off', autocorrect: 'off', spellcheck: false });
+  const qKey = h('input.input.ltr', { value: S.groqKey, placeholder: 'Groq: gsk_…', autocapitalize: 'off', autocorrect: 'off', spellcheck: false });
+  const aiDot = h('span.status-dot');
+  const aiStatus = h('small', ai.hasAI() ? '…' : 'غير مضاف');
+  const testAI = async () => {
+    await lib.setSetting('geminiKey', ytapi.cleanKey(gKey.value));
+    await lib.setSetting('groqKey', qKey.value.replace(/\s+/g, ''));
+    gKey.value = S.geminiKey; qKey.value = S.groqKey;
+    const prov = ai.provider();
+    if (!prov) { aiDot.className = 'status-dot'; aiStatus.textContent = 'غير مضاف'; return; }
+    aiDot.className = 'status-dot'; aiStatus.textContent = 'يختبر…';
+    try { const m = await ai.testKey(prov); aiDot.className = 'status-dot ok'; aiStatus.textContent = `يشتغل ✓ — ${m}`; } catch (e) { aiDot.className = 'status-dot bad'; aiStatus.textContent = e.message; }
+  };
+  const batchBtn = btn('sparkle', 'اكتب كلمات كل الأغاني', () => runLyricsBatch(), 'sm');
+  p.append(...group('الذكاء الاصطناعي (كلمات الأغاني)',
+    h('div.set-pad',
+      h('p.muted', { style: { fontSize: '12.5px', marginBottom: '10px' } }, 'الذكاء الاصطناعي يسمع الأغنية من ملفها ويكتب الكلمات متزامنة مع الصوت، للأغاني اللي ما لقينا كلماتها. مفتاح مجاني واحد يكفي:'),
+      h('label.field', h('span', 'مفتاح Gemini — من aistudio.google.com/apikey'), gKey),
+      h('label.field', h('span', 'أو مفتاح Groq — من console.groq.com/keys'), qKey),
+      h('div.row.gap', aiDot, h('div.grow', aiStatus), btn(null, 'حفظ واختبار', testAI, 'sm primary'))),
+    choice('المزوّد المفضّل', 'sparkle', [['gemini', 'Gemini (أدق للعربي غالباً)'], ['groq', 'Groq Whisper (أسرع، توقيت أدق)']], 'aiProvider'),
+    toggle('aiAuto', 'اكتب الكلمات تلقائياً', 'لما تفتح الكلمات وما لقيناها، الذكاء الاصطناعي يكتبها', 'mic'),
+    h('div.set-row', ic('library'), h('div.lbl', h('b', 'كل المكتبة'), h('small', 'يجيب الكلمات من الإنترنت أولاً، والباقي بالذكاء الاصطناعي. خلي التطبيق مفتوح.')), batchBtn),
+  ));
+  if (ai.hasAI()) testAI();
+
+  // ---- iPhone downloads via a-Shell
+  p.append(...group('التحميل على الآيفون نفسه (a-Shell)',
+    h('div.set-pad', h('p.muted', { style: { fontSize: '12.5px' } }, 'يحمّل يوتيوب وتيك توك وإنستغرام بإنترنت الآيفون نفسه عن طريق تطبيق a-Shell المجاني — أثبت من الخوادم المجانية لأغاني يوتيوب.'),
+      h('div.btn-row', { style: { marginTop: '10px' } }, btn('info', 'طريقة الإعداد', ashellSetupSheet, 'primary'))),
+    toggle('ashellOn', 'مفعّل', 'يظهر زر «على الآيفون» في صفحة التحميل', 'download'),
+  ));
+
   // ---- home server (optional)
   const url = h('input.input.ltr', { value: S.serverUrl, placeholder: 'https://xxxx.trycloudflare.com', inputmode: 'url', autocapitalize: 'off', autocorrect: 'off', spellcheck: false });
   const key = h('input.input.ltr', { value: S.serverKey, placeholder: 'اختياري', autocapitalize: 'off', autocorrect: 'off', spellcheck: false, type: 'password' });
@@ -887,6 +927,22 @@ export function settings(root) {
     h('a.set-row', { href: '#/stats' }, ic('stats'), h('div.lbl', h('b', 'إحصائيات الاستماع')), ic('chevL')),
     h('div.set-row', ic('note'), h('div.lbl', h('b', 'دندنة'), h('small', `الإصدار ${VERSION}`))),
   ));
+}
+
+function runLyricsBatch() {
+  if (!ai.hasAI()) return toast('أضف مفتاح Gemini أو Groq أولاً', { error: true });
+  const ctl = new AbortController();
+  const bar = h('div.bar', h('i'));
+  const line = h('p.muted', { style: { fontSize: '13px', minHeight: '38px' } }, 'يبدأ…');
+  const stats = h('p', { style: { fontWeight: '700' } }, '');
+  const stopBtn = h('button.btn.wide', { onclick: () => ctl.abort() }, 'إيقاف');
+  sheet(() => h('div.dialog', stats, bar, line, h('div.row.gap', stopBtn)), { title: 'كلمات كل الأغاني', onClose: () => ctl.abort() });
+  ai.batch((st) => {
+    bar.firstChild.style.width = (st.total ? (st.done / st.total) * 100 : 100) + '%';
+    stats.textContent = `${st.done} من ${st.total} · لقينا ${st.ok} · فشل ${st.failed}`;
+    line.textContent = st.current ? `الآن: ${st.current}` : (st.error || (st.total ? 'انتهى ✓' : 'كل الأغاني عندها كلمات ✓'));
+    if (!st.current) stopBtn.textContent = 'تم';
+  }, ctl.signal);
 }
 
 async function exportBackup() {
@@ -1039,6 +1095,17 @@ export function guide(root) {
       h('li', 'في دندنة: «اكتشف» ← زر اللصق 📋.'),
       h('li', 'اختر: صوت MP3، أو فيديو 360/480/720/1080. يتحفظ في مكتبتك ويشتغل بدون إنترنت.')),
     h('p', 'ملاحظة صريحة: هذه الخوادم مجانية ويديرها متطوعون، ويوتيوب يحجب بعضها من وقت لآخر، فبعض الأغاني ممكن تفشل أحياناً. جرّب بعد شوية، أو استعمل خادم البيت (الفقرة ٥).'),
+
+    h('h2', '٣ب) التحميل على الآيفون نفسه — أثبت ليوتيوب'),
+    h('p', 'يوتيوب يحجب كثير من أغاني الشركات (روتانا، مزيكا…) على الخوادم المجانية. الحل: تطبيق a-Shell المجاني يشغّل yt-dlp على الآيفون نفسه وبإنترنتك، فيوتيوب يتعامل معه كجوال عادي. تجهيز مرة وحدة، وبعدها تشارك من يوتيوب ← «دندنة».'),
+    h('div.btn-row', btn('download', 'خطوات الإعداد', ashellSetupSheet, 'primary')),
+
+    h('h2', '٣ج) الكلمات بالذكاء الاصطناعي'),
+    h('p', 'لو الأغنية ما لها كلمات، الذكاء الاصطناعي يسمعها من ملفها ويكتب الكلمات متزامنة مع الصوت. تحتاج مفتاح مجاني واحد:'),
+    h('ul',
+      h('li', 'Gemini: افتح ', h('code', 'aistudio.google.com/apikey'), ' ← Create API key ← انسخه.'),
+      h('li', 'أو Groq: افتح ', h('code', 'console.groq.com/keys'), ' ← Create API Key ← انسخه (يبدأ بـ gsk_).')),
+    h('p', 'حطه في الإعدادات ← «الذكاء الاصطناعي» ← حفظ واختبار. بعدها افتح الكلمات لأي أغنية، أو اضغط «اكتب كلمات كل الأغاني».'),
 
     h('h2', '٤) البحث والتصفح داخل التطبيق — مفتاح يوتيوب المجاني'),
     h('p', 'للبحث في يوتيوب من داخل دندنة، وريلز يوتيوب، والأغاني الجديدة في «على ذوقي»، تحتاج «مفتاح» مجاني من جوجل (واجهة يوتيوب الرسمية). مرة وحدة، من الآيفون:'),

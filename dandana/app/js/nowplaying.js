@@ -3,10 +3,11 @@ import * as lib from './library.js';
 import { player } from './player.js';
 import { coverEl, dominantColor } from './art.js';
 import { getLyrics } from './lyrics.js';
+import * as ai from './ailyrics.js';
 import * as api from './api.js';
 import { importOne } from './importer.js';
 import { cleanYouTubeTitle } from './tags.js';
-import { addToPlaylistSheet, trackMenu, go } from './ui.js';
+import { addToPlaylistSheet, trackMenu, go, stationInfoSheet } from './ui.js';
 import { h, ic, iconBtn, fmtTime, actionSheet, toast, $ } from './util.js';
 
 let np, mini, panel = null; // panel: 'lyrics' | 'queue' | null
@@ -24,6 +25,7 @@ export function initPlayerUI() {
   player.addEventListener('queue', () => { if (panel === 'queue') renderQueue(); });
   player.addEventListener('element', placeMedia);
   player.addEventListener('buffering', (e) => mini.classList.toggle('buffering', e.detail));
+  player.addEventListener('meta', () => showNow());
   lib.on('tracks', () => refreshLike());
   window.addEventListener('popstate', () => { if (np.classList.contains('open') && !history.state?.np) closeNP(true); });
 }
@@ -164,7 +166,7 @@ function placeMedia() {
     player.video.controls = false;
     nArtWrap.append(w);
   } else {
-    const el = coverEl({ title: c.title, art: c.trackId ? lib.tracks.get(c.trackId)?.art : null, artUrl: c.trackId ? null : c.art }, { size: 'full', cls: 'np-art', eager: true });
+    const el = coverEl({ title: c.title, art: c.trackId ? lib.tracks.get(c.trackId)?.art : null, artUrl: c.trackId ? null : ((c.now && c.now.cover) || c.art) }, { size: 'full', cls: 'np-art', eager: true });
     nArtWrap.append(el);
   }
 }
@@ -179,8 +181,10 @@ async function refreshTrack() {
   mA.textContent = c.artist || (c.live ? 'بث مباشر' : '');
   nT.textContent = c.title || '';
   nA.textContent = c.artist || '';
+  if (c.live) showNow();
   nCtx.innerHTML = '';
-  nCtx.append(c.live ? 'راديو' : c.preview ? 'مقطع تجريبي 30 ثانية' : c.stream ? 'من يوتيوب' : 'يتم التشغيل من', h('b', player.context || (c.live ? c.title : c.album) || 'مكتبتك'));
+  if (c.live) nCtx.append('بث مباشر', h('b', [c.station && c.station.country, c.station && c.station.state].filter(Boolean).join(' · ') || 'راديو'));
+  else nCtx.append(c.preview ? 'مقطع تجريبي 30 ثانية' : c.stream ? 'من يوتيوب' : 'يتم التشغيل من', h('b', player.context || c.album || 'مكتبتك'));
   nSeekWrap.classList.toggle('hidden', !!c.live);
   nLive.classList.toggle('hidden', !c.live);
   nLike.classList.toggle('hidden', !c.trackId);
@@ -269,21 +273,28 @@ function togglePanel(name) {
 }
 
 let lyr = null, lyrFor = null;
-async function renderLyrics() {
+async function renderLyrics(force) {
   const c = player.current;
   if (!c) return;
-  if (lyrFor === c && nPanel.firstChild) return;
+  if (!force && lyrFor === c && nPanel.firstChild) return;
   lyrFor = c;
   nPanel.innerHTML = '';
   nPanel.append(h('div.spinner'));
   const data = c.live ? null : await getLyrics({ trackId: c.trackId, title: c.title, artist: c.artist, duration: c.duration || player.el.duration });
   if (player.current !== c || panel !== 'lyrics') return;
-  nPanel.innerHTML = '';
   lyr = null;
   if (!data) {
-    nPanel.append(h('div.empty', ic('mic'), h('h3', 'لا توجد كلمات'), h('p', 'لم أجد كلمات لهذه الأغنية. تقدر تضيفها يدوياً من «عدّل المعلومات».')));
+    const t = c.trackId && lib.tracks.get(c.trackId);
+    if (t && ai.hasAI() && lib.settings.aiAuto && !t.aiNoLyrics) return writeWithAI(c);
+    nPanel.innerHTML = '';
+    nPanel.append(h('div.empty', ic('mic'), h('h3', 'لا توجد كلمات'),
+      h('p', c.live ? 'الراديو بث مباشر بدون كلمات.' : !c.trackId ? 'الكلمات بالذكاء الاصطناعي متاحة لأغاني مكتبتك.' : 'ما لقيت كلمات لهذه الأغنية.'),
+      c.trackId ? aiButton(c) : null));
     return;
   }
+  nPanel.innerHTML = '';
+  const foot = h('div.src', 'الكلمات: ' + data.source,
+    c.trackId && ai.hasAI() ? h('button.ai-again', { onclick: () => writeWithAI(c) }, '✨ اكتبها بالذكاء الاصطناعي') : null);
   if (data.synced && data.synced.length) {
     const box = h('div.lyrics');
     lyr = data.synced.map((l) => {
@@ -292,14 +303,37 @@ async function renderLyrics() {
       box.append(p);
       return { ...l, el: p };
     });
-    box.append(h('div.src', 'الكلمات: ' + data.source));
+    box.append(foot);
     nPanel.append(box);
     syncLyrics(player.el.currentTime, true);
   } else {
     const box = h('div.lyrics.plain');
-    for (const line of (data.plain || '').split('\n')) box.append(h('p', line || ' '));
-    box.append(h('div.src', 'الكلمات: ' + data.source));
+    for (const line of (data.plain || '').split('\n')) box.append(h('p', line || '\u00a0'));
+    box.append(foot);
     nPanel.append(box);
+  }
+}
+
+function aiButton(c) {
+  if (!ai.hasAI()) {
+    return h('div', h('p', { style: { marginTop: '6px' } }, 'تقدر الذكاء الاصطناعي يسمع الأغنية ويكتب كلماتها — يحتاج مفتاح مجاني (Gemini أو Groq).'),
+      h('button.btn.primary', { onclick: () => { closeNP(); go('#/settings'); } }, 'أضف مفتاح الذكاء الاصطناعي'));
+  }
+  return h('button.btn.primary', { onclick: () => writeWithAI(c) }, '✨ اكتب الكلمات بالذكاء الاصطناعي');
+}
+
+async function writeWithAI(c) {
+  const status = h('p', 'يجهّز…');
+  nPanel.innerHTML = '';
+  nPanel.append(h('div.empty', h('div.spinner'), h('h3', 'الذكاء الاصطناعي يسمع الأغنية'), status));
+  try {
+    await ai.transcribe(c.trackId, (s) => { status.textContent = s; });
+    if (player.current === c && panel === 'lyrics') renderLyrics(true);
+  } catch (e) {
+    if (player.current !== c || panel !== 'lyrics') return;
+    nPanel.innerHTML = '';
+    nPanel.append(h('div.empty', ic('mic'), h('h3', 'ما قدرت نكتب الكلمات'), h('p', e.message),
+      h('button.btn', { onclick: () => writeWithAI(c) }, 'جرّب مرة ثانية')));
   }
 }
 
@@ -386,6 +420,7 @@ function npMenu() {
     if (t) return trackMenu(t);
   }
   actionSheet([
+    c.live && c.station ? { icon: 'info', label: 'معلومات المحطة', fn: () => stationInfoSheet(c.station, c.now) } : null,
     c.ytId ? { icon: 'download', label: 'احفظها في مكتبتي', fn: () => saveStream(c) } : null,
     c.ytId ? { icon: 'link', label: 'افتح في يوتيوب', fn: () => window.open(`https://www.youtube.com/watch?v=${c.ytId}`, '_blank') } : null,
     { icon: 'close', label: 'أوقف التشغيل', fn: () => player.pause() },
@@ -406,4 +441,17 @@ async function saveStream(c) {
     { title: names.title, artist: names.artist, source: 'youtube', ytId: c.ytId, artBlob, force: true });
   lib.emit('tracks');
   toast('انحفظت في مكتبتك ✓');
+}
+
+/** Radio: put the song the station is playing under its name. */
+function showNow() {
+  const c = player.current;
+  if (!c || !c.live) return;
+  const song = c.now && c.now.song;
+  mA.textContent = song ? '♪ ' + song : (c.artist || 'بث مباشر');
+  nA.textContent = song ? '♪ ' + song : (c.artist || '');
+  nLive.innerHTML = '';
+  nLive.append(h('span.live', 'بث مباشر'));
+  if (c.now && c.now.listeners) nLive.append(h('span', { style: { marginInlineStart: '10px', opacity: '.7', fontSize: '12px' } }, `${c.now.listeners} يستمعون`));
+  if (c.now && c.now.cover) placeMedia();
 }

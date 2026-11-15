@@ -1,12 +1,13 @@
 // Reels: a vertical, swipeable feed. "مكتبتي" plays hooks from your own songs
 // and videos; "يوتيوب" shows short clips for the artists you listen to —
-// streamed through the home server when there is one, otherwise played in
-// YouTube's official embedded player (needs only the free YouTube key).
-// One shared <video> element moves between slides so iOS only needs a single
-// tap to allow sound.
+// streamed by the home server when there is one, otherwise fetched as small
+// files through cobalt so they play in the same <video> element as everything
+// else (one tap enables sound for the session). YouTube's embedded player,
+// muted, is the last resort when a clip can't be fetched.
 import * as lib from './library.js';
 import * as db from './db.js';
 import * as api from './api.js';
+import * as cobalt from './cobalt.js';
 import * as taste from './taste.js';
 import { player, unlockMedia } from './player.js';
 import { artURL } from './art.js';
@@ -14,6 +15,23 @@ import { addToPlaylistSheet, ytSheet, ytToItem, openImport, go } from './ui.js';
 import { h, ic, toast, shuffle, placeholderArt, btn } from './util.js';
 
 let unlockedOnce = false;
+// YouTube clips fetched as files so they play in our own (already unlocked)
+// <video>: one tap enables sound for the whole session, no tap per clip.
+const clips = new Map(); // id -> Promise<objectURL|null>
+function clip(it) {
+  if (!clips.has(it.id)) {
+    const p = cobalt.download(`https://www.youtube.com/shorts/${it.id}`, { kind: 'video', quality: '480' })
+      .then((r) => URL.createObjectURL(r.blob))
+      .catch(() => null);
+    clips.set(it.id, p);
+    if (clips.size > 12) {
+      const [oldId, old] = clips.entries().next().value;
+      clips.delete(oldId);
+      old.then((u) => u && setTimeout(() => URL.revokeObjectURL(u), 60000));
+    }
+  }
+  return clips.get(it.id);
+}
 let sharedVideo = null; // reused so iOS remembers the tap that unlocked sound
 
 export function reelsView(root) {
@@ -38,7 +56,7 @@ export function reelsView(root) {
   const sources = [['local', 'مكتبتي'], ['mix', 'الكل'], ['yt', 'يوتيوب']];
   let source = lib.settings.reelsSource || 'mix';
   const ytOn = api.canSearch();
-  const embed = !api.hasServer(); // YouTube clips via the official embed player
+  const viaServer = api.hasServer(); // otherwise: clip files via cobalt, embed as last resort
   if (!ytOn) source = 'local';
   const topBar = h('div.reels-top');
   const drawTop = () => {
@@ -255,10 +273,25 @@ export function reelsView(root) {
     const it = items[i];
     video.pause();
     dropFrame();
-    if (it.kind === 'yt' && embed) {
+    if (it.kind === 'yt' && !viaServer) {
+      // prefetch the next YouTube clips so swiping is instant
+      for (const n of items.slice(i + 1, i + 4)) if (n.kind === 'yt') clip(n);
+      slide.classList.add('loading');
+      const u = await clip(it);
+      slide.classList.remove('loading');
+      if (my !== token) return;
+      if (u) {
+        video.classList.remove('contain');
+        if (objURL) { URL.revokeObjectURL(objURL); objURL = null; }
+        win = null;
+        start(u, true, 0);
+        if (i >= items.length - 3) more();
+        return;
+      }
+      // the free servers could not fetch this clip: YouTube's player, muted so it starts on its own
       video.removeAttribute('src');
       const q = new URLSearchParams({
-        autoplay: '1', mute: muted || !unlockedOnce ? '1' : '0', playsinline: '1', controls: '0', loop: '1',
+        autoplay: '1', mute: '1', playsinline: '1', controls: '1', loop: '1',
         playlist: it.id, rel: '0', enablejsapi: '1', modestbranding: '1', origin: location.origin,
       });
       frame = h('iframe.reel-frame', {
@@ -272,7 +305,7 @@ export function reelsView(root) {
     }
     video.classList.remove('contain');
     if (objURL) { URL.revokeObjectURL(objURL); objURL = null; }
-    let src, isVideo = true, start = 0, dur = it.duration || null;
+    let src, isVideo = true, at = 0, dur = it.duration || null;
     try {
       if (it.kind === 'local') {
         const rec = await db.get('media', it.track.id);
@@ -281,8 +314,8 @@ export function reelsView(root) {
         objURL = src = URL.createObjectURL(rec.blob);
         isVideo = it.track.kind === 'video';
         dur = it.track.duration || null;
-        if (dur) start = isVideo ? (dur > 75 ? dur * 0.2 : 0) : Math.min(dur * 0.32, Math.max(0, dur - 40));
-        win = { start, len: isVideo ? 45 : 35 };
+        if (dur) at = isVideo ? (dur > 75 ? dur * 0.2 : 0) : Math.min(dur * 0.32, Math.max(0, dur - 40));
+        win = { start: at, len: isVideo ? 45 : 35 };
       } else {
         src = api.streamURL(it.id, 'video');
         win = null;
@@ -291,15 +324,19 @@ export function reelsView(root) {
       return;
     }
     if (my !== token) return;
-    video.style.display = isVideo ? '' : 'none';
     if (it.kind === 'local' && isVideo && it.track.width > it.track.height) video.classList.add('contain');
-    slide._media.append(video);
-    video.muted = muted;
-    video.src = src;
-    if (start) video.addEventListener('loadedmetadata', () => { try { video.currentTime = start; } catch { /* ignore */ } }, { once: true, signal: life.signal });
-    slide.classList.add('playing');
-    video.play().catch((e) => { if (e.name === 'NotAllowedError') showGate(); });
+    start(src, isVideo, at);
     if (i >= items.length - 3) more();
+
+    function start(u, vis, from) {
+      video.style.display = vis ? '' : 'none';
+      slide._media.append(video);
+      video.muted = muted;
+      video.src = u;
+      if (from) video.addEventListener('loadedmetadata', () => { try { video.currentTime = from; } catch { /* ignore */ } }, { once: true, signal: life.signal });
+      slide.classList.add('playing');
+      video.play().catch((e) => { if (e.name === 'NotAllowedError') showGate(); });
+    }
   }
 
   video.addEventListener('timeupdate', () => {
