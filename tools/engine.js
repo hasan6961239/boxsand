@@ -3,7 +3,9 @@
    ------------------------------------------------------------
    يستعملها القياس (bench/bench-3x.js) واختبار المحرك (test-engine.js).
    تُبنى من src/Program.cs كما هو في مجلد مؤقت، ولا تدخل أي ملف تثبيت.
-   بلا ترخيص (قرار 0020): تعمل من أول تشغيل.
+   التفعيل (قرار 0028): نسخة الاختبار بلا مفتاح عام فتعمل من أول تشغيل كما كانت،
+   إلا إن طُلب مفتاح تجربة (opts.actPub): عندها يعمل التفعيل كملف التثبيت، وساعته
+   تُزاح بملف act-test-clock.txt في مجلد البيانات (ساعات).
 
    يحتاج: mono-mcs وxvfb-run (أيقونة شريط المهام تحتاج شاشة).
 
@@ -39,16 +41,23 @@ function copyEngine(src, dir) {
   }
 }
 
-/* edition: misrata (الافتراضي) أو tripoli — تطبيقان منفصلان (قرار 0022) */
-function buildEngine(dir, edition) {
+/* edition: misrata (الافتراضي) أو tripoli — تطبيقان منفصلان (قرار 0022)
+   opts.actPub: مفتاح تجربة عام للتفعيل (base64)؛ بدونه التفعيل معطّل في نسخة الاختبار */
+function buildEngine(dir, edition, opts) {
   edition = edition || 'misrata';
+  opts = opts || {};
   if (WIN) {
     const src = edition === 'tripoli' ? process.env.QI_PROGRAM_TRIPOLI : process.env.QI_PROGRAM;
     if (!src) throw new Error('على ويندوز: QI_PROGRAM' + (edition === 'tripoli' ? '_TRIPOLI' : '') + ' = مجلد البرنامج المثبَّت');
     copyInstalled(src, dir);
     return;
   }
-  fs.copyFileSync(path.join(ROOT, 'src', 'Program.cs'), path.join(dir, 'Program.cs'));
+  let prog = fs.readFileSync(path.join(ROOT, 'src', 'Program.cs'), 'utf8');
+  const keyRe = /const string ActPubKey = "[^"]*";/, clockRe = /const bool ActTestClock = false;/;
+  if (!keyRe.test(prog) || !clockRe.test(prog)) throw new Error('Program.cs: سطر ActPubKey أو ActTestClock تغيّر');
+  prog = prog.replace(keyRe, 'const string ActPubKey = "' + (opts.actPub || '') + '";');
+  if (opts.actPub) prog = prog.replace(clockRe, 'const bool ActTestClock = true;');
+  fs.writeFileSync(path.join(dir, 'Program.cs'), prog);
   fs.writeFileSync(path.join(dir, 'BuildInfo.cs'),
     'namespace Qirtasiya { static class BuildInfo { public const string Stamp = "test"; public const string Edition = "' + edition + '"; } }');
   const res = [];
@@ -66,9 +75,9 @@ function buildEngine(dir, edition) {
   const wv = f => path.join(ROOT, 'vendor', 'webview2', f);
   /* على مكتبات .NET Framework 4.8 نفسها كملف التثبيت (tools/build-linux.sh) */
   execFileSync('mcs', ['-nologo', '-sdk:4.8-api', '-target:winexe', '-optimize+', '-out:' + path.join(dir, 'Qirtasiya.exe'),
-    '-r:System.dll', '-r:System.Drawing.dll', '-r:System.Windows.Forms.dll', '-r:System.Core.dll',
+    '-r:System.dll', '-r:System.Drawing.dll', '-r:System.Windows.Forms.dll', '-r:System.Core.dll', '-r:System.Numerics.dll',
     '-r:' + wv('Microsoft.Web.WebView2.Core.dll'), '-r:' + wv('Microsoft.Web.WebView2.WinForms.dll'),
-    ...res, path.join(dir, 'Program.cs'), path.join(ROOT, 'src', 'AppWindow.cs'), path.join(dir, 'BuildInfo.cs'),
+    ...res, path.join(dir, 'Program.cs'), path.join(ROOT, 'src', 'AppWindow.cs'), path.join(ROOT, 'src', 'Activation.cs'), path.join(dir, 'BuildInfo.cs'),
     ...cs('Data'), ...cs('Engine')],
     { stdio: ['ignore', 'ignore', 'inherit'] });
   /* mono يبحث عن libsqlite3.so، وهي موجودة فقط مع حزمة التطوير */

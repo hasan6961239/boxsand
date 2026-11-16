@@ -68,10 +68,10 @@ echo   يبني... (بناء !STAMP!)
 "!CSC!" /nologo /target:winexe /optimize+ /out:%OUT% ^
   /win32icon:!ICO! ^
   /reference:System.dll /reference:System.Drawing.dll ^
-  /reference:System.Windows.Forms.dll /reference:System.Core.dll ^
+  /reference:System.Windows.Forms.dll /reference:System.Core.dll /reference:System.Numerics.dll ^
   /reference:vendor\webview2\Microsoft.Web.WebView2.Core.dll /reference:vendor\webview2\Microsoft.Web.WebView2.WinForms.dll ^
   !RES! ^
-  src\Program.cs src\AppWindow.cs src\BuildInfo.cs src\Data\*.cs src\Engine\*.cs
+  src\Program.cs src\AppWindow.cs src\Activation.cs src\BuildInfo.cs src\Data\*.cs src\Engine\*.cs
 
 if errorlevel 1 (
   echo.

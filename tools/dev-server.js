@@ -133,6 +133,8 @@ http.createServer((req, res) => {
       fs.copyFileSync(src, STORE); return json(res, { ok: true });
     }
     if (p === '/api/device') return json(res, { ok: true, fp: 'ABCD-EFGH-JKLM' });
+    /* التفعيل (قرار 0028): خادم التطوير مفعّل دائماً كنسخة اختبار بلا مفتاح. التفعيل نفسه في test-activation.js */
+    if (p === '/api/act/status' || p === '/api/act/activate') return json(res, { ok: true, required: false, active: true });
     if (p === '/api/preset') return json(res, { ok: false });
     if (p === '/api/notify') { console.log('[notify]', body.toString().slice(0, 300)); return json(res, { ok: true }); }
     /* خادم ربط مقلَّد للاختبار: ما في .devdata/remote.json يُعاد كلقطات

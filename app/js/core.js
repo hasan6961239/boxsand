@@ -109,7 +109,157 @@ var App = (function () {
       headers: h,
       body: opts.body,
       keepalive: !!opts.keepalive
+    }).then(function (r) {
+      /* انتهت مدة التفعيل والمنظومة مفتوحة: المحرك يرفض كل شيء، والشاشة تقفل */
+      if (r.status === 403 && path.indexOf("/api/act/") !== 0) {
+        r.clone().json().then(function (d) { if (d && d.locked) actLocked(); }).catch(function () { });
+      }
+      return r;
     });
+  }
+
+  /* ---------- التفعيل (قرار 0028) ----------
+     المحرك يرفض كل شيء بلا تفعيل (لا قراءة ولا كتابة ولا ربط)؛ هنا الشاشة وحدها:
+     رقم الجهاز يُبعث لصاحب المنظومة، والرمز يُلصق. بعد التفعيل تُعاد الصفحة. */
+  var act = { required: false, active: true };
+  var actOn = false;
+
+  function actStatus() {
+    return fetch("/api/act/status", { headers: { "X-Qirtasiya": "1" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+  }
+
+  /* قبل أي شيء: نسخة قديمة من المحرك بلا تفعيل (أو خطأ) لا تمنع الفتح — المحرك هو الحَكَم */
+  function actCheck() {
+    return actStatus().then(function (d) {
+      if (d && d.ok) act = d;
+      if (act.required && !act.active) { actScreen(); return false; }
+      return true;
+    });
+  }
+
+  /* وسط العمل: إعادة الصفحة تقف عند شاشة التفعيل قبل أي مؤقت أو رسم */
+  function actLocked() {
+    if (actOn) return;
+    actStatus().then(function (d) {
+      if (d && d.ok) act = d;
+      if (act.required && !act.active && !actOn) { actOn = true; location.reload(); }
+    });
+  }
+
+  function actTitle() { return document.body.getAttribute("data-edition") === "tripoli" ? "منظومة طرابلس" : "منظومة مصراتة"; }
+
+  function actScreen() {
+    actOn = true;
+    var exp = !!act.expired;
+    document.body.innerHTML =
+      '<div class="act-screen"><div class="card act-card">' +
+      '<div class="act-ico">🔒</div>' +
+      "<h2>" + (exp ? "انتهت مدة التفعيل" : "تفعيل المنظومة") + "</h2>" +
+      '<p class="muted act-lead">' + (exp
+        ? "انتهى التفعيل على هذا الجهاز يوم <b dir=\"ltr\">" + esc(act.until || "") + "</b>.<br>ابعت «رقم الجهاز» لصاحب المنظومة باش يعطيك رمز جديد."
+        : "المنظومة غير مفعّلة على هذا الجهاز.<br>ابعت «رقم الجهاز» لصاحب المنظومة، وهو يعطيك رمز التفعيل.") + "</p>" +
+      '<div class="field"><label>رقم هذا الجهاز</label><div class="act-dev">' +
+      '<div class="act-num" dir="ltr">' + esc(act.device || "") + "</div>" +
+      '<button type="button" class="btn" data-act="copy">نسخ</button>' +
+      '<button type="button" class="btn" data-act="wa">واتساب</button></div></div>' +
+      '<div class="field"><label>رمز التفعيل</label><textarea class="inp" rows="3" dir="ltr" spellcheck="false" placeholder="الصق رمز التفعيل هنا"></textarea></div>' +
+      '<p class="act-msg" hidden></p>' +
+      '<button type="button" class="btn primary lg act-go" data-act="go">تفعيل</button>' +
+      '<p class="muted small act-foot">بعد التفعيل يبقى الجهاز مفعّلاً حتى لو انمسحت المنظومة وتثبّتت من جديد.</p>' +
+      "</div></div>";
+    document.body.className = "act-body";
+    document.body.addEventListener("click", function (e) {
+      var b = e.target.closest ? e.target.closest("[data-act]") : null;
+      if (!b) return;
+      var k = b.getAttribute("data-act");
+      if (k === "copy") actCopy(act.device || "");
+      else if (k === "wa") window.open("https://wa.me/?text=" + encodeURIComponent("رقم جهاز «" + actTitle() + "» للتفعيل:\n" + (act.device || "")), "_blank");
+      else if (k === "go") actGo();
+    });
+  }
+
+  function actMsg(t, good) {
+    var m = document.querySelector(".act-msg");
+    if (!m) return;
+    m.textContent = t || ""; m.hidden = !t;
+    m.className = "act-msg" + (good ? " good" : "");
+  }
+
+  function actCopy(t) {
+    function done() { actMsg("نُسخ رقم الجهاز — الصقه في الواتساب.", true); }
+    function fallback() {
+      var x = document.createElement("textarea");
+      x.value = t; x.style.position = "fixed"; x.style.opacity = "0";
+      document.body.appendChild(x); x.select();
+      try { document.execCommand("copy"); done(); } catch (e) { actMsg("علّم الرقم وانسخه."); }
+      document.body.removeChild(x);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, fallback);
+    else fallback();
+  }
+
+  function actGo() {
+    var ta = document.querySelector(".act-screen textarea"), go = document.querySelector(".act-go");
+    go.disabled = true;
+    actMsg("");
+    fetch("/api/act/activate", {
+      method: "POST",
+      headers: { "X-Qirtasiya": "1", "Content-Type": "application/json" },
+      body: JSON.stringify({ code: ta.value })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok && d.active) {
+        act = d;
+        actMsg("تم التفعيل ✓ " + (d.forever ? "مدى الحياة" : "حتى " + d.until) + " — لحظة وتفتح المنظومة…", true);
+        setTimeout(function () { location.reload(); }, 1200);
+        return;
+      }
+      go.disabled = false;
+      actMsg((d && d.error) || "ما قدرناش نفعّلو — جرّب مرة تانية.");
+    }).catch(function () {
+      go.disabled = false;
+      actMsg("ما قدرناش نوصلو لمحرك المنظومة — سكّرها وافتحها مرة تانية.");
+    });
+  }
+
+  /* بطاقة في الإعدادات: الحالة، ورمز جديد قبل انتهاء المدة */
+  function actCard() {
+    if (!act.required) return "";
+    var st = act.forever ? (act.kind === "upgrade" ? "مفعّلة للأبد (كانت تعمل على هذا الجهاز قبل التفعيل)" : "مفعّلة مدى الحياة")
+      : act.active ? "مفعّلة حتى <b dir=\"ltr\">" + esc(act.until) + "</b>" : "غير مفعّلة";
+    return '<div class="card"><div class="card-head"><h3>التفعيل</h3></div><div class="card-body">' +
+      '<p style="margin-top:0">' + st + "</p>" +
+      '<p class="muted small">رقم هذا الجهاز: <b dir="ltr">' + esc(act.device) + '</b> · بصمة المفتاح: <b dir="ltr">' + esc(act.keyFp) + "</b></p>" +
+      (act.forever ? "" : '<div class="field"><label>رمز جديد (لتمديد المدة)</label><textarea id="actNew" class="inp" rows="2" dir="ltr" spellcheck="false" placeholder="الصق الرمز هنا"></textarea></div>' +
+        '<button class="btn primary" onclick="App.actRenew()">تفعيل الرمز</button>') +
+      "</div></div>";
+  }
+
+  function actRenew() {
+    var ta = document.getElementById("actNew");
+    apiJson("/api/act/activate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: ta ? ta.value : "" }) })
+      .then(function (d) {
+        if (d && d.ok) { act = d; toast(d.forever ? "تم التفعيل مدى الحياة." : "تم التفعيل حتى " + d.until + ".", "ok"); rerender(); paintActBar(); }
+        else toast((d && d.error) || "ما قدرناش نفعّلو الرمز.", "bad");
+      }).catch(function () { toast("ما قدرناش نوصلو لمحرك المنظومة.", "bad"); });
+  }
+
+  /* قبل انتهاء المدة بثلاثة أيام: شريط تنبيه فوق الصفحات */
+  function paintActBar() {
+    var old = document.getElementById("actBar");
+    if (old) old.remove();
+    if (!act.required || !act.active || act.forever || act.hoursLeft > 72) return;
+    var d = Math.floor(act.hoursLeft / 24), hh = act.hoursLeft % 24;
+    var left = d >= 1 ? (d === 1 ? "يوم" : d === 2 ? "يومين" : d + " أيام") : (hh <= 1 ? "أقل من ساعة" : hh + " ساعات");
+    var bar = document.createElement("div");
+    bar.id = "actBar";
+    bar.className = "act-bar";
+    bar.innerHTML = "⏳ التفعيل على هذا الجهاز ينتهي بعد <b>" + left + '</b> (<span dir="ltr">' + esc(act.until) + "</span>). " +
+      "ابعت رقم الجهاز لصاحب المنظومة قبل ما تقفل. " +
+      '<a href="#/settings?tab=data">إدخال رمز جديد</a>';
+    var view = document.getElementById("view");
+    if (view && view.parentNode) view.parentNode.insertBefore(bar, view);
   }
 
   function apiJson(path, opts) {
@@ -2897,6 +3047,15 @@ var App = (function () {
   }
 
   function boot() {
+    /* التفعيل أولاً: بلا تفعيل لا تُحمَّل البيانات ولا تُرسم أي صفحة */
+    actCheck().then(function (go) {
+      if (!go) return;
+      bootApp();
+      setInterval(function () { actStatus().then(function (d) { if (d && d.ok) { act = d; paintActBar(); } }); }, 1800000);
+    });
+  }
+
+  function bootApp() {
     /* دور الجهاز (جهاز المحل أو جهاز ثانٍ) يُعرف قبل أول رسم: ما يُثبَّت على كل الأصناف عند
        الفتح (Stale.backfill) لا يكون من الجهاز الثاني */
     load().then(function () { return deviceInfo(); }).then(function () {
@@ -2904,6 +3063,7 @@ var App = (function () {
       buildNav();
       if (typeof Staff !== "undefined") Staff.boot();
       paintVersion();
+      paintActBar();
       window.addEventListener("hashchange", route);
       tickClock(); setInterval(tickClock, 20000);
 
@@ -2958,6 +3118,7 @@ var App = (function () {
     uid: uid, esc: esc, num: num, r3: r3, countUp: countUp, celebrate: celebrate, busy: busy, lazyMore: lazyMore, hasNumber: hasNumber, digits: digits,
     money: money, money0: money0, norm: norm, match: match, rank: rank, nearLabel: nearLabel, fold: fold, exactCount: exactCount, sugHead: sugHead,
     api: api, apiJson: apiJson, apiWrite: apiWrite, ensureWriteToken: ensureWriteToken,
+    actCard: actCard, actRenew: actRenew,
     outboundHeld: outboundHeld, claimHome: claimHome, holdBanner: holdBanner, deviceFp: function () { return dev.fp; },
     isSecond: function () { return !!dev.second; },
     /* على الأساس الجديد (قرار 0025): النواة تعطي رقم ما رأته الشاشة مع كل تحميل */

@@ -976,7 +976,7 @@ var Rep = (function () {
   }
 
   function setData() {
-    var h = '<div class="grid" style="grid-template-columns:1fr">' + backupCard() + dangerCard() +
+    var h = '<div class="grid" style="grid-template-columns:1fr">' + App.actCard() + backupCard() + dangerCard() +
       (App.isX4 && App.isX4() ? "" : logCard()) + "</div>";
     setTimeout(function () { loadBackups(); loadInfo(); }, 0);
     return h;

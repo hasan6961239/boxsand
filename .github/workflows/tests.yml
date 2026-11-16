@@ -67,6 +67,9 @@ jobs:
       - name: المحرك الحقيقي من البداية للنهاية (المرحلة 2)
         run: node tools/test-engine.js
 
+      - name: التفعيل بالرمز — المولّد على التلفون، القفل الكامل، المدة والساعة، والأجهزة الحالية (قرار 0028)
+        run: node tools/test-activation.js
+
       - name: خادم الربط (cloud/worker.js على D1 وKV، قرار 0023)
         run: node tools/test-cloud.js
 

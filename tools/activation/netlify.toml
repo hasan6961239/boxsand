@@ -1,0 +1,20 @@
+# ============================================================
+#  مولّد رموز التفعيل — موقع ثابت على تلفون صاحب المنظومة
+#  ------------------------------------------------------------
+#  connect-src 'none': الصفحة لا تستطيع الاتصال بأي خادم، فلا يخرج
+#  المفتاح ولا الرقم السري من التلفون مهما حصل. لا سكربت سطري.
+# ============================================================
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    X-Robots-Tag = "noindex, nofollow"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+    Content-Security-Policy = "default-src 'self'; connect-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    Cache-Control = "public, max-age=0, must-revalidate"

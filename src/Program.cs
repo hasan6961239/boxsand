@@ -214,6 +214,396 @@ namespace Qirtasiya
             return diff == 0;
         }
 
+        // ---------- التفعيل (قرار 0028) ----------
+        /* المفتاح العام لمولّد الرموز على تلفون صاحب المنظومة (base64 لـ 65 بايتاً، من
+           tools/activation). فارغ = التفعيل معطّل والبرنامج يعمل بلا رمز. المفتاح الخاص
+           لا يدخل هنا ولا المستودع أبداً. الاختبارات تبني بمفتاح تجربة (tools/engine.js). */
+        const string ActPubKey = "";
+        /* للاختبارات وحدها: ساعة مزيّفة من ملف في مجلد البيانات. tools/engine.js يجعلها true
+           في نسخة الاختبار؛ في ملف التثبيت false فلا يُقرأ الملف أصلاً */
+        const bool ActTestClock = false;
+        /* أول إصدار بالتفعيل: تثبيتٌ شغّل إصداراً قبله على هذا الجهاز يتفعّل وحده للأبد */
+        const int ActFirstMajor = 4, ActFirstMinor = 4;
+        const string ActRegKey = "Software\\QirtasiyaAct";
+
+        static byte[] ActPub;                   // null = التفعيل معطّل
+        static readonly object ActLock = new object();
+        static string ActKind = "";             // code | upgrade
+        static long ActExpiryH = -1;            // -1 بلا تفعيل، 0 مدى الحياة، وإلا ساعة الانتهاء
+        static long ActSeenH, ActSeenSavedH;    // أحدث ساعة رآها البرنامج: إرجاع الساعة لا يمدّد المدة
+
+        static string ActDevice() { return Activation.DeviceNumber(BuildInfo.Edition, MachineFingerprint()); }
+
+        /* أماكن الحفظ، كلها خارج مجلد البيانات وخارج ما يمسحه إلغاء التثبيت (حتى «امسح بياناتي»):
+           سجل ويندوز للمستخدم، ومجلد للمستخدم، ومجلد للجهاز كله (كل مستخدمي ويندوز).
+           الرمز مربوط برقم الجهاز، فنسخه لجهاز آخر لا ينفع */
+        static string[] ActDirs()
+        {
+            List<string> d = new List<string>();
+            try { d.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QirtasiyaAct")); }
+            catch { }
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                try { d.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "QirtasiyaAct")); }
+                catch { }
+            }
+            return d.ToArray();
+        }
+
+        static string ActReadText(string file, string regValue)
+        {
+            StringBuilder sb = new StringBuilder();
+            foreach (string dir in ActDirs())
+            {
+                try
+                {
+                    string f = Path.Combine(dir, file);
+                    if (File.Exists(f)) sb.Append(File.ReadAllText(f)).Append('\n');
+                }
+                catch { }
+            }
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(ActRegKey))
+                {
+                    object v = k == null ? null : k.GetValue(regValue);
+                    if (v != null) sb.Append(v.ToString()).Append('\n');
+                }
+            }
+            catch { }
+            return sb.ToString();
+        }
+
+        static void ActWriteText(string file, string regValue, string text)
+        {
+            int ok = 0;
+            foreach (string dir in ActDirs())
+            {
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllText(Path.Combine(dir, file), text, new UTF8Encoding(false));
+                    ok++;
+                }
+                catch { }
+            }
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(ActRegKey)) k.SetValue(regValue, text);
+                ok++;
+            }
+            catch { }
+            if (ok == 0) Log("التفعيل: تعذّر الحفظ في كل الأماكن (" + file + ")");
+        }
+
+        static List<string> ActRecords()
+        {
+            List<string> l = new List<string>();
+            foreach (string line in ActReadText("act.txt", "act").Split('\n'))
+            {
+                string t = line.Trim();
+                if (t.Length > 0 && !l.Contains(t)) l.Add(t);
+            }
+            return l;
+        }
+
+        /* تفعيل «تثبيت سابق»: لا يوقّعه المولّد، فيُختم ببصمة الجهاز حتى لا يُنسخ لجهاز آخر */
+        static string ActUpgradeRecord(string fp)
+        {
+            byte[] key = Encoding.UTF8.GetBytes("qirtasiya-upgrade-v1|7Fq#Lz2@Rw9!Kc4%");
+            using (HMACSHA256 h = new HMACSHA256(key))
+                return "U1." + Activation.B32(h.ComputeHash(Encoding.UTF8.GetBytes(Activation.Clean(fp)))).Substring(0, 26);
+        }
+
+        static long ActClock()
+        {
+            long h = Activation.HoursOf(DateTime.UtcNow);
+            if (ActTestClock)
+            {
+                try
+                {
+                    string f = Path.Combine(DataDir, "act-test-clock.txt");
+                    long shift;
+                    if (File.Exists(f) && long.TryParse(File.ReadAllText(f).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out shift)) h += shift;
+                }
+                catch { }
+            }
+            return h;
+        }
+
+        /* الساعة المعتمدة: الأحدث بين ساعة الجهاز وأحدث ما رأيناه. تُحفظ مرة في الساعة */
+        static long ActNow()
+        {
+            long clock = ActClock();
+            bool save = false;
+            long now;
+            lock (ActLock)
+            {
+                if (clock > ActSeenH) ActSeenH = clock;
+                if (ActSeenH > ActSeenSavedH) { ActSeenSavedH = ActSeenH; save = true; }
+                now = ActSeenH;
+            }
+            if (save) ActWriteText("seen.txt", "seen", now.ToString(CultureInfo.InvariantCulture));
+            return now;
+        }
+
+        static bool ActActive()
+        {
+            if (ActPub == null) return true;
+            long e;
+            lock (ActLock) e = ActExpiryH;
+            if (e == 0) return true;
+            if (e < 0) return false;
+            return ActNow() < e;
+        }
+
+        /* الرموز الصالحة لهذا الجهاز → أحسنها (مدى الحياة، وإلا أبعد نهاية) */
+        static void ActEvaluate(bool firstRun)
+        {
+            string fp = MachineFingerprint();
+            List<string> keep = new List<string>();
+            long best = -1;
+            string kind = "";
+            string upgrade = ActUpgradeRecord(fp);
+            foreach (string r in ActRecords())
+            {
+                if (r.StartsWith("U1.", StringComparison.Ordinal))
+                {
+                    if (r != upgrade) continue;
+                    keep.Add(r);
+                    if (best != 0) { best = 0; kind = "upgrade"; }
+                    continue;
+                }
+                string err;
+                Activation.Code c = Activation.Parse(r, out err);
+                if (c == null || !Activation.Verify(ActPub, fp, c)) continue;
+                if (!keep.Contains(c.Text)) keep.Add(c.Text);
+                if (c.ExpiryH == 0) { best = 0; kind = "code"; }
+                else if (best != 0 && c.ExpiryH > best) { best = c.ExpiryH; kind = "code"; }
+            }
+
+            string checkedFile = "checked-" + BuildInfo.Edition + ".txt";
+            if (best < 0 && firstRun && ActReadText(checkedFile, "checked-" + BuildInfo.Edition).Trim().Length == 0)
+            {
+                string why = ActUpgradeEvidence(fp);
+                if (why != null)
+                {
+                    keep.Add(upgrade);
+                    best = 0; kind = "upgrade";
+                    Log("التفعيل: المنظومة كانت تعمل على هذا الجهاز قبل التفعيل (" + why + ") — مفعّلة للأبد بلا رمز");
+                }
+                else Log("التفعيل: تثبيت جديد على هذا الجهاز — يحتاج رمز تفعيل");
+                ActWriteText(checkedFile, "checked-" + BuildInfo.Edition, "1");
+            }
+
+            /* الأطول أولاً، ولا أكثر من عشرة */
+            keep.Sort(delegate (string a, string b) { return ActRank(b, upgrade).CompareTo(ActRank(a, upgrade)); });
+            if (keep.Count > 10) keep.RemoveRange(10, keep.Count - 10);
+            if (keep.Count > 0) ActWriteText("act.txt", "act", string.Join("\n", keep.ToArray()));
+            lock (ActLock) { ActExpiryH = best; ActKind = kind; }
+        }
+
+        static long ActRank(string r, string upgrade)
+        {
+            if (r == upgrade) return long.MaxValue - 1;
+            string e;
+            Activation.Code c = Activation.Parse(r, out e);
+            if (c == null) return -1;
+            return c.ExpiryH == 0 ? long.MaxValue : c.ExpiryH;
+        }
+
+        /* هل اشتغل إصدار قبل التفعيل على هذا الجهاز نفسه؟ (الأجهزة الحالية لا تحتاج رمزاً)
+           - سجل التشغيل: كل تشغيل يكتب «الإصدار» ثم «بصمة الجهاز»
+           - الربط بين الأجهزة يحفظ بصمة جهازه (sync.machine)
+           - بيانات المحل تحفظ بصمة جهاز المحل (homeFp)، أو بصمة جهاز أُجيب عليه «جهاز ثانٍ أو تجربة» (notHome)
+           بيانات فيها بصمة جهاز آخر وحدها = نسخة منقولة من جهاز آخر: تحتاج رمزاً.
+           بيانات بلا أي بصمة = تثبيت قديم غير مربوط: يتفعّل.
+           بلا بيانات أصلاً = تثبيت جديد: يحتاج رمزاً. */
+        static string ActUpgradeEvidence(string fp)
+        {
+            bool hasData = false;
+            try
+            {
+                hasData = (File.Exists(DbFile) && new FileInfo(DbFile).Length > 0) ||
+                          (File.Exists(StoreFile) && new FileInfo(StoreFile).Length > 50);
+            }
+            catch { }
+            if (!hasData) return null;
+            if (ActLogShowsOldRun(fp)) return "سجل التشغيل";
+
+            string machine = "";
+            try { ShopDb d = Db; if (d != null) machine = d.Local("sync.machine") ?? ""; }
+            catch { }
+            if (machine == fp) return "ربط هذا الجهاز";
+
+            string meta = "";
+            try { if (File.Exists(StoreFile)) meta = File.ReadAllText(StoreFile); }
+            catch { }
+            try { ShopDb d = Db; if (d != null) meta += d.GetSetting("meta") ?? ""; }
+            catch { }
+            string home = ActJsonField(meta, "homeFp"), notHome = ActJsonField(meta, "notHome");
+            if (home == fp || notHome == fp) return "جهاز المحل";
+            if (home.Length > 0 || machine.Length > 0) return null;
+            return "بيانات سابقة غير مربوطة";
+        }
+
+        static string ActJsonField(string text, string name)
+        {
+            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(text ?? "", "\"" + name + "\"\\s*:\\s*\"([A-Z0-9-]+)\"");
+            return m.Success ? m.Groups[1].Value : "";
+        }
+
+        /* سجل التشغيل كتل، كل كتلة تبدأ بـ«بدء التشغيل». الأخيرة هي هذا التشغيل نفسه فلا تُحسب،
+           وكتلة فيها سطر «التفعيل:» من إصدار بالتفعيل فلا تُحسب. تُحسب كتلة إصدارٍ قبل 4.4
+           كتبت بصمة هذا الجهاز */
+        static bool ActLogShowsOldRun(string fp)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(LogFile) || !File.Exists(LogFile)) return false;
+                string[] lines = File.ReadAllLines(LogFile);
+                int end = lines.Length;
+                for (int i = lines.Length - 1; i >= 0; i--)
+                    if (lines[i].Contains("---- بدء التشغيل ----")) { end = i; break; }
+                bool old = false, mine = false, actBlock = false;
+                for (int i = 0; i <= end; i++)
+                {
+                    string line = i < end ? lines[i] : "---- بدء التشغيل ----";
+                    if (line.Contains("---- بدء التشغيل ----"))
+                    {
+                        if (old && mine && !actBlock) return true;
+                        old = false; mine = false; actBlock = false;
+                        continue;
+                    }
+                    if (line.Contains("  التفعيل:")) { actBlock = true; continue; }
+                    int v = line.IndexOf("  الإصدار ", StringComparison.Ordinal);
+                    if (v >= 0)
+                    {
+                        System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(line.Substring(v + 10), "^(\\d+)\\.(\\d+)");
+                        if (m.Success)
+                        {
+                            int a = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), b = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+                            old = a < ActFirstMajor || (a == ActFirstMajor && b < ActFirstMinor);
+                        }
+                        continue;
+                    }
+                    if (line.Contains("بصمة الجهاز: " + fp)) mine = true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        static void ActInit()
+        {
+            ActPub = Activation.PublicKey(ActPubKey);
+            if (ActPub == null)
+            {
+                if (ActPubKey.Length > 0) Log("التفعيل: المفتاح العام غير صالح — التفعيل معطّل");
+                return;
+            }
+            long seen = 0;
+            foreach (string line in ActReadText("seen.txt", "seen").Split('\n'))
+            {
+                long v;
+                if (long.TryParse(line.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out v) && v > seen) seen = v;
+            }
+            DateTime built;
+            if (DateTime.TryParseExact(BuildStamp(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out built))
+                seen = Math.Max(seen, Activation.HoursOf(built));
+            lock (ActLock) { ActSeenH = seen; ActSeenSavedH = seen; }
+            try { ActEvaluate(true); }
+            catch (Exception ex) { Log("التفعيل: " + ex.Message); }
+            Log("التفعيل: " + ActSummary() + " — رقم الجهاز " + ActDevice() + " — بصمة المفتاح " + Activation.KeyFp(ActPub));
+        }
+
+        static string ActWhen(long h)
+        {
+            return Activation.TimeOfHours(h).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        }
+
+        static string ActSummary()
+        {
+            long e;
+            string k;
+            lock (ActLock) { e = ActExpiryH; k = ActKind; }
+            if (e == 0) return k == "upgrade" ? "مفعّل للأبد (تثبيت سابق)" : "مفعّل للأبد";
+            if (e < 0) return "غير مفعّل";
+            return (ActNow() < e ? "مفعّل حتى " : "انتهى التفعيل يوم ") + ActWhen(e);
+        }
+
+        static string ActStatusJson()
+        {
+            if (ActPub == null) return "{\"ok\":true,\"required\":false,\"active\":true}";
+            long e;
+            string k;
+            lock (ActLock) { e = ActExpiryH; k = ActKind; }
+            long now = ActNow();
+            bool active = e == 0 || (e > 0 && now < e);
+            StringBuilder sb = new StringBuilder("{\"ok\":true,\"required\":true");
+            sb.Append(",\"active\":").Append(active ? "true" : "false");
+            sb.Append(",\"kind\":").Append(JsonStr(k));
+            sb.Append(",\"forever\":").Append(e == 0 ? "true" : "false");
+            sb.Append(",\"expired\":").Append(e > 0 && now >= e ? "true" : "false");
+            sb.Append(",\"until\":").Append(JsonStr(e > 0 ? ActWhen(e) : ""));
+            sb.Append(",\"hoursLeft\":").Append(e > 0 ? Math.Max(0, e - now).ToString(CultureInfo.InvariantCulture) : "0");
+            sb.Append(",\"device\":").Append(JsonStr(ActDevice()));
+            sb.Append(",\"keyFp\":").Append(JsonStr(Activation.KeyFp(ActPub)));
+            sb.Append(",\"edition\":").Append(JsonStr(BuildInfo.Edition));
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        /* يُقبل والمنظومة مقفولة: شاشة التفعيل وما تحتاجه النافذة لتفتح */
+        static bool ActOpenPath(string path)
+        {
+            return path == "/api/act/status" || path == "/api/act/activate" || path == "/api/device" || path == "/api/info" ||
+                   path == "/api/claim" || path == "/api/heartbeat" || path == "/api/window" || path == "/api/quit";
+        }
+
+        static string ActActivate(string body)
+        {
+            if (ActPub == null) return "{\"ok\":true,\"required\":false,\"active\":true}";
+            string text = "";
+            try
+            {
+                Dictionary<string, object> j = Json.Parse(body ?? "") as Dictionary<string, object>;
+                if (j != null) text = Json.Str(j, "code");
+            }
+            catch { }
+            string err;
+            Activation.Code c = Activation.Find(text, out err);
+            string fp = MachineFingerprint();
+            string why = null;
+            if (c == null)
+            {
+                why = err == "empty" ? "الصق رمز التفعيل في الخانة أول."
+                    : err == "version" ? "الرمز هذا من نسخة أحدث — حدّث المنظومة."
+                    : err == "typo" ? "فيه غلط في الرمز. انسخه كامل من الرسالة والصقه مرة تانية."
+                    : "الرمز ناقص. انسخه كامل من الرسالة والصقه مرة تانية.";
+            }
+            else if (!Activation.Verify(ActPub, fp, c))
+                why = "الرمز هذا مش لهذا الجهاز. تأكد إن رقم الجهاز اللي بعته هو: " + ActDevice();
+            else if (c.ExpiryH != 0 && ActNow() >= c.ExpiryH)
+                why = "الرمز هذا انتهت مدته يوم " + ActWhen(c.ExpiryH) + ". اطلب رمز جديد.";
+            if (why != null)
+            {
+                Log("التفعيل: رُفض رمز — " + why);
+                return "{\"ok\":false,\"error\":" + JsonStr(why) + "}";
+            }
+            lock (ActLock)
+            {
+                List<string> l = ActRecords();
+                if (!l.Contains(c.Text)) l.Insert(0, c.Text);
+                ActWriteText("act.txt", "act", string.Join("\n", l.ToArray()));
+            }
+            ActEvaluate(false);
+            Log("التفعيل: رمز مقبول (" + (c.ExpiryH == 0 ? "مدى الحياة" : "حتى " + ActWhen(c.ExpiryH)) + ") — " + ActSummary());
+            if (Sync != null) WakeSync(false);
+            string st = ActStatusJson();
+            return st.Substring(0, st.Length - 1) + ",\"accepted\":" + JsonStr(c.ExpiryH == 0 ? "" : ActWhen(c.ExpiryH)) + "}";
+        }
+
         /* بصمة قصيرة من مسار التثبيت: تثبيتان مختلفان = قفل ونافذة مستقلان */
         static string MakeInstanceKey(string path)
         {
@@ -298,6 +688,7 @@ namespace Qirtasiya
                 Log("الإصدار " + AppVersion + " (بناء " + BuildStamp() + ") — الواجهة مدمجة داخل الملف التنفيذي");
                 Log("مفتاح هذا التثبيت: " + InstanceKey);
                 Log("بصمة الجهاز: " + MachineFingerprint());
+                ActInit();
 
                 DevMode = File.Exists(Path.Combine(BaseDir, "dev-mode.txt"));
                 if (DevMode) Log("وضع التطوير مفعّل — يُقرأ مجلد app المجاور");
@@ -640,17 +1031,21 @@ namespace Qirtasiya
                 bool force;
                 long serving;
                 lock (SyncTickGate) { force = SyncForce; SyncForce = false; serving = SyncForceReq; }
-                try
+                /* بلا تفعيل لا ربط ولا إشعارات: المنظومة مقفولة كلها، لا الشاشة وحدها */
+                if (ActActive())
                 {
-                    lock (SyncLock)
+                    try
                     {
-                        Sync.Tick(force);
-                        if (Sync.NeedRejoin) Rejoin();
+                        lock (SyncLock)
+                        {
+                            Sync.Tick(force);
+                            if (Sync.NeedRejoin) Rejoin();
+                        }
                     }
+                    catch (Exception ex) { Log("المزامنة: " + ex.Message); }
+                    try { DailyNotify(); }
+                    catch (Exception ex) { Log("ملخص اليوم: " + ex.Message); }
                 }
-                catch (Exception ex) { Log("المزامنة: " + ex.Message); }
-                try { DailyNotify(); }
-                catch (Exception ex) { Log("ملخص اليوم: " + ex.Message); }
                 lock (SyncTickGate)
                 {
                     SyncTicks++;
@@ -2380,6 +2775,20 @@ namespace Qirtasiya
                     return;
                 }
 
+                /* التفعيل (قرار 0028): بلا تفعيل لا شيء غير شاشة التفعيل — لا قراءة ولا كتابة */
+                if (path == "/api/act/status") { SendJson(s, ActStatusJson()); return; }
+                if (path == "/api/act/activate" && method == "POST")
+                {
+                    SendJson(s, ActActivate(Encoding.UTF8.GetString(body ?? new byte[0])));
+                    return;
+                }
+                if (!ActOpenPath(path) && !ActActive())
+                {
+                    Send(s, 403, "Forbidden", "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes("{\"ok\":false,\"locked\":true,\"error\":\"المنظومة غير مفعّلة على هذا الجهاز\"}"));
+                    return;
+                }
+
                 // نداءات الكتابة تحتاج ملكية النافذة
                 bool needOwner = path == "/api/save" || path == "/api/x3/patch" || path == "/api/x3/base" || path == "/api/restore" ||
                                  path == "/api/backup" || path == "/api/backup-dir" ||
@@ -3041,7 +3450,7 @@ namespace Qirtasiya
             // static files
             /* قاعدة 4.0 (قرار 0021): واجهة 4.0، وإلا واجهة 3.x كما كانت. طرابلس مثل مصراتة:
                جهاز جديد يفتح 3.x (قرار 0026)، و4.0 تبقى على /v4/index.html */
-            if (path == "/") path = Db != null && !X3On ? "/v4/index.html" : "/index.html";
+            if (path == "/") path = Db != null && !X3On && ActActive() ? "/v4/index.html" : "/index.html";
             if (path.Contains("..")) { Send(s, 400, "Bad Request", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("bad path")); return; }
 
             string rel = path.TrimStart(new char[] { '/' });
