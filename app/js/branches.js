@@ -899,6 +899,7 @@ var Stock = (function () {
   }
 
   function hub() {
+    findCache.key = "";        // سطور البحث تُبنى من جديد مرة لكل رسم للصفحة، لا مع كل حرف
     var mineItems = App.allItems();
     var minePieces = mineItems.reduce(function (s, x) { return s + App.num(x.it.qty); }, 0);
     var x4 = App.isX4 && App.isX4();
@@ -1024,16 +1025,23 @@ var Stock = (function () {
     return h;
   }
 
-  /* ---------- البحث الموحّد ---------- */
+  /* ---------- البحث الموحّد ----------
+     طرابلس 63 ألف كتاب: كان كل حرف يبني 65 ألف سطر من جديد ويرتّبها ويرسم كل ما يطابق (حرف واحد يطابق
+     عشرات الآلاف) فتقف المنظومة ثوانٍ (لقطة المستخدم في محل مصراتة). الآن: السطور تُبنى مرة لكل رسم
+     للصفحة (وبصمات البحث تُحفظ معها)، والبحث بعد أن تتوقف الكتابة، وأحسن FIND_MAX نتيجة تُرسم 100 مع النزول */
+  var FIND_MAX = 300, findTimer = null, findCache = { key: "", rows: null };
 
-  function setFind(v) { find = v; paintFind(); }
+  function setFind(v) {
+    find = v;
+    if (findTimer) clearTimeout(findTimer);
+    findTimer = setTimeout(function () { findTimer = null; paintFind(); }, App.norm(v) ? 220 : 0);
+  }
 
-  function paintFind() {
-    var host = document.getElementById("findResults");
-    if (!host) return;
-    var nq = App.norm(find);
-    if (!nq) { host.innerHTML = ""; return; }
-
+  function findRows() {
+    var rs = remotes();
+    var key = App.allItems().length + "|" + rs.map(function (r) { return r.id + ":" + (r.at || "") + ":" + (r.items || []).length; }).join(",") +
+      "|" + S().warehouses.map(function (w) { return w.id + ":" + (w.stock || []).length; }).join(",");
+    if (findCache.key === key && findCache.rows) return findCache.rows;
     var rows = [];
     App.allItems().forEach(function (x) {
       rows.push({
@@ -1067,11 +1075,21 @@ var Stock = (function () {
     });
 
     rows.sort(function (a, b) { return (b.mine ? 1 : 0) - (a.mine ? 1 : 0) || b.q - a.q; });
-    rows = App.rank(rows, find, function (r) { return r.hay; });
+    findCache = { key: key, rows: rows };
+    return rows;
+  }
+
+  function paintFind() {
+    var host = document.getElementById("findResults");
+    if (!host) return;
+    var nq = App.norm(find);
+    if (!nq) { host.innerHTML = ""; return; }
+    var rows = App.rank(findRows(), find, function (r) { return r.hay; }, FIND_MAX);
+    var capped = rows.length >= FIND_MAX;
 
     host.innerHTML = '<div class="card" style="margin-bottom:16px"><div class="card-head">' +
       "<h3>نتائج البحث في كل الفروع</h3><div class=\"spacer\"></div>" +
-      '<span class="muted small">' + rows.length + " نتيجة</span></div>" +
+      '<span class="muted small">' + (capped ? "أقرب " + FIND_MAX + " نتيجة — اكتب أكثر لتضيّق البحث" : rows.length + " نتيجة") + "</span></div>" +
       App.table([
         {
           h: "الصنف", c: function (r) {
@@ -1098,7 +1116,7 @@ var Stock = (function () {
             return '<button class="btn sm primary" onclick="Stock.askFromFind(' + i + ')">طلب تحويل</button>';
           }
         }
-      ], rows, { emptyIcon: "search", emptyTitle: "لا نتيجة", emptyText: "لم يُعثر على الصنف في أي فرع." }) + "</div>";
+      ], rows, { lazy: 100, emptyIcon: "search", emptyTitle: "لا نتيجة", emptyText: "لم يُعثر على الصنف في أي فرع." }) + "</div>";
 
     lastFind = rows;
   }
@@ -1216,7 +1234,14 @@ var Stock = (function () {
     if (cn) cn.textContent = rows.length.toLocaleString("en") + " من " + all.length.toLocaleString("en");
   }
 
-  function rSet(k, v) { rv[k] = v; paintRemote(); }
+  /* البحث في كتب فرع (61 ألفاً): بعد أن تتوقف الكتابة لحظة، لا مع كل حرف */
+  var rTimer = null;
+  function rSet(k, v) {
+    rv[k] = v;
+    if (rTimer) { clearTimeout(rTimer); rTimer = null; }
+    if (k === "q") rTimer = setTimeout(function () { rTimer = null; paintRemote(); }, 150);
+    else paintRemote();
+  }
 
   function branchPage(id) {
     var isMine = (id === S().branch.id) || !id;

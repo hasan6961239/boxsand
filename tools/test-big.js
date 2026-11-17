@@ -139,6 +139,26 @@ const check = (name, ok, got) => {
     await S(() => Stock.rSet('st', 'out')); await sleep(300);
     check('«نفد عندهم» يعرض النافد فقط', await S(() => [...document.querySelectorAll('#rbBody tbody tr:not(.lazy-row)')].every(r => /نفد/.test(r.textContent))));
 
+    console.log('\n== 4ب. «ابحث في كل الفروع»: حرف واحد لا يجمّد (لقطة محل مصراتة مع كتب طرابلس) ==');
+    await S(() => Stock.back());
+    await pg.waitForSelector('#findAll');
+    const total = await S(() => App.allItems().length + App.S.remotes[0].items.length);
+    t1 = Date.now();
+    await pg.fill('#findAll', 'ا');
+    await pg.waitForFunction(() => /نتائج البحث في كل الفروع/.test((document.getElementById('findResults') || {}).textContent || ''), null, { timeout: 30000 });
+    const findMs = Date.now() - t1;
+    const fr = await S(() => ({ rows: document.querySelectorAll('#findResults tbody tr:not(.lazy-row)').length, head: document.querySelector('#findResults .card-head').textContent }));
+    check('حرف واحد في ' + total.toLocaleString('en') + ' صنف: ' + findMs + ' ms، يرسم ' + fr.rows + ' سطراً فقط (100 مع النزول)',
+      findMs < 3000 && fr.rows <= 120 && /أقرب 300 نتيجة/.test(fr.head), { findMs, fr });
+    t1 = Date.now();
+    await pg.fill('#findAll', 'ال');
+    await pg.waitForFunction(() => /نتائج البحث/.test((document.getElementById('findResults') || {}).textContent || ''), null, { timeout: 30000 });
+    await sleep(300);
+    const ms2 = Date.now() - t1;
+    const busy = await S(() => { const a = performance.now(); for (let i = 0; i < 1e6; i++); return Math.round(performance.now() - a); });
+    check('والحرف الثاني أسرع (السطور محفوظة): ' + ms2 + ' ms، والشاشة حرّة بعده', ms2 < 1500 && busy < 200, { ms2, busy });
+    await S(() => { document.getElementById('findAll').value = ''; Stock.setFind(''); });
+
     console.log('\n== 5. «تحديث الآن» لا يجمّد ==');
     const snap = await S(() => {
       const a = performance.now(); const full = Stock.snapshot(); const t = performance.now() - a;
