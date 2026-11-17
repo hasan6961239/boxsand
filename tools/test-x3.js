@@ -108,6 +108,21 @@ function device(tmp, name) {
     try { await pg.waitForFunction(fn, arg, { timeout: ms || 25000, polling: 300 }); return true; }
     catch (e) { return false; }
   };
+  /* بعد «اربط» تُعاد الصفحة وحدها: ننتظر حتى تحمل بياناتها كلها وتملك الحفظ (على ويندوز
+     قد يطول هذا أكثر من مدة ثابتة)، لا أن يظهر App.S وحده */
+  const ready = (pg, n) => until(pg, n => !!(window.App && App.S && App.S.books && App.S.books.length === n &&
+    App.isReadOnly && !App.isReadOnly()), n, 30000);
+  /* إن سقط فحص: ما على الشاشة، وسبب «للعرض فقط»، وأخطاء الصفحة، وآخر سجل البرنامج */
+  const diag = async (pg, d) => {
+    let st = {};
+    try {
+      st = await pg.evaluate(() => ({ books: App.S && App.S.books ? App.S.books.length : -1,
+        readOnly: App.isReadOnly ? App.isReadOnly() : null, why: App.readOnlyReason ? App.readOnlyReason() : '' }));
+    } catch (e) { st = { evalError: e.message }; }
+    let log = '';
+    try { log = fs.readFileSync(d.data('log.txt'), 'utf8').trim().split('\n').slice(-8).join(' | '); } catch (e) { }
+    return Object.assign(st, { errs: errs.slice(-5), log });
+  };
   const link = (pg, action) => pg.evaluate(a => App.api('/api/link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: a }) }).then(r => r.json()), action);
   const shot = async (pg, name) => {
@@ -147,7 +162,8 @@ function device(tmp, name) {
     ok(pre.url === cloud.url && pre.key === KEY, 'العنوان وكلمة السر من «إعداد الربط» جاهزين', pre);
     await pA.fill('#f_name', 'كمبيوتر المحل');
     await Promise.all([pA.waitForNavigation({ timeout: 30000 }).catch(() => null), pA.click('.modal button:text-is("اربط")')]);
-    await pA.waitForFunction(() => window.App && App.S && App.S.books, null, { timeout: 30000 }); await sleep(900);
+    await pA.waitForFunction(() => window.App && App.S && App.S.books, null, { timeout: 30000 });
+    const readyA = await ready(pA, before.books.length); await sleep(900);
     info = (await A.raw('/api/info')).body;
     ok(info.db === true && info.x3 === true, 'صار على القاعدة بشاشات 3.x', info);
     const docs = A.q("SELECT COUNT(*) AS n FROM x3_docs WHERE key <> ''")[0].n;
@@ -155,13 +171,13 @@ function device(tmp, name) {
     ok(docs === recs && docs >= 5, 'كل كتاب وصنف وزبون وفاتورة سجل في القاعدة (' + docs + ')', docs + ' / ' + recs);
     let s = await S(pA);
     ok(JSON.stringify(s.books) === JSON.stringify(before.books) && JSON.stringify(s.invoices) === JSON.stringify(before.invoices) &&
-      s.customers[0].balance === 12.5, 'الشاشة ترى بياناتها نفسها حرفياً');
+      (s.customers[0] || {}).balance === 12.5, 'الشاشة ترى بياناتها نفسها حرفياً', readyA ? undefined : await diag(pA, A));
     ok(JSON.stringify(A.store()) === JSON.stringify(before), 'وstore.json على حاله');
     ok(fs.readdirSync(A.data('backups')).some(f => /^backup-.*\.json$/.test(f)) &&
       fs.readdirSync(A.data('backups')).some(f => /^qirtasiya-after-adopt-/.test(f)), 'ونسخة من الملف قبل، ومن القاعدة بعد');
     ok(await pA.evaluate(() => !document.querySelector('.modal')), 'بلا أي نافذة أو سؤال إضافي');
     let st = await link(pA, 'now');
-    ok(st.ok && st.data.role === 'main' && st.data.lastOk && !st.data.error, 'هذا جهاز المحل، والمزامنة الأولى بلا خطأ', st.data);
+    ok(st.ok && st.data.role === 'main' && st.data.lastOk && !st.data.error, 'هذا جهاز المحل، والمزامنة الأولى بلا خطأ', st.ok ? st.data : st);
     const br = cloud.env.DB.raw.prepare("SELECT * FROM v2_branch WHERE branch = 'misrata'").get();
     ok(br && br.chain && br.snap >= 0, 'نسخته الكاملة على الخادم', br && { chain: br.chain, snap: br.snap });
     const cat = cloud.env.DB.raw.prepare("SELECT * FROM v2_catalog WHERE branch = 'misrata'").get();
@@ -181,10 +197,11 @@ function device(tmp, name) {
     const ask = await pB.evaluate(() => ([...document.querySelectorAll('.modal')].pop() || {}).textContent || '');
     ok(/تُستبدل/.test(ask), 'بياناته القديمة: يسأل قبل الاستبدال', ask.slice(0, 120));
     await Promise.all([pB.waitForNavigation({ timeout: 60000 }).catch(() => null), pB.click('.modal button:text-is("استبدل واربط")')]);
-    await pB.waitForFunction(() => window.App && App.S && App.S.books, null, { timeout: 30000 }); await sleep(1200);
+    await pB.waitForFunction(() => window.App && App.S && App.S.books, null, { timeout: 30000 });
+    const readyB = await ready(pB, before.books.length); await sleep(1200);
     s = await S(pB);
-    const sA = await S(pA);
-    ok(JSON.stringify(s.books) === JSON.stringify(sA.books) && s.invoices.length === 1, 'صار نسخة من المحل: الكتب والفواتير نفسها');
+    ok(JSON.stringify(s.books) === JSON.stringify(before.books) && s.invoices.length === 1, 'صار نسخة من المحل: الكتب والفواتير نفسها',
+      readyB ? undefined : await diag(pB, B));
     ok((await B.raw('/api/device')).body.second === true, 'ويعرف أنه جهاز ثانٍ');
     ok(await pB.evaluate(() => !document.querySelector('.modal') && App.outboundHeld()),
       'بلا سؤال «بيانات المحل على جهاز آخر»: الربط مع التلفون والإشعارات من المحل وحده');
