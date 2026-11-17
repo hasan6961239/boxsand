@@ -46,8 +46,13 @@ const rail = pg => pg.evaluate(() => {
     pg.on('pageerror', e => errs.push(e.message));
     await pg.goto(URL, { waitUntil: 'domcontentloaded' });
     await pg.waitForFunction(() => window.App && App.S && App.S.books && window.Sales && window.Inv, null, { timeout: 30000 });
+    /* الذيل يكتمل بعد أن يصل رقم الإصدار من البرنامج (والتفعيل يُسأل قبل الرسم): القياس بعده،
+       وإلا قيس الشريط وذيله ما زال يكبر (حصل على جهاز CI الأبطأ) */
+    await pg.waitForFunction(() => { const v = document.getElementById('ver'); return v && /^v\d/.test(v.textContent) && v.textContent !== 'v2.0'; }, null, { timeout: 15000 }).catch(() => { });
     if (edition === 'tripoli') await pg.evaluate(() => { document.body.setAttribute('data-edition', 'tripoli'); App.rebuildNav(); });
     await sleep(500);
+    await pg.evaluate(() => App.fitRail());
+    await sleep(150);
     return pg;
   }
   const shot = async (pg, n) => { if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, n + '.png') }); };

@@ -166,7 +166,7 @@ var App = (function () {
       '<div class="act-num" dir="ltr">' + esc(act.device || "") + "</div>" +
       '<button type="button" class="btn" data-act="copy">نسخ</button>' +
       '<button type="button" class="btn" data-act="wa">واتساب</button></div></div>' +
-      '<div class="field"><label>رمز التفعيل</label><textarea class="inp" rows="3" dir="ltr" spellcheck="false" placeholder="الصق رمز التفعيل هنا"></textarea></div>' +
+      '<div class="field"><label>رمز التفعيل</label><textarea class="inp" rows="3" dir="auto" spellcheck="false" placeholder="الصق رمز التفعيل هنا"></textarea></div>' +
       '<p class="act-msg" hidden></p>' +
       '<button type="button" class="btn primary lg act-go" data-act="go">تفعيل</button>' +
       '<p class="muted small act-foot">بعد التفعيل يبقى الجهاز مفعّلاً حتى لو انمسحت المنظومة وتثبّتت من جديد.</p>' +
@@ -233,7 +233,7 @@ var App = (function () {
     return '<div class="card"><div class="card-head"><h3>التفعيل</h3></div><div class="card-body">' +
       '<p style="margin-top:0">' + st + "</p>" +
       '<p class="muted small">رقم هذا الجهاز: <b dir="ltr">' + esc(act.device) + '</b> · بصمة المفتاح: <b dir="ltr">' + esc(act.keyFp) + "</b></p>" +
-      (act.forever ? "" : '<div class="field"><label>رمز جديد (لتمديد المدة)</label><textarea id="actNew" class="inp" rows="2" dir="ltr" spellcheck="false" placeholder="الصق الرمز هنا"></textarea></div>' +
+      (act.forever ? "" : '<div class="field"><label>رمز جديد (لتمديد المدة)</label><textarea id="actNew" class="inp" rows="2" dir="auto" spellcheck="false" placeholder="الصق الرمز هنا"></textarea></div>' +
         '<button class="btn primary" onclick="App.actRenew()">تفعيل الرمز</button>') +
       "</div></div>";
   }
@@ -2740,6 +2740,7 @@ var App = (function () {
       e.title = "الإصدار " + (d.version || "?") +
         (d.build ? "\nتاريخ البناء: " + d.build : "") +
         "\nمجلد البيانات: " + (d.dataDir || "");
+      fitRailSoon();                         // الذيل تغيّر طوله: التبويبات تُحسب من جديد
     }).catch(function () { });
   }
 

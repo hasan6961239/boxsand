@@ -64,6 +64,8 @@ const check = (name, ok, got) => {
     }
   };
   const save = async pg => { await pg.click('.modal .m-foot .btn.primary'); await sleep(300); };
+  /* رمز الأرباح: الافتراضي، أو الذي يتركه test.js قبله على البرنامج نفسه (test-x3 suites) */
+  const unlockProfits = pg => pg.evaluate(async () => (await App.unlockProfit('Rtv8ss3i')) || App.unlockProfit('رمزي-القديم-99'));
 
   try {
     console.log('\n== المصروفات: الصفحة والإضافة ==');
@@ -99,7 +101,7 @@ const check = (name, ok, got) => {
     const exp = await pg.evaluate(() => { const l = [...document.querySelectorAll('label')].find(x => x.textContent === 'النقد المفروض'); return l ? l.parentNode.querySelector('input').value : null; });
     check('إقفال اليوم: النقد المفروض = 45 بيع − 45 كهرباء من الدرج = 0 (الرواتب من خارج الدرج لا تنطرح)', exp !== null && Number(String(exp).replace(/,/g, '')) === 0, exp);
     check('وبطاقة «نقداً في الصندوق» تقول «مصروفات من الدرج 45»', /مصروفات من الدرج 45/.test(await pg.textContent('#view')));
-    await pg.evaluate(() => App.unlockProfit('Rtv8ss3i')); await sleep(300);
+    check('الأرباح تُفتح برمزها', await unlockProfits(pg)); await sleep(300);
     await go(pg, '#/profits');
     const net = await pg.evaluate(() => { const h = [...document.querySelectorAll('.card-head h3')].find(x => x.textContent === 'صافي الربح بعد المصروفات'); if (!h) return null; return [...h.closest('.card').querySelectorAll('.stat .val')].map(v => v.textContent.trim()); });
     const prof = await pg.evaluate(() => App.S.invoices[0].profit);
@@ -159,7 +161,7 @@ const check = (name, ok, got) => {
     await pg.click('.modal .m-foot .btn.primary'); await sleep(300);
     bk = await pg.evaluate(() => App.S.books.map(x => [x.id, x.price, x.priceW]));
     check('التراجع رجّع الأسعار والجملة كما كانت', bk[0][1] === 45 && bk[1][1] === 20 && bk[0][2] === 36 && bk[1][2] === 16, bk);
-    await pg.evaluate(() => { App.unlockProfit('Rtv8ss3i'); }); await sleep(200);
+    await unlockProfits(pg); await sleep(200);
     await pg.evaluate(() => { Inv.bpSet('scope', 'all'); Inv.bpSet('price', false); Inv.bpSet('cost', true); Inv.bpSet('mode', 'amt+'); Inv.bpSet('amount', '5'); Inv.bpSet('round', '0'); Inv.bulkPrice(); }); await sleep(300);
     check('والأرباح مفتوحة: «سعر الشراء» يظهر', await pg.evaluate(() => /سعر الشراء/.test(document.getElementById('bpBody').textContent)));
     const sumC = await pg.textContent('.bp-sum');
