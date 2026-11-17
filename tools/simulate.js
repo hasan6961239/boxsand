@@ -118,7 +118,19 @@ function site(cfg) {
       p.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|net::ERR|favicon/.test(m.text())) allErrs.push(d.label + ' console: ' + m.text().slice(0, 200)); });
       p.on('dialog', x => x.accept().catch(() => { }));
       await p.goto('http://127.0.0.1:' + d.port + '/', { waitUntil: 'domcontentloaded' });
-      await p.waitForFunction(() => window.App && App.S && App.S.books && window.Sales && window.Inv && window.Stock && App.S.meta && App.S.meta.setupDone, null, { timeout: 180000 });
+      /* بعد انقطاع الكهرباء على ويندوز CI ملف من ملفات الشاشة قد لا يصل لحظة الفتح (People is not defined عند
+         أول بيعة): ننتظر كل الملفات، ونعيد الفتح إن نقص واحد بدل أن نكمل اليوم بشاشة ناقصة */
+      const mods = ['App', 'Sales', 'Inv', 'Stock', 'People', 'Expenses', 'Staff', 'Rep'];
+      for (let k = 0; k < 3; k++) {
+        await p.waitForLoadState('load', { timeout: 60000 }).catch(() => { });
+        const missing = await p.evaluate(m => m.filter(n => !window[n]), mods).catch(() => mods);
+        if (!missing.length) break;
+        console.log('  (' + d.label + ': ملفات الشاشة ناقصة بعد الفتح: ' + missing.join('، ') + ' — تُفتح من جديد)');
+        await sleep(2000);
+        await p.reload({ waitUntil: 'domcontentloaded' });
+      }
+      await p.waitForFunction(() => window.App && App.S && App.S.books && window.Sales && window.Inv && window.Stock && window.People &&
+        App.S.meta && App.S.meta.setupDone, null, { timeout: 180000 });
       await sleep(1500);
       d.page = p;
       return p;
