@@ -32,6 +32,17 @@ async function linkSecond(d, body) {
   }
   return r;
 }
+/* مزامنة الفرعين (بالترتيب) حتى يتحقق شرط، أو 40 ثانية */
+async function syncUntil(devs, check, ms) {
+  const end = Date.now() + (ms || 40000);
+  let v = null;
+  while (Date.now() < end) {
+    for (const d of devs) { await d.ev(() => Stock.sync(true)).catch(() => { }); await new Promise(z => setTimeout(z, 1200)); }
+    v = await check().catch(() => null);
+    if (v) return v;
+  }
+  return v;
+}
 process.env.QIRTASIYA_SYNC_MS = '3000';
 process.env.QIRTASIYA_SYNC_FAST_MS = '1000';
 const fs = require('fs'), path = require('path'), os = require('os'), http = require('http');
@@ -405,9 +416,9 @@ function site(cfg) {
     if (hasTab) {
       await MM.page.fill('#rbq', 'المرجع المشترك بين الفرعين'); await sleep(700);
       await MM.page.click('#rbBody button:has-text("طلب تحويل")'); await sleep(400);
-      await MM.page.fill('#f_qty', '5'); await clickModal(MM, 'إرسال الطلب'); await sleep(2500);
-      await TM.ev(() => Stock.sync(true)); await sleep(2500);
-      const req = await TM.ev(() => { const q = Stock.requests().find(x => x._status === 'pending' && x.to === App.S.branch.id); return q && { id: q.id, n: q.lines[0].n, qty: q.lines[0].qty }; });
+      await MM.page.fill('#f_qty', '5'); await clickModal(MM, 'إرسال الطلب'); await sleep(1500);
+      /* الطلب يمر بخادم الربط: ننتظر وصوله بمزامنة الفرعين (مدة ثابتة كانت تقصر على جهاز CI الأبطأ) */
+      const req = await syncUntil([MM, TM], () => TM.ev(() => { const q = Stock.requests().find(x => x._status === 'pending' && x.to === App.S.branch.id); return q && { id: q.id, n: q.lines[0].n, qty: q.lines[0].qty }; }));
       ok(req && req.qty === 5, 'الطلب وصل طرابلس (5 نسخ)', req);
       if (req) {
         /* طرابلس ترى الطلب بالأحمر تحت المخازن، وعلامة على «المخزون والفروع»، وتوافق من هناك */
@@ -421,16 +432,15 @@ function site(cfg) {
         await TM.page.click('#xferCard button:has-text("موافقة وتحويل")', { timeout: 5000 }); await sleep(300);
         await clickModal(TM, 'موافقة وشحن'); await sleep(2500);
         bump('tripoli', tri.books[50].id, -5);
-        await MM.ev(() => Stock.sync(true)); await sleep(2500);
-        const st = await MM.ev(id => (Stock.requests().find(x => x.id === id) || {})._status, req.id);
+        const st = await syncUntil([TM, MM], () => MM.ev(id => { const s = (Stock.requests().find(x => x.id === id) || {})._status; return s === 'shipped' ? s : ''; }, req.id));
         ok(st === 'shipped', 'مصراتة ترى أن طرابلس شحنت', st);
         await MM.ev(() => { location.hash = '#/stock'; App.route(); Stock.back(); }); await sleep(900);
         ok(await MM.ev(() => /وافق وأرسل لك/.test((document.getElementById('xferCard') || {}).textContent || '')), 'مصراتة: «وافق وأرسل لك» بزر تأكيد الاستلام');
         await MM.page.click('#xferCard button:has-text("تأكيد الاستلام")', { timeout: 5000 }); await sleep(300);
         await clickModal(MM, 'تأكيد الاستلام'); await sleep(1500);
         bump('misrata', mis.books[20].id, +5);
-        await MM.ev(() => Stock.sync(true)); await TM.ev(() => Stock.sync(true)); await sleep(2500);
-        ok(await TM.ev(id => (Stock.requests().find(x => x.id === id) || {})._status, req.id) === 'done', 'وطرابلس ترى أن مصراتة استلمت');
+        const fin = await syncUntil([MM, TM], () => TM.ev(id => { const s = (Stock.requests().find(x => x.id === id) || {})._status; return s === 'done' ? s : ''; }, req.id));
+        ok(fin === 'done', 'وطرابلس ترى أن مصراتة استلمت', fin);
       }
     }
 

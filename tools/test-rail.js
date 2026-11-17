@@ -39,13 +39,23 @@ const rail = pg => pg.evaluate(() => {
 (async () => {
   const b = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox'] });
   const errs = [];
+  let last = null;
+  const ready = () => window.App && App.S && App.S.books && window.Sales && window.Inv;
   async function fresh(w, h, edition, ui) {
     const d = seed(); if (ui) d.meta.uiSize = ui;
     fs.writeFileSync(path.join(DATA, 'store.json'), JSON.stringify(d));
-    const pg = await b.newPage({ viewport: { width: w, height: h } });
+    if (last) await last.close().catch(() => { });
+    const pg = last = await b.newPage({ viewport: { width: w, height: h } });
     pg.on('pageerror', e => errs.push(e.message));
     await pg.goto(URL, { waitUntil: 'domcontentloaded' });
-    await pg.waitForFunction(() => window.App && App.S && App.S.books && window.Sales && window.Inv, null, { timeout: 30000 });
+    await pg.waitForFunction(ready, null, { timeout: 30000 });
+    /* نافذة الاختبار السابق على الخادم نفسه قد تبقى مالكة الكتابة 12 ثانية بعد إغلاقها: هذه تفتح
+       «للعرض فقط» وشريطه الأصفر فوق الصفحة يدفع الشريط الجانبي تحت الشاشة. نأخذ التحكّم كالمستخدم */
+    if (await pg.evaluate(() => App.isReadOnly())) {
+      console.log('  INFO  نافذة سابقة ما زالت تملك الكتابة: أُخذ التحكّم من هذه النافذة');
+      await Promise.all([pg.waitForEvent('load', { timeout: 30000 }), pg.evaluate(() => App.takeOver())]);
+      await pg.waitForFunction(() => window.App && App.S && App.S.books && window.Sales && window.Inv && !App.isReadOnly(), null, { timeout: 30000 });
+    }
     /* الذيل يكتمل بعد أن يصل رقم الإصدار من البرنامج (والتفعيل يُسأل قبل الرسم): القياس بعده،
        وإلا قيس الشريط وذيله ما زال يكبر (حصل على جهاز CI الأبطأ) */
     await pg.waitForFunction(() => { const v = document.getElementById('ver'); return v && /^v\d/.test(v.textContent) && v.textContent !== 'v2.0'; }, null, { timeout: 15000 }).catch(() => { });
