@@ -1,13 +1,13 @@
 /* ============================================================
-   test-win-act.js — التفعيل على ويندوز حقيقي (قرار 0028)
+   test-win-act.js — التفعيل على ويندوز حقيقي (قرار 0028 و0030)
    ------------------------------------------------------------
    ما لا يجرّبه mono في test-activation.js: سجل ويندوز للمستخدم (HKCU)، ومجلد
    الجهاز كله (ProgramData)، ومجلد المستخدم، على البرنامج كما يبنيه build.bat
    بمترجم ويندوز نفسه.
-   مفتاح تجربة يُولَّد هنا ويُنسى بعد التجربة (لا يقبله ملف التثبيت): يُوضع في
-   Program.cs وقت البناء فقط، ثم يرجع الملف كما كان.
-     - جهاز جديد مقفول، ورمز لجهاز آخر مرفوض، ورمز يوم من رسالة واتساب يفتح
-     - الرمز محفوظ في الأماكن الثلاثة، ويبقى بعد إعادة التشغيل وبعد مسح البيانات كلها
+   رمز تجربة (لا رمز ملف التثبيت): بصمته توضع في Program.cs وقت البناء فقط، ثم
+   يرجع الملف كما كان.
+     - جهاز جديد مقفول، ورمز غلط مرفوض، والرمز وبعده 1 يفتح يوماً
+     - التفعيل محفوظ في الأماكن الثلاثة (لا الرمز نفسه)، ويبقى بعد إعادة التشغيل وبعد مسح البيانات كلها
      - مكان واحد يكفي، والمحذوف يُكتب من جديد
      - بلا الأماكن الثلاثة وبلا بيانات: مقفول من جديد
      - بيانات 3.x على جهاز بلا تفعيل (تحديث): تتفعّل وحدها، ونسخة بلا بيانات بعدها أيضاً
@@ -17,7 +17,6 @@
 'use strict';
 const fs = require('fs'), os = require('os'), path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { webcrypto, createHash } = require('crypto');
 const E = require('./engine');
 
 if (process.platform !== 'win32') { console.log('test-win-act.js لويندوز وحده'); process.exit(0); }
@@ -29,20 +28,7 @@ function ok(cond, name, detail) {
   else { fail++; const d = detail === undefined ? '' : ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)); failures.push(name + d); console.log('  FAIL  ' + name + d); }
 }
 
-/* ---------- الرمز كما يصنعه المولّد (مثل test-activation.js) ---------- */
-const subtle = webcrypto.subtle;
-const AB = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const EPOCH = Date.UTC(2020, 0, 1);
-function b32(b) { let s = '', buf = 0, bits = 0; for (const x of b) { buf = (buf << 8) | x; bits += 8; while (bits >= 5) { s += AB[(buf >> (bits - 5)) & 31]; bits -= 5; } buf &= (1 << bits) - 1; } if (bits > 0) s += AB[(buf << (5 - bits)) & 31]; return s; }
-function crc16(b) { let c = 0xFFFF; for (const x of b) { c ^= x << 8; for (let k = 0; k < 8; k++) c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF; } return c; }
-const nowH = () => Math.floor((Date.now() - EPOCH) / 3600000);
-async function makeCode(priv, fp, expH) {
-  const fp12 = fp.replace(/[^A-Z2-9]/g, '').slice(-12);
-  const sig = new Uint8Array(await subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, priv, new TextEncoder().encode('QIRTASIYA-ACT-1|' + fp12 + '|' + expH)));
-  const b = new Uint8Array(70); b[0] = 1; b[1] = (expH >> 16) & 255; b[2] = (expH >> 8) & 255; b[3] = expH & 255; b.set(sig, 4);
-  const c = crc16(b.subarray(0, 68)); b[68] = c >> 8; b[69] = c & 255;
-  return b32(b).match(/.{4}/g).join('-');
-}
+const CODE = 'Wn7test3k';
 
 /* ---------- أماكن الحفظ الثلاثة ---------- */
 const STORES = [path.join(process.env.LOCALAPPDATA, 'QirtasiyaAct'), path.join(process.env.ProgramData || 'C:\\ProgramData', 'QirtasiyaAct')];
@@ -56,19 +42,13 @@ function wipeStores() { wipeReg(); for (const d of STORES) fs.rmSync(d, { recurs
 function actFile(i) { const f = path.join(STORES[i], 'act.txt'); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null; }
 
 (async () => {
-  const kp = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
-  const pubRaw = Buffer.from(await subtle.exportKey('raw', kp.publicKey));
-  const pub = pubRaw.toString('base64');
-  const s8 = b32(createHash('sha256').update(pubRaw).digest()).slice(0, 8);
-  const kfp = s8.slice(0, 4) + '-' + s8.slice(4);
-
   const progFile = path.join(E.ROOT, 'src', 'Program.cs');
   const prog0 = fs.readFileSync(progFile, 'utf8');
-  const keyRe = /const string ActPubKey = "[^"]*";/;
-  if (!keyRe.test(prog0)) throw new Error('Program.cs: سطر ActPubKey تغيّر');
-  console.log('يبني build.bat بمفتاح تجربة (بصمته ' + kfp + ')...');
+  const codeRe = /const string ActCode = "[^"]*";/;
+  if (!codeRe.test(prog0)) throw new Error('Program.cs: سطر ActCode تغيّر');
+  console.log('يبني build.bat ببصمة رمز تجربة...');
   try {
-    fs.writeFileSync(progFile, prog0.replace(keyRe, 'const string ActPubKey = "' + pub + '";'));
+    fs.writeFileSync(progFile, prog0.replace(codeRe, 'const string ActCode = "' + E.actSecret(CODE, 20000) + '";'));
     execFileSync('cmd.exe', ['/d', '/c', 'build.bat'], { cwd: E.ROOT, stdio: ['ignore', 'inherit', 'inherit'] });
   } finally { fs.writeFileSync(progFile, prog0); }
 
@@ -88,8 +68,8 @@ function actFile(i) { const f = path.join(STORES[i], 'act.txt'); return fs.exist
   async function stop() { E.stopEngine(eng); eng = null; await E.sleep(1500); }
   async function status(port) { return (await E.call(port, '/api/act/status')).body || {}; }
 
-  let code = '';
-  const has = t => !!t && !!code && t.replace(/[^A-Z2-9]/g, '').includes(code.replace(/[^A-Z2-9]/g, '').slice(0, 40));
+  /* سجل «K1» (نهاية المدة + ختم بصمة الجهاز) في المكان، والرمز نفسه لا */
+  const has = t => !!t && /K1\.\d+\.[A-Z2-9]{26}/.test(t) && !/wn7test3k/i.test(t);
   try {
     wipeStores();
 
@@ -97,21 +77,18 @@ function actFile(i) { const f = path.join(STORES[i], 'act.txt'); return fs.exist
     let port = await start();
     let st = await status(port);
     ok(st.required === true && st.active === false, 'بلا بيانات وبلا تفعيل سابق: غير مفعّل', st);
-    ok(st.keyFp === kfp, 'بصمة المفتاح في البرنامج كما في المولّد', (st.keyFp || '') + ' / ' + kfp);
-    ok(/^M-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(st.device || ''), 'رقم الجهاز M-…', st.device);
+
     let r = await E.call(port, '/api/load');
     ok(r.status === 403 && r.body && r.body.locked, 'البيانات مقفولة', r.status);
     const home = await fetch('http://127.0.0.1:' + port + '/');
     ok(home.status === 200 && (await home.text()).includes('js/core.js'), 'الصفحة الأولى تفتح (شاشة التفعيل)');
-    const fp = (st.device || 'M-').slice(2);
-    r = await E.call(port, '/api/act/activate', { code: await makeCode(kp.privateKey, 'ZZZZ-ZZZZ-ZZZZ', 0) });
-    ok(r.body && r.body.ok === false && /مش لهذا الجهاز/.test(r.body.error || ''), 'رمز لجهاز آخر: مرفوض', r.body);
-    code = await makeCode(kp.privateKey, fp, nowH() + 24);
-    r = await E.call(port, '/api/act/activate', { code: 'كود تفعيل المنظومة — يوم:\n\n' + code + '\n\nانسخه والصقه في شاشة التفعيل واضغط «تفعيل».' });
-    ok(r.body && r.body.ok === true && r.body.active === true, 'رمز يوم من رسالة واتساب كاملة: يفتح', r.body);
+    r = await E.call(port, '/api/act/activate', { code: 'Wn7test3x' });
+    ok(r.body && r.body.ok === false && /الرمز غلط/.test(r.body.error || ''), 'رمز غلط: مرفوض', r.body);
+    r = await E.call(port, '/api/act/activate', { code: CODE.toUpperCase() + '1' });
+    ok(r.body && r.body.ok === true && r.body.active === true && r.body.days === 1, 'الرمز وبعده 1: يوم واحد', r.body);
     r = await E.call(port, '/api/load');
     ok(r.status === 200, 'والبيانات تُقرأ', r.status);
-    ok(has(actFile(0)), 'الرمز محفوظ في مجلد المستخدم (LocalAppData\\QirtasiyaAct)');
+    ok(has(actFile(0)), 'التفعيل محفوظ في مجلد المستخدم (LocalAppData\\QirtasiyaAct)، والرمز نفسه لا');
     ok(has(actFile(1)), 'وفي مجلد الجهاز كله (ProgramData\\QirtasiyaAct)');
     ok(has(regValue('act')), 'وفي سجل ويندوز (HKCU\\Software\\QirtasiyaAct)', regValue('act'));
     await stop();

@@ -37,11 +37,11 @@ function ok(cond, name, detail) {
     let port = await E.waitPort(dir);
     console.log('\n== الحارس، وبلا ترخيص ==');
     let r = await E.call(port, '/api/device');
-    ok(r.status === 200 && /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(r.body.fp), 'نسخة الاختبار بلا مفتاح تفعيل: تعمل من أول تشغيل، وبصمة الجهاز تصل (التفعيل نفسه في test-activation.js)', r.body);
+    ok(r.status === 200 && /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(r.body.fp), 'نسخة الاختبار بلا رمز تفعيل: تعمل من أول تشغيل، وبصمة الجهاز تصل (التفعيل نفسه في test-activation.js)', r.body);
     r = await E.call(port, '/api/activate', { code: 'x' });
     ok(!(r.body && r.body.ok), 'أمر التفعيل القديم /api/activate غير موجود (التفعيل الجديد /api/act، قرار 0028)', r);
     r = await E.call(port, '/api/act/status');
-    ok(r.body && r.body.required === false && r.body.active === true, 'بلا مفتاح عام: التفعيل معطّل', r.body);
+    ok(r.body && r.body.required === false && r.body.active === true, 'نسخة الاختبار بلا بصمة رمز: التفعيل معطّل', r.body);
     r = await E.call(port, '/api/v2/login', { login: 'admin' }, { 'X-Qirtasiya': null });
     ok(r.status === 403 && r.body.error === 'forbidden', 'بلا ترويسة X-Qirtasiya: 403 (صفحة ويب غريبة لا تنادي المحرك)', r);
     r = await E.call(port, '/api/v2/login', { login: 'admin' }, { Origin: 'http://evil.example' });

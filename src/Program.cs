@@ -271,11 +271,11 @@ namespace Qirtasiya
             }
         }
 
-        // ---------- التفعيل (قرار 0028) ----------
-        /* المفتاح العام لمولّد الرموز على تلفون صاحب المنظومة (base64 لـ 65 بايتاً، من
-           tools/activation). فارغ = التفعيل معطّل والبرنامج يعمل بلا رمز. المفتاح الخاص
-           لا يدخل هنا ولا المستودع أبداً. الاختبارات تبني بمفتاح تجربة (tools/engine.js). */
-        const string ActPubKey = "";
+        // ---------- التفعيل (قرار 0028، والرمز الثابت قرار 0030) ----------
+        /* بصمة رمز التفعيل: «P1:<الدورات>:<الملح>:<البصمة>» — PBKDF2 للرمز بحروف صغيرة
+           (src/Activation.cs). الرمز نفسه لا يدخل هنا ولا المستودع أبداً؛ صاحب المنظومة يعرفه.
+           فارغ = التفعيل معطّل والبرنامج يعمل بلا رمز. الاختبارات تبني برمز تجربة (tools/engine.js). */
+        const string ActCode = "P1:100000:X6Vwl4kIohz3Upwl6Dd4sg==:DOf7xGICbwsjV3tgwwmLoGQexJJcVmUxTFf5kf2JrI0=";
         /* للاختبارات وحدها: ساعة مزيّفة من ملف في مجلد البيانات. tools/engine.js يجعلها true
            في نسخة الاختبار؛ في ملف التثبيت false فلا يُقرأ الملف أصلاً */
         const bool ActTestClock = false;
@@ -283,7 +283,7 @@ namespace Qirtasiya
         const int ActFirstMajor = 4, ActFirstMinor = 4;
         const string ActRegKey = "Software\\QirtasiyaAct";
 
-        static byte[] ActPub;                   // null = التفعيل معطّل
+        static Activation.Secret ActSecret;     // null = التفعيل معطّل
         static readonly object ActLock = new object();
         static string ActKind = "";             // code | upgrade
         static long ActExpiryH = -1;            // -1 بلا تفعيل، 0 مدى الحياة، وإلا ساعة الانتهاء
@@ -406,7 +406,7 @@ namespace Qirtasiya
 
         static bool ActActive()
         {
-            if (ActPub == null) return true;
+            if (ActSecret == null) return true;
             long e;
             lock (ActLock) e = ActExpiryH;
             if (e == 0) return true;
@@ -431,12 +431,11 @@ namespace Qirtasiya
                     if (best != 0) { best = 0; kind = "upgrade"; }
                     continue;
                 }
-                string err;
-                Activation.Code c = Activation.Parse(r, out err);
-                if (c == null || !Activation.Verify(ActPub, fp, c)) continue;
-                if (!keep.Contains(c.Text)) keep.Add(c.Text);
-                if (c.ExpiryH == 0) { best = 0; kind = "code"; }
-                else if (best != 0 && c.ExpiryH > best) { best = c.ExpiryH; kind = "code"; }
+                long exp = ActCodeExpiry(r, fp);
+                if (exp < 0) continue;
+                if (!keep.Contains(r)) keep.Add(r);
+                if (exp == 0) { best = 0; kind = "code"; }
+                else if (best != 0 && exp > best) { best = exp; kind = "code"; }
             }
 
             string checkedFile = "checked-" + BuildInfo.Edition + ".txt";
@@ -463,10 +462,37 @@ namespace Qirtasiya
         static long ActRank(string r, string upgrade)
         {
             if (r == upgrade) return long.MaxValue - 1;
-            string e;
-            Activation.Code c = Activation.Parse(r, out e);
-            if (c == null) return -1;
-            return c.ExpiryH == 0 ? long.MaxValue : c.ExpiryH;
+            long e = ActRecordExpiry(r);
+            if (e < 0) return -1;
+            return e == 0 ? long.MaxValue : e;
+        }
+
+        /* سجل رمز مقبول: «K1.<نهاية المدة>.<ختم>» — نهاية المدة بالساعات (0 مدى الحياة)، والختم
+           ببصمة الجهاز: الرمز نفسه لا يُحفظ، ونسخ السجل لجهاز آخر لا ينفع */
+        static string ActCodeRecord(string fp, long expiryH)
+        {
+            byte[] key = Encoding.UTF8.GetBytes("qirtasiya-code-v1|Hn3$Vq8!Zt5#Lp2&");
+            string e = expiryH.ToString(CultureInfo.InvariantCulture);
+            using (HMACSHA256 h = new HMACSHA256(key))
+                return "K1." + e + "." + Activation.B32(h.ComputeHash(Encoding.UTF8.GetBytes(Activation.Clean(fp) + "|" + e))).Substring(0, 26);
+        }
+
+        /* نهاية المدة من نص السجل (بلا تحقق من الختم)، أو -1 */
+        static long ActRecordExpiry(string r)
+        {
+            if (r == null || !r.StartsWith("K1.", StringComparison.Ordinal)) return -1;
+            int dot = r.IndexOf('.', 3);
+            long e;
+            if (dot < 0 || !long.TryParse(r.Substring(3, dot - 3), NumberStyles.None, CultureInfo.InvariantCulture, out e)) return -1;
+            return e;
+        }
+
+        /* نهاية المدة إن كان السجل مختوماً لهذا الجهاز، وإلا -1 */
+        static long ActCodeExpiry(string r, string fp)
+        {
+            long e = ActRecordExpiry(r);
+            if (e < 0 || r != ActCodeRecord(fp, e)) return -1;
+            return e;
         }
 
         /* هل اشتغل إصدار قبل التفعيل على هذا الجهاز نفسه؟ (الأجهزة الحالية لا تحتاج رمزاً)
@@ -553,10 +579,10 @@ namespace Qirtasiya
 
         static void ActInit()
         {
-            ActPub = Activation.PublicKey(ActPubKey);
-            if (ActPub == null)
+            ActSecret = Activation.ParseSecret(ActCode);
+            if (ActSecret == null)
             {
-                if (ActPubKey.Length > 0) Log("التفعيل: المفتاح العام غير صالح — التفعيل معطّل");
+                if (ActCode.Length > 0) Log("التفعيل: بصمة الرمز غير صالحة — التفعيل معطّل");
                 return;
             }
             long seen = 0;
@@ -571,7 +597,7 @@ namespace Qirtasiya
             lock (ActLock) { ActSeenH = seen; ActSeenSavedH = seen; }
             try { ActEvaluate(true); }
             catch (Exception ex) { Log("التفعيل: " + ex.Message); }
-            Log("التفعيل: " + ActSummary() + " — رقم الجهاز " + ActDevice() + " — بصمة المفتاح " + Activation.KeyFp(ActPub));
+            Log("التفعيل: " + ActSummary() + " — رقم الجهاز " + ActDevice());
         }
 
         static string ActWhen(long h)
@@ -591,7 +617,7 @@ namespace Qirtasiya
 
         static string ActStatusJson()
         {
-            if (ActPub == null) return "{\"ok\":true,\"required\":false,\"active\":true}";
+            if (ActSecret == null) return "{\"ok\":true,\"required\":false,\"active\":true}";
             long e;
             string k;
             lock (ActLock) { e = ActExpiryH; k = ActKind; }
@@ -605,7 +631,6 @@ namespace Qirtasiya
             sb.Append(",\"until\":").Append(JsonStr(e > 0 ? ActWhen(e) : ""));
             sb.Append(",\"hoursLeft\":").Append(e > 0 ? Math.Max(0, e - now).ToString(CultureInfo.InvariantCulture) : "0");
             sb.Append(",\"device\":").Append(JsonStr(ActDevice()));
-            sb.Append(",\"keyFp\":").Append(JsonStr(Activation.KeyFp(ActPub)));
             sb.Append(",\"edition\":").Append(JsonStr(BuildInfo.Edition));
             sb.Append('}');
             return sb.ToString();
@@ -618,9 +643,12 @@ namespace Qirtasiya
                    path == "/api/claim" || path == "/api/heartbeat" || path == "/api/window" || path == "/api/quit";
         }
 
+        /* الرمز يُكتب على الجهاز نفسه: وحده = مدى الحياة، وبعده رقم = عدد الأيام من الآن.
+           الرمز لا يُكتب في سجل التشغيل ولا يُحفظ؛ يُحفظ سجل بنهاية المدة مختوم ببصمة الجهاز.
+           رمز أقصر لا يقصّر مدة أطول (الأحسن يبقى) */
         static string ActActivate(string body)
         {
-            if (ActPub == null) return "{\"ok\":true,\"required\":false,\"active\":true}";
+            if (ActSecret == null) return "{\"ok\":true,\"required\":false,\"active\":true}";
             string text = "";
             try
             {
@@ -629,36 +657,29 @@ namespace Qirtasiya
             }
             catch { }
             string err;
-            Activation.Code c = Activation.Find(text, out err);
-            string fp = MachineFingerprint();
-            string why = null;
-            if (c == null)
+            int days = Activation.Check(ActSecret, text, out err);
+            if (days < 0)
             {
-                why = err == "empty" ? "الصق رمز التفعيل في الخانة أول."
-                    : err == "version" ? "الرمز هذا من نسخة أحدث — حدّث المنظومة."
-                    : err == "typo" ? "فيه غلط في الرمز. انسخه كامل من الرسالة والصقه مرة تانية."
-                    : "الرمز ناقص. انسخه كامل من الرسالة والصقه مرة تانية.";
-            }
-            else if (!Activation.Verify(ActPub, fp, c))
-                why = "الرمز هذا مش لهذا الجهاز. تأكد إن رقم الجهاز اللي بعته هو: " + ActDevice();
-            else if (c.ExpiryH != 0 && ActNow() >= c.ExpiryH)
-                why = "الرمز هذا انتهت مدته يوم " + ActWhen(c.ExpiryH) + ". اطلب رمز جديد.";
-            if (why != null)
-            {
+                string why = err == "empty" ? "اكتب رمز التفعيل في الخانة أول."
+                    : err == "arabic" ? "الرمز بالحروف الإنجليزية — بدّل لغة الكيبورد (Alt + Shift) واكتبه مرة تانية."
+                    : err == "zero" ? "الرقم اللي بعد الرمز هو عدد الأيام، ولازم يكون 1 أو أكثر."
+                    : "الرمز غلط. تأكد منه واكتبه مرة تانية.";
                 Log("التفعيل: رُفض رمز — " + why);
                 return "{\"ok\":false,\"error\":" + JsonStr(why) + "}";
             }
+            long exp = days == 0 ? 0 : ActNow() + (long)days * 24 + 1;
+            string rec = ActCodeRecord(MachineFingerprint(), exp);
             lock (ActLock)
             {
                 List<string> l = ActRecords();
-                if (!l.Contains(c.Text)) l.Insert(0, c.Text);
+                if (!l.Contains(rec)) l.Insert(0, rec);
                 ActWriteText("act.txt", "act", string.Join("\n", l.ToArray()));
             }
             ActEvaluate(false);
-            Log("التفعيل: رمز مقبول (" + (c.ExpiryH == 0 ? "مدى الحياة" : "حتى " + ActWhen(c.ExpiryH)) + ") — " + ActSummary());
+            Log("التفعيل: رمز مقبول (" + (days == 0 ? "مدى الحياة" : days + " يوم، حتى " + ActWhen(exp)) + ") — " + ActSummary());
             if (Sync != null) WakeSync(false);
             string st = ActStatusJson();
-            return st.Substring(0, st.Length - 1) + ",\"accepted\":" + JsonStr(c.ExpiryH == 0 ? "" : ActWhen(c.ExpiryH)) + "}";
+            return st.Substring(0, st.Length - 1) + ",\"days\":" + days.ToString(CultureInfo.InvariantCulture) + "}";
         }
 
         /* بصمة قصيرة من مسار التثبيت: تثبيتان مختلفان = قفل ونافذة مستقلان */

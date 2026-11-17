@@ -3,9 +3,9 @@
    ------------------------------------------------------------
    يستعملها القياس (bench/bench-3x.js) واختبار المحرك (test-engine.js).
    تُبنى من src/Program.cs كما هو في مجلد مؤقت، ولا تدخل أي ملف تثبيت.
-   التفعيل (قرار 0028): نسخة الاختبار بلا مفتاح عام فتعمل من أول تشغيل كما كانت،
-   إلا إن طُلب مفتاح تجربة (opts.actPub): عندها يعمل التفعيل كملف التثبيت، وساعته
-   تُزاح بملف act-test-clock.txt في مجلد البيانات (ساعات).
+   التفعيل (قرار 0028 و0030): نسخة الاختبار بلا رمز تفعيل فتعمل من أول تشغيل كما كانت،
+   إلا إن طُلب رمز تجربة (opts.actCode): عندها تُبنى ببصمته ويعمل التفعيل كملف التثبيت،
+   وساعته تُزاح بملف act-test-clock.txt في مجلد البيانات (ساعات).
 
    يحتاج: mono-mcs وxvfb-run (أيقونة شريط المهام تحتاج شاشة).
 
@@ -21,6 +21,16 @@ const ROOT = path.join(__dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const WIN = process.platform === 'win32';
+
+/* بصمة رمز تفعيل كما في Program.cs (ActCode): PBKDF2-SHA1 للرمز بحروف صغيرة وأرقام فقط.
+   رمز التجربة بدورات أقل من ملف التثبيت حتى لا تبطؤ الاختبارات */
+function actSecret(code, iter) {
+  const crypto = require('crypto');
+  const norm = String(code).replace(/[A-Z]/g, c => c.toLowerCase()).replace(/[^a-z0-9]/g, '');
+  const salt = crypto.randomBytes(16);
+  iter = iter || 5000;
+  return 'P1:' + iter + ':' + salt.toString('base64') + ':' + crypto.pbkdf2Sync(Buffer.from(norm, 'utf8'), salt, iter, 32, 'sha1').toString('base64');
+}
 
 /* البرنامج المثبَّت على ويندوز: ملفاته كلها، والملف التنفيذي باسم Qirtasiya.exe */
 function copyInstalled(src, dir) {
@@ -42,7 +52,7 @@ function copyEngine(src, dir) {
 }
 
 /* edition: misrata (الافتراضي) أو tripoli — تطبيقان منفصلان (قرار 0022)
-   opts.actPub: مفتاح تجربة عام للتفعيل (base64)؛ بدونه التفعيل معطّل في نسخة الاختبار */
+   opts.actCode: رمز تفعيل للتجربة (يُبنى ببصمته)، أو opts.actSecret بصمة جاهزة؛ بدونهما التفعيل معطّل في نسخة الاختبار */
 function buildEngine(dir, edition, opts) {
   edition = edition || 'misrata';
   opts = opts || {};
@@ -53,10 +63,10 @@ function buildEngine(dir, edition, opts) {
     return;
   }
   let prog = fs.readFileSync(path.join(ROOT, 'src', 'Program.cs'), 'utf8');
-  const keyRe = /const string ActPubKey = "[^"]*";/, clockRe = /const bool ActTestClock = false;/;
-  if (!keyRe.test(prog) || !clockRe.test(prog)) throw new Error('Program.cs: سطر ActPubKey أو ActTestClock تغيّر');
-  prog = prog.replace(keyRe, 'const string ActPubKey = "' + (opts.actPub || '') + '";');
-  if (opts.actPub) prog = prog.replace(clockRe, 'const bool ActTestClock = true;');
+  const codeRe = /const string ActCode = "[^"]*";/, clockRe = /const bool ActTestClock = false;/;
+  if (!codeRe.test(prog) || !clockRe.test(prog)) throw new Error('Program.cs: سطر ActCode أو ActTestClock تغيّر');
+  prog = prog.replace(codeRe, 'const string ActCode = "' + (opts.actSecret || (opts.actCode ? actSecret(opts.actCode) : '')) + '";');
+  if (opts.actCode || opts.actSecret) prog = prog.replace(clockRe, 'const bool ActTestClock = true;');
   fs.writeFileSync(path.join(dir, 'Program.cs'), prog);
   fs.writeFileSync(path.join(dir, 'BuildInfo.cs'),
     'namespace Qirtasiya { static class BuildInfo { public const string Stamp = "test"; public const string Edition = "' + edition + '"; } }');
@@ -123,4 +133,4 @@ async function call(port, p, body, headers) {
   return { status: r.status, body: j };
 }
 
-module.exports = { ROOT, WIN, sleep, buildEngine, copyEngine, startEngine, waitPort, stopEngine, call };
+module.exports = { ROOT, WIN, sleep, actSecret, buildEngine, copyEngine, startEngine, waitPort, stopEngine, call };
