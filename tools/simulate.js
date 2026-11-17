@@ -550,6 +550,8 @@ function site(cfg) {
       ok(bad.length === 0, d.label + ': سجل البرنامج بلا أخطاء داخلية', bad.slice(0, 4));
     }
     ok(allErrs.length === 0, 'بلا أخطاء في أي شاشة (4 أجهزة و3 هواتف)', allErrs.slice(0, 8));
+    /* لقطات الفروع من البرنامج مضغوطة كما يضغطها Cloudflare (كانت بلا ضغط، ومهلة 20 ثانية على إنترنت بطيء) */
+    ok((cloud.gz['/all'] || 0) > 0, 'لقطات الفروع (/all) تنزل مضغوطة', cloud.gz);
     if (notes.length) { console.log('\n  ملاحظات أثناء اليوم:'); notes.slice(0, 20).forEach(n => console.log('   - ' + n)); }
     ok(notes.length === 0, 'كل عملية في اليوم تمّت بلا تعثّر', notes.length + ' ملاحظة');
 

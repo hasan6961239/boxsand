@@ -14,7 +14,7 @@
    يحدّه Cloudflare في الخطة المجانية (10 ميلي ثانية لكل طلب)؛ D1 انتظار لا يُحسب.
    ============================================================ */
 'use strict';
-const fs = require('fs'), path = require('path'), http = require('http');
+const fs = require('fs'), path = require('path'), http = require('http'), zlib = require('zlib');
 const { AsyncLocalStorage } = require('async_hooks');
 const { DatabaseSync } = require('node:sqlite');
 
@@ -141,6 +141,7 @@ async function start(opts) {
   if (!opts.noD1) env.DB = d1(opts.dbFile);
   const log = [];
   const timing = [];
+  const gz = {};
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', c => chunks.push(c));
@@ -167,8 +168,18 @@ async function start(opts) {
         }
         const h = {};
         r.headers.forEach((v, k) => { h[k] = v; });
+        /* كـCloudflare: نص وJSON يُضغطان لمن يطلب الضغط (المحرك والمتصفح) */
+        let sendBody = out;
+        if (/\bgzip\b/.test(String(req.headers['accept-encoding'] || '')) && !h['content-encoding'] && out.length > 1024 &&
+          /json|text/.test(h['content-type'] || '')) {
+          sendBody = zlib.gzipSync(out);
+          h['content-encoding'] = 'gzip';
+          delete h['content-length'];
+          const pth = req.url.split('?')[0];
+          gz[pth] = (gz[pth] || 0) + 1;
+        }
         res.writeHead(r.status, h);
-        res.end(out);
+        res.end(sendBody);
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: String(e && e.stack || e) }));
@@ -178,7 +189,7 @@ async function start(opts) {
   await new Promise(r => server.listen(opts.port || 0, '127.0.0.1', r));
   const port = server.address().port;
   return {
-    port, env, log, timing,
+    port, env, log, timing, gz,
     url: 'http://127.0.0.1:' + port,
     close: () => new Promise(r => server.close(r))
   };

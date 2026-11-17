@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using Qirtasiya.Data;
 
 namespace Qirtasiya.Engine
@@ -57,8 +58,11 @@ namespace Qirtasiya.Engine
             }
             HttpWebRequest rq = (HttpWebRequest)WebRequest.Create(u.ToString());
             rq.Method = method;
-            rq.Timeout = 60000;
-            rq.ReadWriteTimeout = 120000;
+            /* قائمة الكتب بين الفروع ونسخة جهاز المحل قطعٌ كبيرة: على إنترنت بطيء تأخذ دقائق، ولا بأس
+               (طلب صاحب المشروع: «ضروري ينجح، عادي حتى لو طوّل ربع ساعة»). الباقي صغير وسريع */
+            bool big = path == "v2/catalog" || path == "v2/catalog-part" || path == "v2/snap" || path == "v2/snap-part" || path == "put";
+            rq.Timeout = big ? 300000 : 60000;
+            rq.ReadWriteTimeout = big ? 900000 : 120000;
             rq.UserAgent = "Qirtasiya/4.0";
             rq.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
             rq.Headers.Add("X-Shop-Key", key);
@@ -67,7 +71,10 @@ namespace Qirtasiya.Engine
                 byte[] data = Encoding.UTF8.GetBytes(body);
                 rq.ContentType = "text/plain; charset=utf-8";
                 rq.ContentLength = data.Length;
-                using (Stream rs = rq.GetRequestStream()) rs.Write(data, 0, data.Length);
+                /* يُرسل وهو يُكتب، قطعة قطعة: لا يُخزَّن كله ثم يُرسل داخل مهلة الرد */
+                rq.AllowWriteStreamBuffering = false;
+                using (Stream rs = rq.GetRequestStream())
+                    for (int o = 0; o < data.Length; o += 65536) rs.Write(data, o, Math.Min(65536, data.Length - o));
             }
             HttpWebResponse rp;
             try { rp = (HttpWebResponse)rq.GetResponse(); }
@@ -110,10 +117,15 @@ namespace Qirtasiya.Engine
     {
         /* القطعة المضغوطة نصاً أقل من حدّ صف D1 (2 ميغا) بهامش */
         public const int MaxPart = 1400000;
-        /* قائمة كتب الفرع للفروع الأخرى: كل نصف ساعة إن تغيّرت. لعشرين ألف كتاب 800 ك.ب صعوداً،
-           وكل فرع آخر ينزّلها: كل عشر دقائق كانت 50 ميغا في اليوم مع البيع، ونصف دقيقة من كل عشر
-           على رفع بطيء. «حدّث الآن» يرسلها في الحال */
-        public static int CatalogEveryMin = 60;
+        /* قطعة قائمة الكتب بين الفروع أصغر: على إنترنت بطيء كل قطعة تكتمل وحدها، وما ينقطع يُعاد وحده
+           (طرابلس 61 ألف كتاب: خمس قطع بدل اثنتين). الخادم يقبل حتى 100 قطعة */
+        public const int CatPart = 500000;
+        /* محاولات القطعة الواحدة قبل أن يُترك النشر أو الجلب للدورة القادمة */
+        public static int PartTries = 3;
+        /* قائمة كتب الفرع للفروع الأخرى: مرتين في اليوم افتراضياً إن تغيّرت (طلب صاحب المشروع 2026-11-17:
+           «كل يوم مرتين» بلا ضغط على الخادم). من الإعدادات: ساعة، 6 ساعات، مرتين، يوم. «تحديث الفروع»
+           يرسلها في الحال، وتغييرات الهواتف (catdelta) كل دقيقة لا تنتظرها */
+        public static int CatalogEveryMin = 720;
         /* تغييرات القائمة للهواتف (v2/catdelta): كل دورة فيها تغيير، مضغوطة. فوق هذا العدد من
            الأصناف المتغيّرة منذ آخر نشر كامل يُنشر كاملاً من جديد (تبدأ التغييرات من صفر) */
         public static int DeltaMaxItems = 400;
@@ -799,14 +811,15 @@ namespace Qirtasiya.Engine
             Phase("نشر قائمة الكتب");
             string packed = ShopDb.Pack(json);
             string ver = NewToken();
-            int parts = Math.Max(1, (packed.Length + MaxPart - 1) / MaxPart);
+            int parts = Math.Max(1, (packed.Length + CatPart - 1) / CatPart);
             Dictionary<string, object> meta = Json.Parse(json.Substring(0, at < 0 ? json.Length : at).TrimEnd(',') + "}") as Dictionary<string, object>;
             Dictionary<string, object> br = Json.Obj(meta, "branch");
             for (int i = 0; i < parts; i++)
             {
-                CloudReply r = cloud.Call("POST", "v2/catalog", Q("branch", db.Local("sync.branch"), "device", db.Local("sync.device"), "ver", ver,
+                Phase("نشر قائمة الكتب (" + (i + 1) + " من " + parts + ")");
+                CloudReply r = CallPart(cloud, "POST", "v2/catalog", Q("branch", db.Local("sync.branch"), "device", db.Local("sync.device"), "ver", ver,
                     "part", S(i), "parts", S(parts), "n", S(n), "name", Json.Str(br, "name"), "city", Json.Str(br, "city")),
-                    packed.Substring(i * MaxPart, Math.Min(MaxPart, packed.Length - i * MaxPart)));
+                    packed.Substring(i * CatPart, Math.Min(CatPart, packed.Length - i * CatPart)));
                 if (r.Status != 200) throw Fail(r, "نشر قائمة الكتب");
             }
             Dictionary<string, string> st = new Dictionary<string, string>();
@@ -848,7 +861,8 @@ namespace Qirtasiya.Engine
                     bool gone = false;
                     for (int i = 0; i < parts; i++)
                     {
-                        CloudReply p = cloud.Call("GET", "v2/catalog-part", Q("branch", b, "ver", ver, "part", S(i)), null);
+                        if (parts > 1) Phase("جلب قائمة فرع " + Json.Str(c, "name") + " (" + (i + 1) + " من " + parts + ")");
+                        CloudReply p = CallPart(cloud, "GET", "v2/catalog-part", Q("branch", b, "ver", ver, "part", S(i)), null);
                         if (p.Status == 410) { gone = true; break; }   // نُشرت أحدث منها في الأثناء: الدورة القادمة
                         if (p.Status != 200) throw Fail(p, "قائمة فرع " + Json.Str(c, "name"));
                         all.Append(p.Text);
@@ -860,6 +874,31 @@ namespace Qirtasiya.Engine
                 catch (Exception e) { if (first == null) first = e; }
             }
             if (first != null) throw first;
+        }
+
+        /* قطعة كبيرة على إنترنت ضعيف: انقطاع في وسطها أو رد 5xx من الخادم يُعاد حتى PartTries مرات */
+        CloudReply CallPart(ICloud cloud, string method, string path, Dictionary<string, string> q, string body)
+        {
+            for (int t = 1; ; t++)
+            {
+                try
+                {
+                    CloudReply r = cloud.Call(method, path, q, body);
+                    if (r.Status < 500 || t >= PartTries) return r;
+                    log("المزامنة: " + path + " رد " + r.Status + " — محاولة " + (t + 1));
+                }
+                catch (WebException e)
+                {
+                    if (e.Response != null || t >= PartTries) throw;
+                    log("المزامنة: " + path + " — " + e.Message + " — محاولة " + (t + 1));
+                }
+                catch (IOException e)
+                {
+                    if (t >= PartTries) throw;
+                    log("المزامنة: " + path + " — " + e.Message + " — محاولة " + (t + 1));
+                }
+                Thread.Sleep(3000 * t);
+            }
         }
 
         static string Hash(string s)

@@ -27,8 +27,8 @@ namespace Qirtasiya
         static readonly string DataName = Tripoli ? "Qirtasiya-Tripoli" : "Qirtasiya";
         /* لكل تطبيق إصداره (tools/build-linux.sh يقرأ سطر تطبيقه): مصراتة رسمية،
            وطرابلس تجريبية حتى يعتمدها المحل. ملف التثبيت: الرقم لويندوز، و«-test» في اسمه */
-        const string AppVersionMisrata = "4.4";
-        const string AppVersionTripoli = "4.4-test";
+        const string AppVersionMisrata = "4.5";
+        const string AppVersionTripoli = "4.5-test";
         static readonly string AppVersion = Tripoli ? AppVersionTripoli : AppVersionMisrata;
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
@@ -2132,7 +2132,7 @@ namespace Qirtasiya
             }
             else if (act == "every")
             {
-                /* كل كم دقيقة تُنشر قائمة الفرع وتُجلب قوائم الفروع الأخرى: ساعة، 6 ساعات، يوم */
+                /* كل كم دقيقة تُنشر قائمة الفرع وتُجلب قوائم الفروع الأخرى: ساعة، 6 ساعات، مرتين في اليوم، يوم */
                 long m = Json.Long(req, "minutes", 60);
                 if (m < 5 || m > 1440) throw new Exception("المدة بين 5 دقائق ويوم.");
                 ShopDb d = Db;
@@ -3786,6 +3786,9 @@ namespace Qirtasiya
             {
                 ServicePointManager.Expect100Continue = false;
                 ServicePointManager.UseNagleAlgorithm = false;
+                /* اتصالان فقط لكل خادم (افتراض ويندوز): رفع قائمة كتب طرابلس الكبيرة يشغلهما، وطلب لقطة
+                   الفرع ينتظر في الطابور حتى تنتهي مهلته */
+                if (ServicePointManager.DefaultConnectionLimit < 8) ServicePointManager.DefaultConnectionLimit = 8;
             }
             catch { }
             int[] tries = new int[] { 12288 | 3072 | 768, 3072 | 768, 3072 };
@@ -3796,12 +3799,38 @@ namespace Qirtasiya
             }
         }
 
+        /* لقطة الفرع وقائمة الفروع على خادم الربط، وإشعارات ntfy.
+           كانت المهلة 20 ثانية للرد وللنقل: على إنترنت بطيء لا تكفي لرفع اللقطة أو تنزيل /all (لقطة مصراتة
+           كاملة)، فيُلغى الطلب ويظهر «تم إجهاض الطلب: تم إلغاء الطلب» ولا يتحدّث الفرع أياماً. الآن مثل
+           المزامنة: دقيقة للرد ودقيقتان للنقل، والرد مضغوط (Cloudflare يضغط JSON لمن يطلب: أصغر بعدة مرات)،
+           ومحاولة ثانية على اتصال جديد إن انقطع الطلب في وسطه */
         static string HttpSend(string url, string method, string shopKey, string payload)
+        {
+            try { return HttpSendOnce(url, method, shopKey, payload, true); }
+            catch (WebException we)
+            {
+                if (we.Response != null || !NetRetryable(we.Status)) throw;
+                Log("الربط: " + url + " — " + CleanNetError(we) + " — محاولة ثانية");
+                Thread.Sleep(1500);
+                return HttpSendOnce(url, method, shopKey, payload, false);
+            }
+        }
+
+        static bool NetRetryable(WebExceptionStatus st)
+        {
+            return st == WebExceptionStatus.RequestCanceled || st == WebExceptionStatus.KeepAliveFailure ||
+                   st == WebExceptionStatus.ConnectionClosed || st == WebExceptionStatus.ReceiveFailure ||
+                   st == WebExceptionStatus.SendFailure || st == WebExceptionStatus.PipelineFailure;
+        }
+
+        static string HttpSendOnce(string url, string method, string shopKey, string payload, bool keepAlive)
         {
             HttpWebRequest rq = (HttpWebRequest)WebRequest.Create(url);
             rq.Method = method;
-            rq.Timeout = 20000;
-            rq.ReadWriteTimeout = 20000;
+            rq.Timeout = 60000;
+            rq.ReadWriteTimeout = 120000;
+            rq.KeepAlive = keepAlive;
+            rq.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
             rq.UserAgent = "Qirtasiya/1.1";
             rq.Accept = "application/json";
             if (!string.IsNullOrEmpty(shopKey)) rq.Headers.Add("X-Shop-Key", shopKey);
@@ -3811,7 +3840,10 @@ namespace Qirtasiya
                 byte[] data = Encoding.UTF8.GetBytes(payload);
                 rq.ContentType = "application/json; charset=utf-8";
                 rq.ContentLength = data.Length;
-                using (Stream rs = rq.GetRequestStream()) rs.Write(data, 0, data.Length);
+                /* يُرسل وهو يُكتب، قطعة قطعة: لا يُخزَّن كله ثم يُرسل داخل مهلة الرد */
+                rq.AllowWriteStreamBuffering = false;
+                using (Stream rs = rq.GetRequestStream())
+                    for (int o = 0; o < data.Length; o += 65536) rs.Write(data, o, Math.Min(65536, data.Length - o));
             }
 
             using (HttpWebResponse rp = (HttpWebResponse)rq.GetResponse())
@@ -3827,7 +3859,9 @@ namespace Qirtasiya
             if (we != null)
             {
                 if (we.Status == WebExceptionStatus.NameResolutionFailure) return "لا يوجد اتصال بالإنترنت";
-                if (we.Status == WebExceptionStatus.Timeout) return "انتهت المهلة — الإنترنت بطيء";
+                if (we.Status == WebExceptionStatus.Timeout || we.Status == WebExceptionStatus.RequestCanceled)
+                    return "انتهت المهلة — الإنترنت بطيء، ويعيد المحاولة وحده";
+                if (we.Response == null && NetRetryable(we.Status)) return "انقطع الاتصال وسط التحديث — الإنترنت ضعيف، ويعيد المحاولة وحده";
                 if (we.Status == WebExceptionStatus.ConnectFailure) return "تعذّر الوصول للعنوان (قد يكون محجوباً)";
                 HttpWebResponse rp = we.Response as HttpWebResponse;
                 if (rp != null)

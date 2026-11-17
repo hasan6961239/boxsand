@@ -962,16 +962,16 @@ var Rep = (function () {
     var t = Date.parse(String(st || "").replace(" ", "T"));
     return isNaN(t) ? "" : ago(Date.now() - t);
   }
-  var BR_EVERY = [{ m: 60, t: "تلقائي: كل ساعة" }, { m: 360, t: "تلقائي: كل 6 ساعات" }, { m: 1440, t: "تلقائي: مرة في اليوم" }];
+  var BR_EVERY = [{ m: 60, t: "تلقائي: كل ساعة" }, { m: 360, t: "تلقائي: كل 6 ساعات" }, { m: 720, t: "تلقائي: مرتين في اليوم" }, { m: 1440, t: "تلقائي: مرة في اليوم" }];
   function cityName() { var b = S().branch || {}; return b.city || b.name || b.id || ""; }
 
-  /* «التحديث»: داخل الفرع (الأجهزة والهواتف، كل دقيقة) والفروع فيما بينها (كل ساعة أو أكثر) — زرّان منفصلان */
+  /* «التحديث»: داخل الفرع (الأجهزة والهواتف، كل دقيقة) والفروع فيما بينها (مرتين في اليوم افتراضياً) — زرّان منفصلان */
   function paintSyncBox() {
     var host = document.getElementById("syncBox");
     if (!host) return;
     var L = link || {}, linked = !!(L.linked && L.role);
     var others = (L.remotes || []).map(function (r) { return r.name || r.city || r.id; }).filter(Boolean);
-    var every = App.num(L.branchEvery) || 60, opt = BR_EVERY.slice();
+    var every = App.num(L.branchEvery) || 720, opt = BR_EVERY.slice();
     if (!opt.some(function (o) { return o.m === every; })) opt.push({ m: every, t: "تلقائي: كل " + every + " دقيقة" });
     var devAt = L.lastOk ? agoStamp(L.lastOk) : "", brAt = L.catAt ? agoStamp(L.catAt) : "";
     host.innerHTML = '<div class="sync-two">' +
@@ -982,7 +982,7 @@ var Rep = (function () {
       (L.deltaOld ? '<p class="small" style="color:var(--stamp)">خادم الربط يحتاج كوده الجديد باش الهواتف تتحدّث كل دقيقة: «خطوات الربط» تحت ← انسخ الكود ← الصقه في Cloudflare مكان القديم ← Deploy.</p>' : "") +
       '<button class="btn primary" style="width:100%" onclick="Rep.syncDevicesNow(this)">↻ تحديث الأجهزة والهواتف</button></div>' +
       '<div class="sync-pane"><h4>الفروع — ' + App.esc(cityName()) + (others.length ? " ↔ " + App.esc(others.join("، ")) : "") + "</h4>" +
-      '<p class="muted small">' + (linked ? "آخر تحديث: " + (brAt || "لم يتم بعد") : "تحتاج ربط هذا الجهاز أولاً") + "</p>" +
+      '<p class="muted small">' + (linked ? "آخر تحديث: " + (brAt || "لم يتم بعد") : "تحتاج ربط هذا الجهاز أولاً: «ربط الأجهزة» تحت ← «هذا جهاز المحل» (على كمبيوتر المحل)") + "</p>" +
       '<select class="inp" onchange="Rep.setBranchEvery(this.value)"' + (linked ? "" : " disabled") + ">" +
       opt.map(function (o) { return '<option value="' + o.m + '"' + (o.m === every ? " selected" : "") + ">" + App.esc(o.t) + "</option>"; }).join("") +
       "</select>" +

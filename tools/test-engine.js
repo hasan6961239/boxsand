@@ -49,6 +49,43 @@ function ok(cond, name, detail) {
     r = await E.call(port, '/api/v2/me');
     ok(r.status === 405, 'GET على أمر: 405', r.status);
 
+    console.log('\n== خادم الربط بطيء أو انقطع وسط الطلب (لقطات الفروع) ==');
+    {
+      /* على إنترنت بطيء كانت المهلة 20 ثانية فيُلغى الطلب: «تم إجهاض الطلب: تم إلغاء الطلب» */
+      const http = require('http'), zlib = require('zlib');
+      const seen = [];
+      let allN = 0;
+      const srv = http.createServer((q, res) => {
+        const ch = [];
+        q.on('data', c => ch.push(c));
+        q.on('end', () => {
+          seen.push({ p: q.url, ae: String(q.headers['accept-encoding'] || ''), len: Buffer.concat(ch).length });
+          if (q.url.startsWith('/put')) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); return; }
+          if (!q.url.startsWith('/all')) { res.writeHead(404); res.end(); return; }
+          if (++allN === 1) { q.socket.destroy(); return; }            // انقطع وسط الطلب
+          const body = JSON.stringify({ ok: true, v: 3, branches: [{ branch: { id: 'tripoli', name: 'طرابلس' }, at: '2026-11-17 10:00',
+            items: Array.from({ length: 3000 }, (_, i) => ({ k: 'K' + i, n: 'كتاب رقم ' + i, q: i % 7, p: 10 })) }] });
+          setTimeout(() => {
+            const gz = /gzip/.test(String(q.headers['accept-encoding'] || ''));
+            res.writeHead(200, Object.assign({ 'Content-Type': 'application/json' }, gz ? { 'Content-Encoding': 'gzip' } : {}));
+            res.end(gz ? zlib.gzipSync(body) : body);
+          }, 22000);                                                    // أطول من المهلة القديمة
+        });
+      });
+      await new Promise(res => srv.listen(0, '127.0.0.1', res));
+      const t0 = Date.now();
+      r = await E.call(port, '/api/sync', { url: 'http://127.0.0.1:' + srv.address().port, key: 'k', upload: { branch: { id: 'misrata' }, items: [] } });
+      const took = Date.now() - t0;
+      srv.close();
+      const alls = seen.filter(x => x.p.startsWith('/all'));
+      ok(r.body && r.body.ok === true && Array.isArray(r.body.branches) && r.body.branches[0].items.length === 3000,
+        'لقطات الفروع تصل ولو تأخّر الخادم 22 ثانية (كانت المهلة 20 فيُلغى الطلب)', r.body && (r.body.error || r.body.ok));
+      ok(alls.length === 2, 'انقطع الطلب الأول في وسطه: محاولة ثانية وحدها', alls.length);
+      ok(alls.length > 0 && alls.every(x => /gzip/.test(x.ae)), 'والطلب يقبل الرد مضغوطاً (أصغر بعدة مرات)', alls.map(x => x.ae));
+      ok(took >= 22000, 'انتظر الرد كاملاً (' + Math.round(took / 1000) + ' ث)', took);
+      ok(/محاولة ثانية/.test(fs.readFileSync(path.join(dir, 'data', 'log.txt'), 'utf8')), 'والمحاولة الثانية في سجل البرنامج');
+    }
+
     console.log('\n== قبل النقل ==');
     r = await E.call(port, '/api/info');
     ok(r.body.db === false, 'المحرك يعمل على store.json كما كان', r.body);
