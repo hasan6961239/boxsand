@@ -916,7 +916,9 @@ var Stock = (function () {
       '<button class="btn" onclick="Stock.setupLink()">⚙ بيانات الفرع والربط</button>' +
       '<button class="btn" onclick="Stock.openRequests()">طلبات التحويل' +
       (pend ? ' <span class="badge bad">' + pend + "</span>" : "") + "</button>" +
-      '<button class="btn primary" onclick="Stock.sync(true)">↻ تحديث الآن</button>' +
+      /* زرّان منفصلان: داخل الفرع (الأجهزة والهواتف) والفروع فيما بينها */
+      '<button class="btn primary" onclick="Rep.syncDevicesNow(this)">↻ تحديث الأجهزة والهواتف</button>' +
+      '<button class="btn" onclick="Rep.syncBranchesNow(this)">↻ تحديث الفروع</button>' +
       "</div>";
 
     h += '<div id="findResults"></div>';

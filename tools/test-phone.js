@@ -174,6 +174,7 @@ function site(cfg) {
     ok(await p.evaluate(() => !document.body.classList.contains('green')), 'تطبيق طرابلس بلونه الأزرق، وأول مرة يطلب رابط الربط');
     await shot(p, 't00-setup');
     await p.fill('#stLink', 'https://dar-alhekma-tripoli.netlify.app/' + link + '&b=misrata');
+    await p.fill('#stName', 'سالم');
     await p.click('[data-a="link"]');
     await p.waitForSelector('.who .p', { timeout: 90000 });
     ok(await p.evaluate(() => Core.branchId()) === 'tripoli', 'رابط فيه فرع آخر لا يغيّر فرع التطبيق (طرابلس)');
@@ -503,7 +504,7 @@ function site(cfg) {
     await syncOk('الإعدادات');
     const secs = await p.$$eval('.ssec', x => x.map(e => e.textContent));
     ok(secs.join('|') === 'الحساب والأمان|المظهر|البيع والمسح|إضافة وتعديل|التحديث والإرسال|هذا الهاتف والربط|حول التطبيق', 'الإعدادات مرتّبة في أقسام', secs);
-    ok(/3\.0/.test(await txt(p, '.page')) && /محدّثة/.test(await txt(p, '.page')), 'فيها الإصدار 3.0، وأن منظومة الكمبيوتر تقبل ميزات الهاتف');
+    ok(/3\.1/.test(await txt(p, '.page')) && /محدّثة/.test(await txt(p, '.page')), 'فيها الإصدار 3.1، وأن منظومة الكمبيوتر تقبل ميزات الهاتف');
     await shot(p, 't19-settings');
     await p.click('[data-a="pPick"][data-v="dark"]'); await p.click('[data-a="pSet"][data-v="dark|dark"]'); await sleep(300);
     const dk = await p.evaluate(() => ({ dark: document.body.classList.contains('dark'), bg: getComputedStyle(document.body).backgroundColor, card: getComputedStyle(document.querySelector('.list')).backgroundColor, ink: getComputedStyle(document.body).color }));
@@ -588,12 +589,16 @@ function site(cfg) {
       ok(/حرف غير إنجليزي/.test(await z.textContent('#stErr')), 'كلمة سر بحروف عربية: يقول «فيها حرف غير إنجليزي» قبل أي اتصال');
       await z.fill('#stKey', 'wrong-key');
       await z.click('[data-a="link"]');
+      ok(/اكتب اسمك/.test(await z.textContent('#stErr')), 'بلا اسم: «اكتب اسمك» — يظهر في «الأجهزة المربوطة» على الكمبيوتر');
+      await z.fill('#stName', 'عبد الرحمن');
+      await z.click('[data-a="link"]');
       await z.waitForFunction(() => /تعذّر الاتصال/.test((document.getElementById('stErr') || {}).textContent || ''), null, { timeout: 30000 });
       ok(await z.inputValue('#stUrl') === cloud.url && await z.inputValue('#stKey') === 'wrong-key', 'كلمة السر الخطأ: يقول «تعذّر الاتصال» وما كتبتَه يبقى في الخانتين لتصحّحه');
       await z.fill('#stKey', KEY);
       await z.click('[data-a="link"]');
       await z.waitForSelector('#pw2', { timeout: 30000 });
       ok(true, 'وبكلمة السر الصحيحة (مكتوبة يدوياً في خانتها) يرتبط ويطلب رمز الهاتف');
+      ok(await z.evaluate(() => Core.S.phone.name) === 'عبد الرحمن', 'واسمه محفوظ للهاتف (يُرسل مع التسليم)');
       await cx.close();
       /* رابط جاهز يُلصق: يملأ الخانتين ويحفظ فرعه */
       const cy = await browser.newContext({ ...devices['iPhone 13'] });
@@ -604,6 +609,7 @@ function site(cfg) {
       ok(await y.inputValue('#stUrl') === cloud.url && await y.inputValue('#stKey') === KEY, 'لصق الرابط الجاهز يملأ خانتي العنوان وكلمة السر وحده');
       ok(/ملأتُ الخانتين/.test(await y.textContent('#stErr')), 'ويقول «ملأتُ الخانتين»');
       await shot(y, 't0b-setup-filled');
+      await y.fill('#stName', 'محمد');
       await y.click('[data-a="link"]');
       await y.waitForSelector('#pw2', { timeout: 30000 });
       ok(await y.evaluate(() => Core.branchId()) === 'misrata', 'والربط به يعمل ومعه فرع الرابط');

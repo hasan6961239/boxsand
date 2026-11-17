@@ -84,7 +84,7 @@ var Core = (function () {
       /* «إضافة كمية»: جلسة إدخال بضاعة تبقى حتى تُحفظ (ولو أُغلق التطبيق) */
       recv: { dst: "shelf", sp: "", nt: "", lines: [] },
       pref: {}, draft: {},
-      bio: {}, pin: null, last: "", at: "", catVer: "", seen: {}
+      bio: {}, pin: null, last: "", at: "", catVer: "", deltaVer: "", seen: {}
     };
   }
   /* الإعدادات وقيمها الأولى. lockMin: القفل بعد الغياب (دقائق) · every: التحديث التلقائي (0 = الأسرع المسموح،
@@ -177,13 +177,13 @@ var Core = (function () {
     S.cfg.url = String(l.url || "").trim();
     S.cfg.key = String(l.key || "").trim();
     if (!CFG.branch && l.branch) S.cfg.branch = String(l.branch).toLowerCase();
-    S.at = ""; S.catVer = "";
+    S.at = ""; S.catVer = ""; S.deltaVer = "";
     data.snap = null; data.cat = null; ver++;
     drop("snap"); drop("cat");
     save();
   }
   function unlink() {
-    S.cfg.url = ""; S.cfg.key = ""; S.at = ""; S.catVer = "";
+    S.cfg.url = ""; S.cfg.key = ""; S.at = ""; S.catVer = ""; S.deltaVer = "";
     if (!CFG.branch) S.cfg.branch = "";
     data.snap = null; data.cat = null; ver++;
     drop("snap"); drop("cat");
@@ -275,11 +275,90 @@ var Core = (function () {
       return next().then(function () { return unpack(got.join("")); }).then(function (txt) {
         var j = JSON.parse(txt);
         var cat = { ver: c.ver, at: j.at || "", n: (j.items || []).length, items: j.items || [], name: c.name || "" };
-        data.cat = cat; S.catVer = c.ver; ver++;
+        data.cat = cat; S.catVer = c.ver; S.deltaVer = ""; ver++;
         put("cat", cat); save();
         return cat;
       });
     });
+  }
+
+  /* ---------- الهاتف في «الأجهزة المربوطة»، وتغييرات القائمة كل دقيقة ----------
+     التسليم (v2/hello، role=phone) يكتب اسم الهاتف ومن دخل منه وآخر ظهور، ويقول رقم آخر
+     تغييرات نشرها جهاز المحل على القائمة الكاملة. إن تغيّر: تُؤخذ (صغيرة، مضغوطة) وتُطبَّق
+     فوق القائمة. خادم قديم بلا المسارين: لا شيء يتغيّر (القائمة الكاملة كما كانت) */
+  function devToken() { return "ph" + String(S.phone.id || "").replace(/^phone-/, ""); }
+  function catBranch() { var m = mine(); return branchId() || (m && m.branch ? String(m.branch.id || "").toLowerCase() : ""); }
+  function presence() {
+    var br = catBranch();
+    if (!configured() || !br || badKeyChars(S.cfg.key)) return Promise.resolve(null);
+    var person = me ? me.n : "";
+    var q = "?branch=" + encodeURIComponent(br) + "&device=" + devToken() + "&role=phone&name=" +
+      encodeURIComponent(String(S.phone.name || "هاتف").slice(0, 40) + "|" + String(person || "").slice(0, 30));
+    return fetch(base() + "/v2/hello" + q, { headers: hdr(), cache: "no-store" }).then(function (r) {
+      if (r.status === 410) return r.json().then(function (j) { if (j && j.code === "unlinked") throw new Error("UNLINKED"); return null; });
+      if (!r.ok) return null;
+      return r.json();
+    }).catch(function (e) { if (e && e.message === "UNLINKED") throw e; return null; });
+  }
+  function catRowKey(a) { return itemKey(a[4], a[1], a[0] === "stat" ? "stat" : "book", a[2]); }
+  function applyDelta(cat, d) {
+    var idx = {};
+    cat.items.forEach(function (a, i) { idx[catRowKey(a)] = i; });
+    (d.items || []).forEach(function (a) {
+      if (!Array.isArray(a)) return;
+      var k = catRowKey(a);
+      if (idx[k] !== undefined) cat.items[idx[k]] = a;
+      else { idx[k] = cat.items.length; cat.items.push(a); }
+    });
+    if (d.gone && d.gone.length) {
+      var gone = {};
+      d.gone.forEach(function (k) { gone[k] = 1; });
+      cat.items = cat.items.filter(function (a) { return !gone[catRowKey(a)]; });
+    }
+    cat.n = cat.items.length;
+  }
+  function fetchDelta(meta) {
+    var br = catBranch();
+    if (!meta || !data.cat || meta.base !== S.catVer || meta.ver === S.deltaVer) return Promise.resolve(false);
+    return fetch(base() + "/v2/catdelta?branch=" + encodeURIComponent(br), { headers: hdr(), cache: "no-store" }).then(function (r) {
+      return r.status === 200 ? r.text() : null;
+    }).then(function (t) {
+      if (!t || !data.cat) return false;
+      return unpack(t).then(function (txt) {
+        var d = JSON.parse(txt);
+        /* رقم القائمة داخل التغييرات: تُطبَّق فوق القائمة التي بُنيت عليها فقط */
+        if (!d || d.base !== S.catVer || d.ver === S.deltaVer) return false;
+        applyDelta(data.cat, d);
+        data.cat.at = nowStamp();
+        S.deltaVer = d.ver || meta.ver; ver++;
+        put("cat", data.cat); save();
+        return true;
+      });
+    }).catch(function () { return false; });
+  }
+  /* بين التحديثات الكاملة: تسليم خفيف، والتغييرات إن وُجدت */
+  var quickBusy = false;
+  function quick() {
+    if (quickBusy || busy || !configured()) return Promise.resolve(false);
+    quickBusy = true;
+    return presence().then(function (h) {
+      return h && h.delta ? fetchDelta(h.delta) : false;
+    }).then(function (changed) {
+      quickBusy = false;
+      if (changed) emit("data", { acks: [], eds: [] });
+      return changed;
+    }, function (e) {
+      quickBusy = false;
+      if (e && e.message === "UNLINKED") unlinkedHere();
+      return false;
+    });
+  }
+  /* فُكّ ربط هذا الهاتف من المنظومة: يرجع لشاشة الربط برقم جهاز جديد (الربط من جديد ممكن) */
+  function unlinkedHere() {
+    unlink();
+    S.phone.id = "phone-" + rand(8);
+    save();
+    emit("unlinked");
   }
 
   /* التحديث: اللقطات، ثم قائمة فرعنا إن كان كبيراً، ثم التأكيدات والإرسال */
@@ -303,6 +382,12 @@ var Core = (function () {
           return null;
         });
     }).then(function () {
+      /* الاسم والحالة في المنظومة، وتغييرات القائمة بعد آخر نشر كامل */
+      return presence().then(function (h) { return h && h.delta ? fetchDelta(h.delta) : false; }, function (e) {
+        if (e && e.message === "UNLINKED") throw e;
+        return false;
+      });
+    }).then(function () {
       busy = false;
       lastErr = "";
       var newly = takeAcks();
@@ -314,6 +399,7 @@ var Core = (function () {
       return true;
     }).catch(function (e) {
       busy = false;
+      if (e && e.message === "UNLINKED") { emit("busy", false); unlinkedHere(); return false; }
       lastErr = (e && e.message) || "NET";
       emit("busy", false);
       emit("error", e && (e.message === "BADKEY" || e.message === "BADCHARS") ? e.message : "NET");
@@ -1053,7 +1139,7 @@ var Core = (function () {
     start: start, save: save, on: on, emit: emit,
     esc: esc, num: num, r3: r3, money: money, norm: norm, digits: digits, ago: ago, fmtN: fmtN,
     localToday: localToday, nowStamp: nowStamp, rand: rand,
-    configured: configured, parseLink: parseLink, setLink: setLink, unlink: unlink, refresh: refresh, isBusy: function () { return busy; }, lastError: function () { return lastErr; }, badKeyChars: badKeyChars,
+    configured: configured, parseLink: parseLink, setLink: setLink, unlink: unlink, refresh: refresh, quick: quick, applyDelta: applyDelta, isBusy: function () { return busy; }, lastError: function () { return lastErr; }, badKeyChars: badKeyChars,
     mine: mine, branches: branches, shop: shop, cur: cur, branchId: branchId,
     items: items, info: info, byKey: byKey, byCode: byCode, search: search, invalidate: invalidate,
     proto: proto, lists: lists, byType: byType, shelfMap: shelfMap, pref: pref, setPref: setPref, PREF0: PREF0,

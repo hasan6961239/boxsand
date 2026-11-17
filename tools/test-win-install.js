@@ -119,6 +119,12 @@ function install(file) {
     ok(info.edition === 'misrata' && info.db === false && !info.x3 && path.resolve(info.dataDir) === path.resolve(M.data),
       'يفتح على مجلد البيانات نفسه، على store.json كما كان', info);
     ok((await M.load()).text === text0, 'والبيانات كما هي حرفاً');
+    /* التفعيل (قرار 0028): جهاز عليه بيانات من قبل (تحديث) يعمل بلا رمز، ويُحفظ في سجل ويندوز
+       ومجلدي المستخدم والجهاز. بناء بلا مفتاح: التفعيل معطّل أصلاً */
+    let act = (await M.raw('/api/act/status')).body;
+    ok(act && act.active === true && (act.required === false || act.kind === 'upgrade'), 'التفعيل: تحديث فوق بيانات سابقة يعمل بلا رمز', act);
+    if (act && act.required) ok(fs.existsSync(path.join(LOCAL, 'QirtasiyaAct', 'act.txt')) && fs.existsSync(path.join(process.env.ProgramData || 'C:\\ProgramData', 'QirtasiyaAct', 'act.txt')),
+      'وسجل التفعيل خارج مجلد البيانات (المستخدم والجهاز كله)');
 
     console.log('\n== 2) «هذا جهاز المحل» ==');
     let ow = await M.claim();
@@ -163,6 +169,8 @@ function install(file) {
     await T.start();
     const tinfo = (await T.raw('/api/info')).body;
     ok(tinfo.edition === 'tripoli' && path.resolve(tinfo.dataDir) === path.resolve(T.data), 'طرابلس بمجلد بياناتها Qirtasiya-Tripoli', tinfo);
+    act = (await T.raw('/api/act/status')).body;
+    ok(act && act.active === true && (!act.required || /^T-/.test(act.device)), 'وطرابلس على الجهاز نفسه مفعّلة بنفس التفعيل (رقمها يبدأ بـ T)', act);
     ok((await M.raw('/api/info')).body.x3 === true && same(JSON.parse((await M.load()).text), s1), 'ومصراتة تعمل معها، وبياناتها لم تتغيّر');
 
     /* آخراً: النافذة تفتح شاشة 3.x فتحفظ ما تحفظه أول مرة، وفحص البيانات انتهى قبلها */

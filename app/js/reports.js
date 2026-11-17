@@ -60,6 +60,8 @@ var Rep = (function () {
       if (to && p.date > to) return;
       supOut += App.num(p.amount);
     });
+    /* المصروفات «من الدرج» (كهرباء، ضيافة...) تخرج من النقد المفروض */
+    var expOut = typeof Expenses !== "undefined" ? Expenses.total(from, to, true) : 0;
     /* طرابلس: ما دُفع للمؤلفين من الدرج يخرج من النقد كذلك */
     var authOut = 0;
     (S().authorPays || []).forEach(function (p) {
@@ -70,8 +72,8 @@ var Rep = (function () {
     });
     return {
       salesCash: App.r3(cash), upfront: App.r3(upfront), debtPaid: App.r3(debtPaid), nPaid: nPaid,
-      refundCredit: App.r3(refundCredit), consOut: App.r3(consOut), supOut: App.r3(supOut), authOut: App.r3(authOut),
-      cash: App.r3(cash + upfront + debtPaid - refundCredit - consOut - supOut - authOut),
+      refundCredit: App.r3(refundCredit), consOut: App.r3(consOut), supOut: App.r3(supOut), authOut: App.r3(authOut), expOut: App.r3(expOut),
+      cash: App.r3(cash + upfront + debtPaid - refundCredit - consOut - supOut - authOut - expOut),
       card: App.r3(card),
       due: App.r3(inv.reduce(function (s2, v) { return s2 + App.num(v.due); }, 0))
     };
@@ -313,6 +315,21 @@ var Rep = (function () {
         '<div class="foot">من مبيعات ' + App.money0(b.sales) + " · " + b.n + " فاتورة</div></div>";
     });
     h += "</div>";
+
+    /* صافي الربح بعد المصروفات (الإيجار والرواتب والكهرباء... من الدرج ومن خارجه) */
+    var ex = typeof Expenses !== "undefined" ? [Expenses.total(t, t), Expenses.total(mo, t), Expenses.total(yr, t)] : [0, 0, 0];
+    if (ex[2] > 0) {
+      h += '<div class="card" style="margin-bottom:18px"><div class="card-head"><h3>صافي الربح بعد المصروفات</h3><div class="spacer"></div>' +
+        '<a class="btn sm ghost" href="#/expenses">المصروفات</a></div><div class="card-body"><div class="grid g3">';
+      [d, m, y].forEach(function (b, i) {
+        var net = b.profit - ex[i];
+        h += '<div class="card stat ' + (net < 0 ? "bad" : "accent") + '" style="padding:18px;box-shadow:none;border:1px solid var(--line)">' +
+          '<div class="lbl">' + b.lbl + "</div>" +
+          '<div class="val">' + App.money0(net) + "</div>" +
+          '<div class="foot">ربح ' + App.money0(b.profit) + " − مصروفات " + App.money0(ex[i]) + "</div></div>";
+      });
+      h += "</div></div></div>";
+    }
 
     h += '<div class="grid g3" style="margin-bottom:18px">' +
       card("blue", "قيمة المخزون شراءً", App.money0(invValue), "") +
@@ -565,7 +582,8 @@ var Rep = (function () {
         (tk.refundCredit ? " · رُدّ " + App.money0(tk.refundCredit) : "") +
         (tk.consOut ? " · دُفع لأصحاب المباع " + App.money0(tk.consOut) : "") +
         (tk.supOut ? " · دُفع لموردين " + App.money0(tk.supOut) : "") +
-        (tk.authOut ? " · دُفع لمؤلفين " + App.money0(tk.authOut) : "") + "</div></div>" +
+        (tk.authOut ? " · دُفع لمؤلفين " + App.money0(tk.authOut) : "") +
+        (tk.expOut ? ' · <b class="exp-out">مصروفات من الدرج ' + App.money0(tk.expOut) + "</b>" : "") + "</div></div>" +
       '<div class="paybox card"><div class="pb-t">' + App.esc(S().meta.cardName || "البطاقة المصرفية") + "</div>" +
       '<div class="pb-v num">' + App.money0(card2) + "</div>" +
       '<div class="pb-s">' + cntBy("card") + " فاتورة</div></div>" +
@@ -722,6 +740,7 @@ var Rep = (function () {
       (tk.consOut ? '<div class="tot"><span>دُفع لأصحاب المباع من الدرج</span><span class="num">−' + App.money0(tk.consOut) + "</span></div>" : "") +
       (tk.supOut ? '<div class="tot"><span>دُفع لموردين من الدرج</span><span class="num">−' + App.money0(tk.supOut) + "</span></div>" : "") +
       (tk.authOut ? '<div class="tot"><span>دُفع لمؤلفين من الدرج</span><span class="num">−' + App.money0(tk.authOut) + "</span></div>" : "") +
+      (tk.expOut ? '<div class="tot"><span>مصروفات من الدرج</span><span class="num">−' + App.money0(tk.expOut) + "</span></div>" : "") +
       '<div class="tot"><span>آجل (لم يُقبض)</span><span class="num">' + App.money0(tk.due) + "</span></div>" +
       '<div class="tot g"><span>المقبوض فعلياً</span><span class="num">' + App.money0(cash + card2) + " " + App.esc(S().meta.currency) + "</span></div>" +
       "<hr>" +
@@ -916,10 +935,12 @@ var Rep = (function () {
   function setDevices() {
     var h = "";
     if (App.can("settings")) {
-      h += '<div class="grid g2" style="margin-bottom:16px">' + linkCard() +
-        '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>الأجهزة المربوطة</h3><div class="spacer"></div>' +
-        '<button class="btn sm ghost" onclick="Rep.loadDevs()">↻ تحديث</button></div><div class="card-body" id="devList">' +
+      h += '<div class="grid g2" style="margin-bottom:16px">' +
+        '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>التحديث</h3></div><div class="card-body" id="syncBox">' +
         '<span class="muted small">…</span></div></div>' +
+        '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3 id="devTitle">الأجهزة المربوطة</h3><div class="spacer"></div>' +
+        '<span class="muted small" id="devCount"></span></div><div class="card-body" id="devList">' +
+        '<span class="muted small">…</span></div></div>' + linkCard() +
         '<div class="card" style="grid-column:1/-1"><div class="card-head"><h3>ربط الفروع والمشاهدة من التلفون</h3>' +
         '<div class="spacer"></div><span id="syncState"></span></div><div class="card-body">' + Stock.linkBlock() + "</div></div></div>";
       setTimeout(function () { loadLink(); loadDevs(); if (Stock.afterRender) Stock.afterRender(); }, 0);
@@ -928,47 +949,149 @@ var Rep = (function () {
     return h;
   }
 
-  /* أجهزة الفرع وآخر تحديث لكل جهاز (من خادم الربط)، وهواتفه وآخر ما أرسله كل هاتف */
+  /* أجهزة الفرع وآخر تحديث لكل جهاز (من خادم الربط)، وهواتفه بأسمائها وحالتها */
   function ago(ms) {
     var m = Math.max(0, Math.round(ms / 60000));
     if (m < 1) return "الآن";
-    if (m < 60) return "منذ " + m + " دقيقة";
-    if (m < 1440) return "منذ " + Math.round(m / 60) + " ساعة";
-    return "منذ " + Math.round(m / 1440) + " يوم";
+    if (m < 60) return "قبل " + (m === 1 ? "دقيقة" : m === 2 ? "دقيقتين" : m + (m <= 10 ? " دقائق" : " دقيقة"));
+    if (m < 1440) { var hh = Math.round(m / 60); return "قبل " + (hh === 1 ? "ساعة" : hh === 2 ? "ساعتين" : hh + (hh <= 10 ? " ساعات" : " ساعة")); }
+    var d = Math.round(m / 1440);
+    return "قبل " + (d === 1 ? "يوم" : d === 2 ? "يومين" : d + (d <= 10 ? " أيام" : " يوماً"));
   }
+  function agoStamp(st) {
+    var t = Date.parse(String(st || "").replace(" ", "T"));
+    return isNaN(t) ? "" : ago(Date.now() - t);
+  }
+  var BR_EVERY = [{ m: 60, t: "تلقائي: كل ساعة" }, { m: 360, t: "تلقائي: كل 6 ساعات" }, { m: 1440, t: "تلقائي: مرة في اليوم" }];
+  function cityName() { var b = S().branch || {}; return b.city || b.name || b.id || ""; }
+
+  /* «التحديث»: داخل الفرع (الأجهزة والهواتف، كل دقيقة) والفروع فيما بينها (كل ساعة أو أكثر) — زرّان منفصلان */
+  function paintSyncBox() {
+    var host = document.getElementById("syncBox");
+    if (!host) return;
+    var L = link || {}, linked = !!(L.linked && L.role);
+    var others = (L.remotes || []).map(function (r) { return r.name || r.city || r.id; }).filter(Boolean);
+    var every = App.num(L.branchEvery) || 60, opt = BR_EVERY.slice();
+    if (!opt.some(function (o) { return o.m === every; })) opt.push({ m: every, t: "تلقائي: كل " + every + " دقيقة" });
+    var devAt = L.lastOk ? agoStamp(L.lastOk) : "", brAt = L.catAt ? agoStamp(L.catAt) : "";
+    host.innerHTML = '<div class="sync-two">' +
+      '<div class="sync-pane"><h4>الأجهزة والهواتف — داخل فرع ' + App.esc(cityName()) + "</h4>" +
+      '<p class="muted small">' + (linked ? "آخر تحديث: " + (devAt || "لم يتم بعد") : "اربط أجهزة الفرع من «ربط الأجهزة» تحت") +
+      " · البيع من الهاتف يوصل خلال دقيقة</p>" +
+      '<div class="inp sync-fixed">تلقائي: كل دقيقة (اللي تبدّل بس)</div>' +
+      (L.deltaOld ? '<p class="small" style="color:var(--stamp)">خادم الربط يحتاج كوده الجديد باش الهواتف تتحدّث كل دقيقة: «خطوات الربط» تحت ← انسخ الكود ← الصقه في Cloudflare مكان القديم ← Deploy.</p>' : "") +
+      '<button class="btn primary" style="width:100%" onclick="Rep.syncDevicesNow(this)">↻ تحديث الأجهزة والهواتف</button></div>' +
+      '<div class="sync-pane"><h4>الفروع — ' + App.esc(cityName()) + (others.length ? " ↔ " + App.esc(others.join("، ")) : "") + "</h4>" +
+      '<p class="muted small">' + (linked ? "آخر تحديث: " + (brAt || "لم يتم بعد") : "تحتاج ربط هذا الجهاز أولاً") + "</p>" +
+      '<select class="inp" onchange="Rep.setBranchEvery(this.value)"' + (linked ? "" : " disabled") + ">" +
+      opt.map(function (o) { return '<option value="' + o.m + '"' + (o.m === every ? " selected" : "") + ">" + App.esc(o.t) + "</option>"; }).join("") +
+      "</select>" +
+      '<button class="btn" style="width:100%" onclick="Rep.syncBranchesNow(this)">↻ تحديث الفروع</button></div></div>';
+  }
+
+  /* زرّا التحديث يعملان من صفحة «المخزون والفروع» أيضاً، قبل أن تُفتح الإعدادات */
+  function ensureLink() {
+    if (link) return Promise.resolve(link);
+    return App.apiJson("/api/link").then(function (r) { link = r && r.ok ? r.data : null; return link; }).catch(function () { return null; });
+  }
+
+  function busyBtn(b, on) { if (!b) return; b.disabled = !!on; if (on) { b.dataset.t = b.textContent; b.textContent = "لحظة…"; } else if (b.dataset.t) b.textContent = b.dataset.t; }
+
+  function syncDevicesNow(btn) {
+    busyBtn(btn, true);
+    var done = function (msg, kind) { busyBtn(btn, false); App.toast(msg, kind); link = null; ensureLink().then(function () { paintSyncBox(); loadDevs(); }); };
+    var kv = typeof Stock !== "undefined" && Stock.sync ? Stock.sync(false, true) : Promise.resolve();
+    Promise.resolve(kv).then(ensureLink).then(function (l) {
+      if (!l || !l.linked) return null;
+      return App.apiWrite("/api/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "now" }) });
+    }).then(function () { done("حُدّثت الأجهزة والهواتف.", "ok"); }, function (e) { done("تعذّر التحديث: " + (e && e.message ? e.message : e), "bad"); });
+  }
+
+  function syncBranchesNow(btn) {
+    busyBtn(btn, true);
+    var done = function (msg, kind) { busyBtn(btn, false); App.toast(msg, kind); link = null; ensureLink().then(paintSyncBox); if (location.hash.indexOf("#/stock") === 0) App.rerender(); };
+    var kv = typeof Stock !== "undefined" && Stock.sync ? Stock.sync(true) : Promise.resolve();
+    Promise.resolve(kv).then(ensureLink).then(function (l) {
+      if (!l || !l.linked) return null;
+      return App.apiWrite("/api/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "branches" }) });
+    }).then(function () { done("حُدّثت الفروع.", "ok"); }, function (e) { done("تعذّر تحديث الفروع: " + (e && e.message ? e.message : e), "bad"); });
+  }
+
+  function setBranchEvery(v) {
+    App.apiWrite("/api/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "every", minutes: App.num(v) }) })
+      .then(function (r) { if (r && r.data) { link = r.data; paintSyncBox(); } App.toast("تحديث الفروع: " + (BR_EVERY.filter(function (o) { return o.m === App.num(v); })[0] || { t: v }).t.replace("تلقائي: ", "") + ".", "ok"); })
+      .catch(function (e) { App.toast("ما تحفظش: " + (e && e.message ? e.message : e), "bad"); });
+  }
+
+  function unlinkDev(id, name, phone) {
+    App.modal({
+      title: "فك ربط «" + name + "»",
+      size: "narrow",
+      body: '<p style="line-height:1.9;margin-top:0">' + (phone
+        ? "الهاتف هذا يطلع من القائمة، وما يقدرش يتحدّث ولا يبيع من جديد إلا لو انربط من الأول."
+        : "الكمبيوتر هذا يطلع من القائمة. لو مازال شغّال ومربوط يرجع يظهر — افصله من عنده (الإعدادات ← ربط الأجهزة).") + "</p>",
+      actions: [{ label: "فك الربط", kind: "danger", click: function (close) {
+        App.apiWrite("/api/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "unlink", device: id }) })
+          .then(function () { close(); App.toast("فُكّ ربط «" + name + "».", "ok"); loadDevs(); })
+          .catch(function (e) { App.toast(e && e.message ? e.message : String(e), "bad"); });
+      } }]
+    });
+  }
+
   function loadDevs() {
     var host = document.getElementById("devList");
     if (!host) return;
+    var t = document.getElementById("devTitle");
+    if (t) t.textContent = "الأجهزة المربوطة بفرع " + cityName();
     App.apiJson("/api/link/devices").then(function (r) {
       host = document.getElementById("devList");
       if (!host) return;
-      var phones = (typeof Stock !== "undefined" && Stock.phones) ? Stock.phones() : [];
+      var oldPhones = (typeof Stock !== "undefined" && Stock.phones) ? Stock.phones() : [];
       if (!r || !r.ok) {
         host.innerHTML = '<p class="muted small" style="margin:0;line-height:1.9">' + (r && r.code === "old"
           ? "قائمة الأجهزة تحتاج تحديث كود خادم الربط مرة واحدة: «خطوات الربط» أعلاه ← انسخ الكود ← الصقه في Cloudflare مكان القديم ← Deploy."
-          : (r && r.error ? App.esc(r.error) : "هذا الجهاز غير مربوط بعد — اربطه من «ربط الأجهزة» أعلاه.")) + "</p>";
+          : (r && r.error ? App.esc(r.error) : "هذا الجهاز غير مربوط بعد — اربطه من «ربط الأجهزة» تحت.")) + "</p>";
         return;
       }
       var d = r.data || {}, now = +d.now || Date.now(), list = d.devices || [];
+      var iAmMain = !!(link && link.role === "main"), seenPh = {};
+      var me = typeof Staff !== "undefined" && Staff.current ? Staff.current() : null;
       var rows = list.map(function (x) {
-        var seen = +x.seen || 0, on = now - seen < 150000;
-        var main = x.device === d.main;
-        return { name: x.name || (main ? "جهاز المحل" : "جهاز"), kind: main ? "جهاز المحل" : "جهاز ثانٍ", me: x.device === d.me,
-          when: seen ? ago(now - seen) : "—", at: seen ? new Date(seen).toLocaleString("ar-LY", { hour12: false }) : "", on: on };
+        /* رمز الكمبيوتر حروف ست عشرية فقط، ورمز الهاتف يبدأ بـ ph (خادم قديم يسجّله «second») */
+        var seen = +x.seen || 0, phone = x.role === "phone" || /^ph/.test(String(x.device || ""));
+        var main = x.device === d.main, mine = x.device === d.me;
+        var nm = String(x.name || ""), person = "";
+        if (phone) { var p = nm.split("|"); nm = p[0] || "هاتف"; person = p[1] || ""; seenPh[String(x.device).slice(2)] = 1; }
+        else if (mine && me) person = me.name || "";
+        return { id: x.device, name: nm || (main ? "جهاز المحل" : "كمبيوتر"), kind: main ? "جهاز المحل" : phone ? "هاتف" : "كمبيوتر",
+          person: person, me: mine, phone: phone, main: main, when: seen ? ago(now - seen) : "—",
+          at: seen ? new Date(seen).toLocaleString("ar-LY", { hour12: false }) : "", on: now - seen < 150000, seen: seen };
       });
-      phones.forEach(function (p) {
-        var t = Date.parse(String(p.at).replace(" ", "T"));
-        rows.push({ name: p.name, kind: "هاتف", me: false, when: isNaN(t) ? (p.at || "—") : ago(Date.now() - t), at: p.at || "", on: false, phone: true });
+      oldPhones.forEach(function (p) {
+        if (seenPh[String(p.id || "").replace(/^phone-/, "")]) return;
+        rows.push({ id: "", name: p.name || "هاتف", kind: "هاتف", person: "", me: false, phone: true, old: true,
+          when: agoStamp(p.at) || p.at || "—", at: p.at || "", on: false, seen: Date.parse(String(p.at).replace(" ", "T")) || 0 });
       });
-      host.innerHTML = '<p class="muted small" style="margin:0 0 10px;line-height:1.8"><b>' + list.length + "</b> جهاز كمبيوتر" +
-        (phones.length ? " و<b>" + phones.length + "</b> هاتف" : "") + " مربوط بهذا الفرع. «آخر تحديث» آخر مرة تواصل فيها الجهاز مع خادم الربط." +
-        (phones.length ? " وللهاتف: آخر مرة أرسل فيها بيعاً أو تعديلاً." : "") + "</p>" +
-        App.table([
-          { h: "الجهاز", c: function (x) { return "<b>" + App.esc(x.name) + "</b>" + (x.me ? ' <span class="badge ok">هذا الجهاز</span>' : ""); } },
-          { h: "النوع", c: function (x) { return App.esc(x.kind); } },
-          { h: "آخر تحديث", c: function (x) { return App.esc(x.when) + (x.at ? '<div class="sub num">' + App.esc(x.at) + "</div>" : ""); } },
-          { h: "الحالة", c: function (x) { return x.phone ? '<span class="muted small">—</span>' : x.on ? '<span class="badge ok">متصل الآن</span>' : '<span class="badge">غير متصل</span>'; } }
-        ], rows, { emptyTitle: "لا أجهزة بعد", emptyText: "تظهر الأجهزة هنا بعد ربطها." });
+      var rank = function (x) { return x.main ? 0 : x.phone ? 2 : 1; };
+      rows.sort(function (a, b) { return rank(a) - rank(b) || b.seen - a.seen; });
+      var nPc = rows.filter(function (x) { return !x.phone; }).length, nPh = rows.length - nPc;
+      var cnt = document.getElementById("devCount");
+      if (cnt) cnt.textContent = nPc + " كمبيوتر" + (nPh ? " و" + nPh + " " + (nPh === 1 ? "هاتف" : nPh === 2 ? "هاتفين" : "هواتف") : "");
+      host.innerHTML = App.table([
+        { h: "الجهاز", c: function (x) { return (x.phone ? "📱 " : "🖥 ") + "<b>" + App.esc(x.name) + "</b>" + (x.me ? ' <span class="badge info">هذا الجهاز</span>' : ""); } },
+        { h: "النوع", c: function (x) { return App.esc(x.kind); } },
+        { h: "الشخص", c: function (x) { return x.person ? App.esc(x.person) : '<span class="muted">—</span>'; } },
+        { h: "آخر تحديث", c: function (x) { return App.esc(x.when) + (x.at && !x.old ? '<div class="sub num">' + App.esc(x.at) + "</div>" : ""); } },
+        { h: "الحالة", c: function (x) {
+          if (x.old) return '<span class="badge">نسخة قديمة</span><div class="sub">حدّث التطبيق باش تظهر حالته</div>';
+          return x.on ? '<span class="badge ok">متصل الآن</span>' : '<span class="badge">غير متصل</span>';
+        } },
+        { h: "", c: function (x) {
+          if (!iAmMain || x.main || x.me || !x.id) return "";
+          return '<button class="btn sm ghost" onclick="Rep.unlinkDev(\'' + App.esc(x.id) + "','" + App.esc(x.name).replace(/'/g, "") + "'," + (x.phone ? "true" : "false") + ')">فك الربط</button>';
+        } }
+      ], rows, { emptyTitle: "لا أجهزة بعد", emptyText: "تظهر الأجهزة والهواتف هنا بعد ربطها." }) +
+        '<p class="muted small" style="margin:10px 0 0;line-height:1.8">«متصل الآن»: تواصل مع خادم الربط في آخر دقيقتين. الهاتف يظهر وتطبيقه مفتوح، وباسم اللي ربطه.</p>';
     }).catch(function () {
       var h2 = document.getElementById("devList");
       if (h2) h2.innerHTML = '<span class="muted small">تعذّر الاتصال بخادم الربط.</span>';
@@ -1131,7 +1254,7 @@ var Rep = (function () {
             var s2 = S();
             ["books", "stationery", "customers", "suppliers", "invoices", "payments", "purchases",
               "log", "consignors", "consignments", "consPayments", "closings", "warehouses", "supPayments",
-              "authors", "authorPays"].forEach(function (k) {
+              "authors", "authorPays", "expenses"].forEach(function (k) {
                 s2[k] = [];
               });
             s2.counters = { invoice: 0, book: 0, stat: 0 };
@@ -1530,6 +1653,7 @@ var Rep = (function () {
   }
 
   function paintLink() {
+    paintSyncBox();
     var host = document.getElementById("lnkBody"), st = document.getElementById("lnkState");
     if (!host || !link) return;
     if (!link.linked || !link.role) {
@@ -1694,6 +1818,7 @@ var Rep = (function () {
     copyDir: copyDir, linkMain: linkMain, linkSecond: linkSecond, linkNow: linkNow, linkStop: linkStop,
     dashboard: dashboard, reports: reports, settings: settings, firstRun: firstRun,
     setTab: goSetTab, pickLogo: pickLogo, dropLogo: dropLogo, loadDevs: loadDevs,
+    syncDevicesNow: syncDevicesNow, syncBranchesNow: syncBranchesNow, setBranchEvery: setBranchEvery, unlinkDev: unlinkDev,
     setRange: setRange, quick: quick, printReport: printReport,
     setMeta: setMeta, setList: setList, letters: letters, allLetters: allLetters,
     stocktake: stocktake, stockHub: stockHub, setStk: setStk, closeDay: closeDay, printStocktake: printStocktake,
@@ -1701,6 +1826,8 @@ var Rep = (function () {
     soldDetail: soldDetail,
     setSize: setSize, setTheme: setTheme, chipAdd: chipAdd, chipDel: chipDel, wipeAll: wipeAll, uninstall: uninstall,
     profits: profits, setPv: setPv, doUnlock: doUnlock, relock: relock, changeCode: changeCode,
+    /* المصروفات: ربح المبيعات في فترة (صافي ربح الشهر في صفحتها) */
+    profitBetween: function (from, to) { var inv = sales(from, to); return { sales: sum(inv, function (v) { return v.total; }), profit: sum(inv, function (v) { return v.profit; }) }; },
     testReceipt: testReceipt,
     backupNow: backupNow, openFolder: openFolder, restore: restore,
     recoverScreen: recoverScreen, setBackupDir: setBackupDir,

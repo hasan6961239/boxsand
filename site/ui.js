@@ -16,7 +16,7 @@ var UI = (function () {
   "use strict";
   var C = Core, esc = C.esc, num = C.num, money = C.money, fmtN = C.fmtN;
   function S() { return C.S; }
-  var VERSION = "3.0";
+  var VERSION = "3.1";
   var v = {
     screen: "home", back: [], key: "", code: "", fresh: true,
     mode: "", q: "", filt: "", cat: "", shown: 40, place: null, mapLib: "",
@@ -236,6 +236,8 @@ var UI = (function () {
       '<label class="fld"><span>٢) كلمة السر</span><div class="pwrow"><input class="inp ltr" id="stKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(f.k || "") + '">' +
       '<button type="button" class="eye" data-a="eye">إظهار</button></div></label>' +
       '<label class="fld"><span>أو الصق الرابط الجاهز كاملاً (يملأ الخانتين وحده)</span><input class="inp ltr" id="stLink" placeholder="https://…#u=…&amp;k=…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(f.l || "") + '"></label>' +
+      /* الاسم يظهر في «الأجهزة المربوطة» على كمبيوتر المحل: مَن هذا الهاتف ومتى آخر ظهور */
+      '<label class="fld"><span>٣) اسمك (يظهر في المنظومة على الكمبيوتر)</span><input class="inp" id="stName" placeholder="مثلاً: عبد الرحمن" autocomplete="off" maxlength="40" value="' + esc(f.n !== undefined ? f.n : (S().phone.name && S().phone.name !== "هاتف" ? S().phone.name : "")) + '"></label>' +
       '<div class="err" id="stErr">' + esc(v.setup) + "</div>" +
       '<button class="btn p" data-a="link">' + ic("check") + " اربط</button></div>" +
       '<p class="lfoot">التطبيق لا يغيّر شيئاً في المنظومة إلا ما تبيعه وتعدّله أنت، وكل شيء يمرّ عليها أولاً.</p></div>';
@@ -262,7 +264,8 @@ var UI = (function () {
     e.classList.toggle("good", !!good);
   }
   function doLink() {
-    var f = { l: ((el("stLink") || {}).value || "").trim(), u: ((el("stUrl") || {}).value || "").trim(), k: ((el("stKey") || {}).value || "").trim() };
+    var f = { l: ((el("stLink") || {}).value || "").trim(), u: ((el("stUrl") || {}).value || "").trim(), k: ((el("stKey") || {}).value || "").trim(),
+      n: ((el("stName") || {}).value || "").trim() };
     v.sf = f;
     var l = null;
     if (/#/.test(f.u) && /\bu=/.test(f.u)) l = C.parseLink(f.u);
@@ -275,6 +278,8 @@ var UI = (function () {
     if (!l && f.l) { l = C.parseLink(f.l); if (!l) { setupMsg("الرابط غير صحيح: لازم فيه #u=… و&k=… — أو املأ الخانتين فوق."); return; } }
     if (!l) { setupMsg(!f.u ? "اكتب عنوان الربط أولاً (الخانة ١)." : "اكتب كلمة السر (الخانة ٢)."); return; }
     if (C.badKeyChars(l.key)) { setupMsg("كلمة السر فيها حرف غير إنجليزي (عربي أو علامة ذكية مثل – بدل -). اكتبها بلوحة المفاتيح الإنجليزية."); return; }
+    if (!f.n) { setupMsg("اكتب اسمك (الخانة ٣) — يظهر في المنظومة باش يعرفوا الهاتف هذا متاع من."); return; }
+    S().phone.name = f.n.slice(0, 40);
     l.url = String(l.url).replace(/\/+$/, "");
     C.setLink(l);
     v.setup = "";
@@ -1851,6 +1856,16 @@ var UI = (function () {
     var min = num(S().kvv) >= 3 ? 90 : 300, sec = Math.max(num(C.pref("every")) || min, min);
     timer = setTimeout(function () { if (!document.hidden && C.configured()) refresh(true); tick(); }, sec * 1000);
   }
+  /* بين التحديثات: كل 45 ثانية تسليم خفيف (الاسم والحالة في المنظومة) وتغييرات القائمة إن وُجدت —
+     ما يتغيّر على الكمبيوتر يصل الهاتف خلال دقيقة تقريباً. «يدوي» من الإعدادات يوقفه */
+  var quickTimer = 0;
+  function quickTick() {
+    clearTimeout(quickTimer);
+    quickTimer = setTimeout(function () {
+      if (!document.hidden && C.configured() && num(C.pref("every")) >= 0) C.quick();
+      quickTick();
+    }, 45000);
+  }
   C.on(function (type, arg) {
     if (type === "catalog") { if (!v.progress) { v.progress = arg; if (v.screen === "home" && !gate()) render(); } v.progress = arg; }
     else if (type === "busy") { if (!arg) v.progress = null; paintSync(); }
@@ -1877,6 +1892,10 @@ var UI = (function () {
     }
     else if (type === "relock") { toast(arg, "warn"); closeSheet(true); render(); }
     else if (type === "oldphone") toast("حدّث نظام الهاتف لتصل قائمة كتب الفرع كاملة.", "warn");
+    else if (type === "unlinked") {
+      v.setup = "فُكّ ربط هذا الهاتف من المنظومة على الكمبيوتر. لو تبي ترجعه، اربطه من جديد.";
+      closeSheet(true); render();
+    }
   });
 
   /* ---------- البداية ---------- */
@@ -1924,6 +1943,7 @@ var UI = (function () {
       render();
       if (C.configured()) { refresh(true); tellAndroid(); }
       tick();
+      quickTick();
       setInterval(paintSync, 20000);
     });
     if ("serviceWorker" in navigator && location.protocol === "https:" && !ANDROID) {

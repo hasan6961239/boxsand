@@ -152,7 +152,8 @@ const store = url => ({
     await pg.waitForFunction(() => document.querySelectorAll('#devList tbody tr').length >= 2, null, { timeout: 15000 }).catch(() => { });
     const rows = await pg.evaluate(() => [...document.querySelectorAll('#devList tbody tr')].map(tr => tr.textContent.replace(/\s+/g, ' ').trim()));
     ok(rows.length === 2 && rows.some(t => /كاشير الأرضي/.test(t) && /جهاز المحل/.test(t) && /هذا الجهاز/.test(t)) &&
-      rows.some(t => /جهاز الدور الأول/.test(t) && /جهاز ثانٍ/.test(t)), 'جدول «الأجهزة المربوطة»: الجهازان ونوعهما وآخر تحديث', rows);
+      rows.some(t => /جهاز الدور الأول/.test(t) && /كمبيوتر/.test(t) && /فك الربط/.test(t) && /متصل الآن/.test(t)),
+      'جدول «الأجهزة المربوطة»: الجهازان ونوعهما (جهاز المحل، كمبيوتر) وآخر تحديث والحالة، و«فك الربط» للثاني', rows);
     if (process.env.SHOT_DIR) {
       const el = await pg.$('#devList');
       const card = el ? await el.evaluateHandle(e => e.closest('.card')) : null;

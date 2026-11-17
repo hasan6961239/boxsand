@@ -53,6 +53,8 @@ var App = (function () {
       supPayments: [],
       /* طرابلس: المؤلفون الذين لهم حصة من كل نسخة تُباع، وما دُفع لهم */
       authors: [], authorPays: [],
+      /* المصروفات (expenses.js) */
+      expenses: [],
       counts: [], countSession: null,
       remotes: [],
       warehouses: [],
@@ -85,7 +87,7 @@ var App = (function () {
     ["books", "stationery", "customers", "suppliers", "invoices", "payments", "purchases", "log",
       "remotes", "warehouses", "outbox",
       "consignors", "consignments", "consPayments", "closings", "publishers", "counts", "supPayments", "staff", "roles",
-      "authors", "authorPays"]
+      "authors", "authorPays", "expenses"]
       .forEach(function (k) { if (!Array.isArray(s[k])) s[k] = []; });
     return s;
   }
@@ -2317,6 +2319,8 @@ var App = (function () {
     { k: "consign", perm: "consign", t: "كتب على المباع", ic: "consign", f: function () { return Consign.page(); }, badge3: true },
     /* طرابلس: المؤلفون (لهم حصة من كل نسخة تُباع) في الصفحة نفسها، بتبويب */
     { k: "suppliers", perm: "debts", t: "الموردون ودور النشر", t4: "المؤلفون ودور النشر", ic: "truck", f: function () { return People.suppliers(); } },
+    /* إيجار ورواتب وكهرباء...: «من الدرج» ينطرح من الإقفال، وكلها من الربح */
+    { k: "expenses", perm: "expenses", t: "المصروفات", ic: "cash", f: function () { return Expenses.page(); } },
     { g: "أخرى" },
     { k: "profits", perm: "profits", t: "الأرباح والتقارير", ic: "chart", f: function () { return Rep.profits(); } },
     /* inSet: صارت تبويباً داخل الإعدادات (الرابط القديم يفتح التبويب) */
@@ -2386,6 +2390,8 @@ var App = (function () {
       var avail = nav.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
       var gap = 2, sep = 4;
       var h = Math.floor((avail - seps.length * (1 + sep * 2)) / items.length) - gap;
+      /* شاشة قصيرة (720) وتبويبات كثيرة (طرابلس 18): مسافات أضيق قبل أن ينزل الزر عن 30 */
+      if (h < 30) { gap = 1; sep = 2; h = Math.floor((avail - seps.length * (1 + sep * 2)) / items.length) - gap; }
       h = Math.max(30, Math.min(h, Math.floor(was)));
       rail.style.setProperty("--nav-gap", gap + "px");
       rail.style.setProperty("--nav-sep", sep + "px");
@@ -3064,6 +3070,8 @@ var App = (function () {
       if (typeof Staff !== "undefined") Staff.boot();
       paintVersion();
       paintActBar();
+      /* المصروفات المتكررة كل شهر تُسجَّل في يومها ولو لم تُفتح صفحتها (تدخل الإقفال والأرباح) */
+      if (typeof Expenses !== "undefined") setTimeout(function () { if (!readOnly) Expenses.recur(); }, 3000);
       window.addEventListener("hashchange", route);
       tickClock(); setInterval(tickClock, 20000);
 

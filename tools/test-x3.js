@@ -397,14 +397,14 @@ function finish() {
   process.exit(fail ? 1 : 0);
 }
 
-/* test.js وtest-money.js وtest-authors.js كاملين على البرنامج نفسه بعد «هذا جهاز المحل» */
+/* test.js وtest-money.js وtest-authors.js وtest-features.js كاملة على البرنامج نفسه بعد «هذا جهاز المحل» */
 async function suites() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qx3s-'));
   const cloud = await C.start({ secret: KEY });
   const D = device(tmp, 'D');
   try {
     E.buildEngine(D.dir, 'misrata');
-    for (const t of ['test.js', 'test-money.js', 'test-authors.js']) {
+    for (const t of ['test.js', 'test-money.js', 'test-authors.js', 'test-features.js']) {
       console.log('\n== ' + t + ' بشاشات 3.x فوق القاعدة ==');
       /* ويندوز يحرّر ملفات البرنامج المقتول بعد لحظة */
       for (const f of fs.readdirSync(D.data())) fs.rmSync(D.data(f), { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });

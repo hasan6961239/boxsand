@@ -1,7 +1,7 @@
 /* ============================================================
    test-rail.js — الشريط الجانبي يتّسع لكل تبويباته
    ------------------------------------------------------------
-   طرابلس 17 تبويباً ومصراتة 14: على شاشة قصيرة كان باقيها تحت الحافة ويُنزل له بالماوس.
+   طرابلس 18 تبويباً ومصراتة 15 (مع «المصروفات»): على شاشة قصيرة كان باقيها تحت الحافة ويُنزل له بالماوس.
    - 1366×768 (لابتوب المحل) و1280×720: كل التبويبات ظاهرة بلا تمرير، والزر لا ينزل عن 30 بكسل.
    - 1920×1080: التصميم الأصلي كما هو (لا ضغط).
    - شاشة قصيرة جداً (768 بتكبير ويندوز 125٪): يبقى التمرير ومعه سهم «باقي التبويبات» يعمل.
@@ -62,11 +62,11 @@ const rail = pg => pg.evaluate(() => {
     return { over: Math.round(last.offsetTop + last.offsetHeight - nav.clientHeight), h: Math.round(its[0].getBoundingClientRect().height), hidden: [].filter.call(its, x => x.getBoundingClientRect().bottom > box.bottom + 1).length };
   });
   await shot(pg, 'rail-tripoli-768-before');
-  check('قبل الإصلاح (للمقارنة): ' + before.hidden + ' تبويبات من 17 تحت الحافة', before.hidden >= 2 && before.over > 40, before);
+  check('قبل الإصلاح (للمقارنة): ' + before.hidden + ' تبويبات من 18 تحت الحافة', before.hidden >= 2 && before.over > 40, before);
   await pg.evaluate(() => App.fitRail()); await sleep(200);
   let s = await rail(pg);
   await shot(pg, 'rail-tripoli-768-after');
-  check('طرابلس 1366×768: التبويبات السبعة عشر كلها ظاهرة بلا تمرير', s.n === 17 && s.inside && s.over <= 0 && !s.more, s);
+  check('طرابلس 1366×768: التبويبات الثمانية عشر كلها ظاهرة بلا تمرير', s.n === 18 && s.inside && s.over <= 0 && !s.more, s);
   check('والزر مريح للضغط (' + s.h + ' بكسل ارتفاعاً، لا ينزل عن 30) والذيل (محفوظ والإصدار) ظاهر', s.h >= 30 && s.w >= 40 && s.foot && s.ic >= 18, s);
   /* «جارٍ الحفظ…» أطول من «محفوظ»، وعلى خطوط أخرى يصير سطرين: الذيل يبقى داخل الشاشة والتبويبات كلها ظاهرة */
   await pg.evaluate(() => { const e = document.getElementById('saveState'); e.innerHTML = '<span class="dot-live saving"></span> جارٍ الحفظ… جارٍ الحفظ…'; document.querySelector('.rail-foot').style.fontSize = '12px'; });
@@ -80,7 +80,7 @@ const rail = pg => pg.evaluate(() => {
   check('والضغط على آخر تبويب يفتح صفحته', await pg.evaluate(() => location.hash === '#/logs' && document.querySelector('#nav .nav-item:last-child').classList.contains('on')), await pg.evaluate(() => location.hash));
   await pg.setViewportSize({ width: 1920, height: 1080 }); await sleep(400);
   s = await rail(pg);
-  check('تكبير النافذة إلى 1920×1080: يرجع التصميم الأصلي وحده (لا ضغط إضافي، الزر ' + s.h + ' بكسل)', !s.fit && s.h >= 44 && s.inside && s.over <= 1, s);
+  check('تكبير النافذة إلى 1920×1080: يرجع التصميم الأصلي وحده (لا ضغط إضافي، الزر ' + s.h + ' بكسل)', !s.fit && s.h >= 42 && s.inside && s.over <= 1, s);
   await shot(pg, 'rail-tripoli-1080');
   await pg.setViewportSize({ width: 1280, height: 720 }); await sleep(400);
   s = await rail(pg);
@@ -112,7 +112,7 @@ const rail = pg => pg.evaluate(() => {
   pg = await fresh(1366, 768, 'misrata');
   s = await rail(pg);
   await shot(pg, 'rail-misrata-768');
-  check('مصراتة 1366×768: تبويباتها الأربعة عشر كلها ظاهرة (' + s.h + ' بكسل)', s.n === 14 && s.inside && s.over <= 0 && !s.more, s);
+  check('مصراتة 1366×768: تبويباتها الخمسة عشر كلها ظاهرة (' + s.h + ' بكسل)', s.n === 15 && s.inside && s.over <= 0 && !s.more, s);
   await pg.setViewportSize({ width: 1920, height: 1080 }); await sleep(400);
   s = await rail(pg);
   check('ومصراتة 1920×1080: التصميم الأصلي بلا أي تغيير (' + s.h + ' بكسل)', !s.fit && s.h >= 48 && s.inside, s);

@@ -68,6 +68,8 @@ var Inv = (function () {
       '<button class="' + (f.view === "cards" ? "on" : "") + '" onclick="Inv.setF(\'view\',\'cards\')">بطاقات</button>' +
       '<button class="' + (f.view === "map" ? "on" : "") + '" onclick="Inv.setF(\'view\',\'map\')">خريطة الرفوف</button>' +
       "</div>" +
+      (App.can("price") ? '<button class="btn" onclick="Inv.bpSet(\'type\',\'book\');Inv.bulkPrice()">٪ تغيير أسعار جماعي</button>' : "") +
+      (bpUndo && bpUndo.coll === "books" ? '<button class="btn ghost" onclick="Inv.bpUndoLast()">↶ تراجع عن آخر تغيير أسعار</button>' : "") +
       '<button class="btn" onclick="Inv.exportGoods(\'book\')">تصدير Excel</button>' +
       '<button class="btn" onclick="Inv.importItems(\'book\')">استيراد</button>' +
       '<button class="btn primary" onclick="Inv.editBook()">+ كتاب جديد</button>' +
@@ -580,7 +582,13 @@ var Inv = (function () {
       title: b ? "تعديل كتاب" : "كتاب جديد",
       size: "wide",
       topHtml: b ? "" : '<div style="margin-bottom:14px">' + destTabs("shelf", "Inv.setNewDest") + "</div>" +
-        '<button class="btn" style="margin-bottom:12px" onclick="Inv.smartPaste()">📋 لصق البيانات من جيميناي دفعة واحدة</button>',
+        '<button class="btn" style="margin-bottom:12px" onclick="Inv.smartPaste()">📋 لصق البيانات من جيميناي دفعة واحدة</button>' +
+        /* بيانات الكتاب من رقم الباركود (Google Books ثم Open Library، عبر المحرك) */
+        '<div class="isbn-box"><div class="isbn-h">امسح باركود الكتاب أولاً</div><div class="row isbn-row">' +
+        '<input class="inp num" id="isbnQ" inputmode="numeric" autocomplete="off" placeholder="9789953000123" onkeydown="if(event.key===\'Enter\'){event.preventDefault();Inv.isbnLookup();}">' +
+        '<button type="button" class="btn primary" id="isbnGo" onclick="Inv.isbnLookup()">🔎 جيب بياناته من الإنترنت</button></div>' +
+        '<div class="muted small">يدوّر في الإنترنت بالرقم، ولو لقاه يعبّي العنوان والمؤلف ودار النشر — والسعر تكتبه إنت.</div>' +
+        '<div id="isbnRes"></div></div>',
       values: b || {
         lib: lb.lib || S().meta.libraries[0] || "",
         shelf: lb.shelf || 1,
@@ -1423,6 +1431,8 @@ var Inv = (function () {
       '<button class="' + (g.view !== "cards" ? "on" : "") + '" onclick="Inv.setG(\'view\',\'table\')">جدول</button>' +
       '<button class="' + (g.view === "cards" ? "on" : "") + '" onclick="Inv.setG(\'view\',\'cards\')">بطاقات</button>' +
       "</div>" +
+      (App.can("price") ? '<button class="btn" onclick="Inv.bpSet(\'type\',\'stat\');Inv.bulkPrice()">٪ تغيير أسعار جماعي</button>' : "") +
+      (bpUndo && bpUndo.coll === "stationery" ? '<button class="btn ghost" onclick="Inv.bpUndoLast()">↶ تراجع عن آخر تغيير أسعار</button>' : "") +
       '<button class="btn" onclick="Inv.exportGoods(\'stat\')">تصدير Excel</button>' +
       '<button class="btn" onclick="Inv.importItems(\'stat\')">استيراد</button>' +
       '<button class="btn primary" onclick="Inv.editStat()">+ صنف جديد</button>' +
@@ -3270,6 +3280,263 @@ var Inv = (function () {
     }
   }
 
+  /* ---------- بيانات الكتاب من الباركود (نافذة «كتاب جديد») ---------- */
+  var isbnGot = null;
+  /* دار النشر كما في الإنترنت قد تكون أقصر أو أطول من اسمها عندك («دار الفكر» / «دار الفكر العربي») */
+  function pubLike(name) {
+    var exact = pubByName(name);
+    if (exact || !name) return exact;
+    var n = App.norm(name), hit = null;
+    if (n.length < 5) return null;
+    pubList().forEach(function (p) {
+      var m = App.norm(p.name);
+      if (!hit && m.length >= 5 && (m.indexOf(n) >= 0 || n.indexOf(m) >= 0)) hit = p;
+    });
+    return hit;
+  }
+  function isbnLookup() {
+    var q = document.getElementById("isbnQ"), res = document.getElementById("isbnRes"), go = document.getElementById("isbnGo");
+    if (!q || !res) return;
+    var code = App.digits(q.value).replace(/[^0-9Xx]/g, "").toUpperCase();
+    q.value = code;
+    if (code.length !== 13 && code.length !== 10) { res.innerHTML = '<div class="isbn-card bad">رقم الباركود لازم يكون 13 رقم (أو 10).</div>'; return; }
+    var had = byBarcode(code);
+    if (had) {
+      res.innerHTML = '<div class="isbn-card bad"><b>الكتاب هذا موجود عندك:</b> «' + App.esc(had.it.title || had.it.name || "") + "» — الكمية " + App.num(had.it.qty) +
+        ' <button type="button" class="btn sm" onclick="App.closeTop();Inv.editBook(\'' + App.esc(had.it.id) + '\')">افتحه</button></div>';
+      return;
+    }
+    App.setField(document, "barcode", code);
+    res.innerHTML = '<div class="isbn-card"><span class="muted">يدوّر في الإنترنت…</span></div>';
+    if (go) go.disabled = true;
+    App.apiJson("/api/isbn?code=" + encodeURIComponent(code)).then(function (r) {
+      if (go) go.disabled = false;
+      var host = document.getElementById("isbnRes");
+      if (!host) return;
+      if (!r || !r.ok) { host.innerHTML = '<div class="isbn-card bad">' + App.esc((r && r.error) || "ما قدرناش ندوّر الحين.") + "</div>"; return; }
+      if (!r.found) { isbnGot = null; host.innerHTML = '<div class="isbn-card">ما لقيناش الكتاب هذا على الإنترنت — اكتب بياناته بيدك (الباركود تعبّى).</div>'; return; }
+      isbnGot = r;
+      var pub = r.publisher ? pubLike(r.publisher) : null;
+      var extra = [r.year ? "سنة " + r.year : "", r.pages ? r.pages + " صفحة" : "", "المصدر: " + r.source].filter(Boolean).join(" · ");
+      host.innerHTML = '<div class="isbn-card found"><div class="isbn-ic">📘</div><div class="isbn-info">' +
+        "<b>لقينا الكتاب على الإنترنت ✓</b>" +
+        "<div>العنوان: <b>" + App.esc(r.title) + "</b></div>" +
+        (r.author ? "<div>المؤلف: <b>" + App.esc(r.author) + "</b></div>" : "") +
+        (r.publisher ? "<div>دار النشر: <b>" + App.esc(r.publisher) + "</b> " + (pub ? '<span class="badge ok">موجودة عندك' + (App.norm(pub.name) !== App.norm(r.publisher) ? ": " + App.esc(pub.name) : "") + "</span>" : '<span class="badge">مش في قائمتك</span>') + "</div>" : "") +
+        '<div class="muted small">' + App.esc(extra) + "</div>" +
+        '<div class="row" style="gap:8px;margin-top:8px"><button type="button" class="btn primary sm" onclick="Inv.isbnUse()">استعمل البيانات</button>' +
+        '<button type="button" class="btn ghost sm" onclick="Inv.isbnNo()">لا، مش هو</button></div></div></div>';
+    }).catch(function () {
+      if (go) go.disabled = false;
+      var host = document.getElementById("isbnRes");
+      if (host) host.innerHTML = '<div class="isbn-card bad">ما قدرناش نوصلو للإنترنت — اكتب البيانات بيدك.</div>';
+    });
+  }
+  function isbnUse() {
+    var r = isbnGot;
+    if (!r) return;
+    App.setField(document, "title", r.title || "");
+    if (r.author) App.setField(document, "author", r.author);
+    var pub = r.publisher ? pubLike(r.publisher) : null;
+    if (pub) { App.setField(document, "publisher", pub.name); var ps = document.getElementById("f_publisher"); if (ps) ps.dispatchEvent(new Event("change")); }
+    var host = document.getElementById("isbnRes");
+    if (host) host.innerHTML = '<div class="isbn-card found">✓ عبّينا العنوان والمؤلف' + (pub ? " ودار النشر" : "") + " — راجعها واكتب السعر." +
+      (r.publisher && !pub ? '<div class="muted small">دار النشر «' + App.esc(r.publisher) + "» مش في قائمتك: اختارها من القائمة أو زيدها بـ «➕ إضافة دار نشر جديدة».</div>" : "") + "</div>";
+    var t = document.getElementById("f_title");
+    if (t) t.dispatchEvent(new Event("input"));
+    var pr = document.getElementById("f_price");
+    if (pr) setTimeout(function () { pr.focus(); }, 50);
+  }
+  function isbnNo() {
+    isbnGot = null;
+    var host = document.getElementById("isbnRes");
+    if (host) host.innerHTML = '<div class="isbn-card">تمام — اكتب بياناته بيدك (الباركود تعبّى).</div>';
+  }
+
+  /* ============================================================
+     تغيير أسعار جماعي: دار نشر أو تخصص أو مورّد، بنسبة أو مبلغ، بتقريب
+     ------------------------------------------------------------
+     - الأسعار الصفرية تبقى صفراً (كتاب بلا سعر لا يأخذ سعراً من هنا).
+     - «حدّث سعر الجملة حسب خصم دار النشر»: الجملة = القطاعي الجديد × (1 − نسبة الدار).
+     - سعر الشراء لا يظهر إلا والأرباح مفتوحة.
+     - التراجع عن آخر تغيير: القيم القديمة في الذاكرة حتى تُغلق المنظومة، والسجل يحفظ ما حصل.
+     ============================================================ */
+  var bp = { type: "book", scope: "all", val: "", price: true, priceW: false, cost: false, mode: "pct+", amount: "10", round: "0.5", autoW: true };
+  var bpUndo = null;
+  var BP_ROUND = [{ v: "0", t: "بدون تقريب" }, { v: "0.25", t: "تقريب لأقرب 0.25 دينار" }, { v: "0.5", t: "تقريب لأقرب 0.5 دينار" }, { v: "1", t: "تقريب لأقرب دينار" }];
+  var BP_MODE = [{ v: "pct+", t: "زيادة بنسبة %" }, { v: "pct-", t: "نقص بنسبة %" }, { v: "amt+", t: "زيادة مبلغ" }, { v: "amt-", t: "نقص مبلغ" }, { v: "set", t: "سعر واحد للكل" }];
+
+  function bpColl() { return bp.type === "book" ? S().books : S().stationery; }
+  function bpWord(n) { return bp.type === "book" ? (n === 1 ? "كتاب" : "كتاب") : (n === 1 ? "صنف" : "صنف"); }
+  function bpScopes() {
+    var b = bp.type === "book";
+    return [{ v: "all", t: b ? "كل الكتب" : "كل القرطاسية" }].concat(b ? [{ v: "pub", t: "كتب دار نشر معيّنة" }] : [])
+      .concat([{ v: "cat", t: b ? "كتب تخصص معيّن" : "تصنيف معيّن" }, { v: "sup", t: b ? "كتب مورّد معيّن" : "مورّد معيّن" }])
+      .concat(b ? [{ v: "shown", t: "الكتب الظاهرة في القائمة الآن (" + filteredBooks().length + ")" }] : []);
+  }
+  function bpValues() {
+    var cnt = {}, coll = bpColl();
+    if (bp.scope === "pub") {
+      coll.forEach(function (it) { var k = String(it.publisher || "").trim(); if (k) cnt[k] = (cnt[k] || 0) + 1; });
+      return Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).map(function (k) { return { v: k, t: k + " (" + cnt[k] + " " + bpWord(cnt[k]) + ")" }; });
+    }
+    if (bp.scope === "cat") {
+      coll.forEach(function (it) { var k = String(it.cat || "").trim(); if (k) cnt[k] = (cnt[k] || 0) + 1; });
+      return Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).map(function (k) { return { v: k, t: k + " (" + cnt[k] + ")" }; });
+    }
+    if (bp.scope === "sup") {
+      coll.forEach(function (it) { var k = String(it.supplierId || ""); if (k) cnt[k] = (cnt[k] || 0) + 1; });
+      return (S().suppliers || []).filter(function (x) { return cnt[x.id]; }).map(function (x) { return { v: x.id, t: x.name + " (" + cnt[x.id] + ")" }; });
+    }
+    return [];
+  }
+  function bpItems() {
+    var coll = bpColl();
+    if (bp.scope === "shown" && bp.type === "book") return filteredBooks();
+    if (bp.scope === "pub") return coll.filter(function (it) { return App.norm(it.publisher) === App.norm(bp.val); });
+    if (bp.scope === "cat") return coll.filter(function (it) { return String(it.cat || "").trim() === bp.val; });
+    if (bp.scope === "sup") return coll.filter(function (it) { return String(it.supplierId || "") === bp.val; });
+    return coll.slice();
+  }
+  function bpNew(old) {
+    old = App.num(old);
+    if (old <= 0) return old;                       // الصفر يبقى صفراً
+    var a = App.num(bp.amount), x = old;
+    if (bp.mode === "pct+") x = old * (1 + a / 100);
+    else if (bp.mode === "pct-") x = old * (1 - a / 100);
+    else if (bp.mode === "amt+") x = old + a;
+    else if (bp.mode === "amt-") x = old - a;
+    else if (bp.mode === "set") x = a;
+    var r = App.num(bp.round);
+    if (r > 0) x = Math.round(x / r + 1e-9) * r;
+    x = App.r3(x);
+    return x > 0 ? x : old;                         // لا سعر سالب ولا صفر من هنا
+  }
+  /* التغييرات المقترحة: [{it, f, old, nw}] وعدد ما بقي صفراً */
+  function bpPlan() {
+    var out = [], zero = 0, items = bpItems();
+    var fields = ["price", "priceW", "cost"].filter(function (k) { return bp[k] && (k !== "cost" || App.canProfit()); });
+    items.forEach(function (it) {
+      var touched = false;
+      if (App.num(it.price) <= 0 && bp.price) zero++;
+      fields.forEach(function (k) {
+        if (k === "priceW" && bp.autoW && bp.price && bp.type === "book" && pubByName(it.publisher) && App.num(pubByName(it.publisher).rate) > 0) return;
+        var nw = bpNew(it[k]);
+        if (nw !== App.num(it[k])) { out.push({ it: it, f: k, old: App.num(it[k]), nw: nw }); touched = true; }
+      });
+      if (bp.autoW && bp.price && bp.type === "book") {
+        var pub = pubByName(it.publisher), np = bpNew(it.price);
+        var w = pub ? wholesaleFromPub(np, pub) : 0;
+        if (w > 0 && w !== App.num(it.priceW) && np > 0) { out.push({ it: it, f: "priceW", old: App.num(it.priceW), nw: w }); touched = true; }
+      }
+      it.__bp = touched;
+    });
+    var n = items.filter(function (it) { var t = it.__bp; delete it.__bp; return t; }).length;
+    return { list: out, n: n, zero: zero, total: items.length };
+  }
+
+  function bulkPrice() {
+    if (!App.can("price")) { App.toast("ما عندكش صلاحية تعديل الأسعار.", "warn"); return; }
+    if (bp.scope === "shown" && bp.type !== "book") bp.scope = "all";
+    App.modal({
+      title: "تغيير أسعار جماعي",
+      size: "wide",
+      body: '<div id="bpBody">' + bpBody() + "</div>",
+      cancelLabel: "إلغاء",
+      actions: [{ label: "طبّق", kind: "primary", id: "bpGo", click: function (close) { bpApply(close); } }]
+    });
+    setTimeout(bpPaint, 0);
+  }
+
+  function bpBody() {
+    var b = bp.type === "book", vals = bpValues();
+    if ((bp.scope === "pub" || bp.scope === "cat" || bp.scope === "sup") && !vals.some(function (x) { return x.v === bp.val; })) bp.val = vals.length ? vals[0].v : "";
+    var opt = function (list, cur) { return list.map(function (o) { return '<option value="' + App.esc(o.v) + '"' + (String(o.v) === String(cur) ? " selected" : "") + ">" + App.esc(o.t) + "</option>"; }).join(""); };
+    return '<div class="bp">' +
+      '<div class="bp-h">١) أي أصناف؟</div>' +
+      '<div class="seg" style="max-width:420px;margin-bottom:10px"><button type="button" class="' + (b ? "on" : "") + '" onclick="Inv.bpSet(\'type\',\'book\')">كتب</button>' +
+      '<button type="button" class="' + (!b ? "on" : "") + '" onclick="Inv.bpSet(\'type\',\'stat\')">قرطاسية</button></div>' +
+      '<select class="inp" onchange="Inv.bpSet(\'scope\',this.value)">' + opt(bpScopes(), bp.scope) + "</select>" +
+      (vals.length || bp.scope === "pub" || bp.scope === "cat" || bp.scope === "sup" ? '<select class="inp" style="margin-top:8px" onchange="Inv.bpSet(\'val\',this.value)">' + (vals.length ? opt(vals, bp.val) : "<option>— لا شيء —</option>") + "</select>" : "") +
+      '<div class="bp-h">٢) أي سعر يتغيّر؟</div><div class="row bp-checks">' +
+      '<label><input type="checkbox"' + (bp.price ? " checked" : "") + ' onchange="Inv.bpSet(\'price\',this.checked)"> سعر البيع قطاعي</label>' +
+      '<label><input type="checkbox"' + (bp.priceW ? " checked" : "") + ' onchange="Inv.bpSet(\'priceW\',this.checked)"> سعر الجملة</label>' +
+      (App.canProfit() ? '<label><input type="checkbox"' + (bp.cost ? " checked" : "") + ' onchange="Inv.bpSet(\'cost\',this.checked)"> سعر الشراء</label>' : "") + "</div>" +
+      '<div class="bp-h">٣) التغيير</div><div class="row bp-change">' +
+      '<select class="inp" onchange="Inv.bpSet(\'mode\',this.value)">' + opt(BP_MODE, bp.mode) + "</select>" +
+      '<input class="inp num" inputmode="decimal" value="' + App.esc(bp.amount) + '" oninput="Inv.bpSet(\'amount\',this.value,true)">' +
+      '<select class="inp" onchange="Inv.bpSet(\'round\',this.value)">' + opt(BP_ROUND, bp.round) + "</select></div>" +
+      (b ? '<label class="bp-auto"><input type="checkbox"' + (bp.autoW ? " checked" : "") + ' onchange="Inv.bpSet(\'autoW\',this.checked)"> حدّث سعر الجملة وحده حسب خصم دار النشر</label>' : "") +
+      '<div id="bpPrev"></div>' +
+      '<p class="muted small" style="margin:10px 0 0">بعد التطبيق: يتسجّل في السجلات، وفيه زر «تراجع عن آخر تغيير» لو غلطت.</p></div>';
+  }
+
+  function bpSet(k, v, live) {
+    if (k === "type") { bp.type = v; bp.scope = "all"; bp.val = ""; }
+    else bp[k] = v;
+    if (k === "scope") bp.val = "";
+    if (live) { bpPaint(); return; }
+    var host = document.getElementById("bpBody");
+    if (host) host.innerHTML = bpBody();
+    bpPaint();
+  }
+
+  function bpPaint() {
+    var host = document.getElementById("bpPrev");
+    if (!host) return;
+    var p = bpPlan(), w = bp.type === "book" ? "كتاب" : "صنف";
+    var main = bp.price ? "price" : bp.priceW ? "priceW" : "cost";
+    var rows = p.list.filter(function (c) { return c.f === main; }).slice(0, 8);
+    var zeroEx = bp.price ? bpItems().filter(function (it) { return App.num(it.price) <= 0; })[0] : null;
+    var nm = function (it) { return it.title || it.name || ""; };
+    host.innerHTML = '<div class="bp-sum' + (p.n ? "" : " none") + '">' + (p.n
+      ? "سيتغيّر سعر " + p.n + " " + w + "." + (p.zero ? " الـ" + w + " اللي سعرها صفر (" + p.zero + ") ما تتغيّرش." : "")
+      : "ما فيش أسعار تتغيّر بهذا الاختيار.") + "</div>" +
+      (rows.length ? '<table class="tbl bp-tbl"><thead><tr><th>' + (bp.type === "book" ? "الكتاب" : "الصنف") + "</th><th>السعر الحالي</th><th>السعر الجديد</th><th>الفرق</th></tr></thead><tbody>" +
+        rows.map(function (c) {
+          var d = App.r3(c.nw - c.old);
+          return "<tr><td>" + App.esc(nm(c.it)) + '</td><td class="num">' + App.money(c.old) + '</td><td class="num bp-new">' + App.money(c.nw) + '</td><td class="num">' + (d > 0 ? "+" : "") + App.money(d) + "</td></tr>";
+        }).join("") +
+        (zeroEx ? "<tr><td>" + App.esc(nm(zeroEx)) + '</td><td class="num">0.00</td><td class="muted">يبقى صفر</td><td>—</td></tr>' : "") +
+        "</tbody></table>" : "");
+    var go = document.querySelector('[data-act-id="bpGo"]') || Array.prototype.filter.call(document.querySelectorAll(".modal .btn.primary"), function (x) { return /طبّق/.test(x.textContent); })[0];
+    if (go) { go.textContent = p.n ? "طبّق على " + p.n + " " + w : "طبّق"; go.disabled = !p.n; }
+  }
+
+  function bpApply(close) {
+    var p = bpPlan();
+    if (!p.n) { App.toast("ما فيش أسعار تتغيّر.", "warn"); return; }
+    var coll = bp.type === "book" ? "books" : "stationery";
+    bpUndo = { at: App.nowStamp(), coll: coll, rows: p.list.map(function (c) { return { id: c.it.id, f: c.f, old: c.old, nw: c.nw }; }), n: p.n };
+    p.list.forEach(function (c) { c.it[c.f] = c.nw; });
+    var what = BP_MODE.filter(function (m) { return m.v === bp.mode; })[0].t + " " + bp.amount + (BP_ROUND.filter(function (r) { return r.v === bp.round; })[0] || {}).t.replace("تقريب لأقرب", "، تقريب");
+    var scope = bpScopes().filter(function (x) { return x.v === bp.scope; })[0].t + (bp.val ? ": " + (bpValues().filter(function (x) { return x.v === bp.val; })[0] || { t: bp.val }).t : "");
+    App.log("تغيير أسعار جماعي", scope + " — " + what + " — " + p.n + (coll === "books" ? " كتاب" : " صنف"));
+    App.save();
+    close();
+    App.rerender();
+    App.toast("تغيّر سعر " + p.n + (coll === "books" ? " كتاب" : " صنف") + ". لو غلطت: «↶ تراجع عن آخر تغيير أسعار» فوق القائمة.", "ok");
+  }
+
+  function bpUndoLast() {
+    if (!bpUndo) return;
+    App.modal({
+      title: "تراجع عن آخر تغيير أسعار",
+      size: "narrow",
+      body: '<p style="margin-top:0;line-height:1.9">نرجّعو أسعار <b>' + bpUndo.n + "</b> " + (bpUndo.coll === "books" ? "كتاب" : "صنف") + " زي ما كانت قبل التغيير (" + App.esc(bpUndo.at) + ")؟ " +
+        "السعر اللي تعدّل بعدها باليد يبقى زي ما هو.</p>",
+      actions: [{ label: "تراجع", kind: "primary", click: function (close) {
+        var map = {}, back = 0;
+        S()[bpUndo.coll].forEach(function (it) { map[it.id] = it; });
+        bpUndo.rows.forEach(function (r) { var it = map[r.id]; if (it && App.num(it[r.f]) === App.num(r.nw)) { it[r.f] = r.old; back++; } });
+        App.log("تغيير أسعار جماعي", "تراجع: رجعت " + back + " سعر لما كانت عليه (" + bpUndo.at + ")");
+        bpUndo = null;
+        App.save(); close(); App.rerender();
+        App.toast("رجعت الأسعار لما كانت عليه (" + back + ").", "ok");
+      } }]
+    });
+  }
+
   return {
     books: books, stationery: stationery, alerts: alerts, purchases: purchases,
     goods: goods, gset: gset,
@@ -3292,7 +3559,9 @@ var Inv = (function () {
     smartPaste: smartPaste, parsePasted: parsePasted, findDupes: findDupes,
     bulkPaste: bulkPaste, parseBulk: parseBulk, copyBulkPrompt: copyBulkPrompt,
     bulkSet: bulkSet, bulkDel: bulkDel, bulkAll: bulkAll,
-    bulkQtyKey: bulkQtyKey, bulkFocusQty: bulkFocusQty
+    bulkQtyKey: bulkQtyKey, bulkFocusQty: bulkFocusQty,
+    bulkPrice: bulkPrice, bpSet: bpSet, bpUndoLast: bpUndoLast, __bpPlan: bpPlan, __bp: bp,
+    isbnLookup: isbnLookup, isbnUse: isbnUse, isbnNo: isbnNo
   };
 })();
 

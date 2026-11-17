@@ -135,6 +135,14 @@ http.createServer((req, res) => {
     if (p === '/api/device') return json(res, { ok: true, fp: 'ABCD-EFGH-JKLM' });
     /* التفعيل (قرار 0028): خادم التطوير مفعّل دائماً كنسخة اختبار بلا مفتاح. التفعيل نفسه في test-activation.js */
     if (p === '/api/act/status' || p === '/api/act/activate') return json(res, { ok: true, required: false, active: true });
+    /* بيانات الكتاب من الباركود: المحرك الحقيقي يسأل Google Books ثم Open Library؛ هنا ردود ثابتة للاختبار */
+    if (p === '/api/isbn') {
+      const code = String(new URL(req.url, 'http://x').searchParams.get('code') || '').replace(/[^0-9X]/gi, '');
+      if (code.length !== 13 && code.length !== 10) return json(res, { ok: false, error: 'رقم الباركود لازم يكون 13 رقم (أو 10)' });
+      if (code === '9789953000123') return json(res, { ok: true, found: true, source: 'Google Books', title: 'الرياضيات المتقدمة للمرحلة الثانوية', author: 'د. سالم الهادي', publisher: 'دار الفكر', year: '2019', pages: 248 });
+      if (code === '9789953000999') return json(res, { ok: false, error: 'ما قدرناش نوصلو للإنترنت — تأكد من الاتصال، أو اكتب البيانات بيدك' });
+      return json(res, { ok: true, found: false });
+    }
     if (p === '/api/preset') return json(res, { ok: false });
     if (p === '/api/notify') { console.log('[notify]', body.toString().slice(0, 300)); return json(res, { ok: true }); }
     /* خادم ربط مقلَّد للاختبار: ما في .devdata/remote.json يُعاد كلقطات

@@ -53,6 +53,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type,X-Shop-Key",
+  "Access-Control-Expose-Headers": "X-Base,X-Ver,X-At,X-N,X-From,X-To",
 };
 
 /* فهرس ملفات KV (رموز الفروع والهواتف). أول مرة بلا فهرس: يُبنى من list مرة واحدة */
@@ -185,6 +186,11 @@ const V2_SCHEMA = [
     "at INTEGER NOT NULL, data TEXT NOT NULL, UNIQUE(branch, device, n))",
   "CREATE TABLE IF NOT EXISTS v2_catalog(branch TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', city TEXT NOT NULL DEFAULT '', " +
     "n INTEGER NOT NULL DEFAULT 0, ver TEXT NOT NULL, parts INTEGER NOT NULL, at INTEGER NOT NULL)",
+  /* ما تغيّر في قائمة الفرع بعد آخر نشر كامل (base): الهواتف تأخذه كل دقيقة بدل القائمة كلها */
+  "CREATE TABLE IF NOT EXISTS v2_delta(branch TEXT PRIMARY KEY, base TEXT NOT NULL, ver TEXT NOT NULL, n INTEGER NOT NULL, " +
+    "at INTEGER NOT NULL, data TEXT NOT NULL)",
+  /* هاتف فُكّ ربطه من المنظومة: تسليمه يُرفض حتى يُربط من جديد (رمز جهاز جديد) */
+  "CREATE TABLE IF NOT EXISTS v2_block(branch TEXT NOT NULL, device TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY(branch, device))",
 ];
 const V2_MAX_BODY = 1900000;          // صف D1 حدّه 2 ميغا: القطعة الواحدة أقل منه
 const V2_MAIN_STALE = 7 * 86400000;   // جهاز محل لم يظهر أسبوعاً يمكن أن يحلّ غيره محله
@@ -255,11 +261,21 @@ async function v2(request, env, op, q) {
   const now = Date.now();
   const branch = v2Id(q, "branch", RE_BRANCH);
 
-  /* كل جهاز يسلّم كل دقيقة: يُسجَّل، ويعرف آخر ما عند الخادم */
+  /* كل جهاز يسلّم كل دقيقة: يُسجَّل، ويعرف آخر ما عند الخادم. الهاتف أيضاً (role=phone): يظهر
+     باسمه في «الأجهزة المربوطة»، ويعرف رقم آخر تغييرات القائمة في الرد نفسه */
   if (op === "hello" && request.method === "GET") {
     const device = v2Id(q, "device", RE_TOKEN);
-    const role = q.get("role") === "main" ? "main" : "second";
-    const name = String(q.get("name") || "").slice(0, 60);
+    const role = q.get("role") === "main" ? "main" : q.get("role") === "phone" ? "phone" : "second";
+    const name = String(q.get("name") || "").slice(0, 80);
+    if (role === "phone") {
+      const blocked = await db.prepare("SELECT 1 AS k FROM v2_block WHERE branch = ? AND device = ?").bind(branch, device).first();
+      if (blocked) return json({ ok: false, code: "unlinked", error: "فُكّ ربط هذا الهاتف من المنظومة" }, 410);
+      await db.prepare("INSERT INTO v2_device(branch, device, role, name, seen) VALUES(?, ?, 'phone', ?, ?) " +
+        "ON CONFLICT(branch, device) DO UPDATE SET role = 'phone', name = excluded.name, seen = excluded.seen")
+        .bind(branch, device, name, now).run();
+      const d = await db.prepare("SELECT base, ver, n, at FROM v2_delta WHERE branch = ?").bind(branch).first();
+      return json({ ok: true, now, delta: d || null });
+    }
     await db.prepare("INSERT INTO v2_device(branch, device, role, name, seen) VALUES(?, ?, ?, ?, ?) " +
       "ON CONFLICT(branch, device) DO UPDATE SET role = excluded.role, name = excluded.name, seen = excluded.seen")
       .bind(branch, device, role, name, now).run();
@@ -355,6 +371,35 @@ async function v2(request, env, op, q) {
     await db.prepare("INSERT OR IGNORE INTO v2_cmd(branch, device, n, at, data) VALUES(?, ?, ?, ?, ?)").bind(branch, device, n, now, data).run();
     const r = await db.prepare("SELECT id FROM v2_cmd WHERE branch = ? AND device = ? AND n = ?").bind(branch, device, n).first();
     return json({ ok: true, id: r.id });
+  }
+
+  /* تغييرات القائمة بعد آخر نشر كامل: جهاز المحل يكتبها (صف واحد يُستبدل)، والهواتف تقرأها */
+  if (op === "catdelta" && request.method === "POST") {
+    const device = v2Id(q, "device", RE_TOKEN), base = v2Id(q, "base", RE_TOKEN), ver = v2Id(q, "ver", RE_TOKEN);
+    if (!(await v2IsMain(db, branch, device))) return json({ ok: false, code: "not-main", error: "هذا الجهاز ليس جهاز المحل" }, 409);
+    await db.prepare("INSERT INTO v2_delta(branch, base, ver, n, at, data) VALUES(?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(branch) DO UPDATE SET base = excluded.base, ver = excluded.ver, n = excluded.n, at = excluded.at, data = excluded.data")
+      .bind(branch, base, ver, v2Int(q, "n", 0), now, await v2Body(request)).run();
+    return json({ ok: true });
+  }
+
+  if (op === "catdelta" && request.method === "GET") {
+    const r = await db.prepare("SELECT base, ver, n, at, data FROM v2_delta WHERE branch = ?").bind(branch).first();
+    if (!r) return new Response(null, { status: 204, headers: CORS });
+    return v2Text(r.data, { "X-Base": r.base, "X-Ver": r.ver, "X-At": String(r.at), "X-N": String(r.n) });
+  }
+
+  /* فك ربط جهاز من «الأجهزة المربوطة» (جهاز المحل وحده): يخرج من القائمة، والهاتف يُرفض تسليمه */
+  if (op === "unlink" && request.method === "POST") {
+    const device = v2Id(q, "device", RE_TOKEN), target = v2Id(q, "target", RE_TOKEN);
+    const b = await v2Branch(db, branch);
+    if (!b || b.main !== device) return json({ ok: false, code: "not-main", error: "فك الربط من جهاز المحل وحده" }, 409);
+    if (target === b.main) return json({ ok: false, code: "main", error: "جهاز المحل لا يُفك ربطه من هنا" }, 409);
+    const row = await db.prepare("SELECT role FROM v2_device WHERE branch = ? AND device = ?").bind(branch, target).first();
+    const batch = [db.prepare("DELETE FROM v2_device WHERE branch = ? AND device = ?").bind(branch, target)];
+    if (row && row.role === "phone") batch.push(db.prepare("INSERT OR REPLACE INTO v2_block(branch, device, at) VALUES(?, ?, ?)").bind(branch, target, now));
+    await db.batch(batch);
+    return json({ ok: true, phone: !!(row && row.role === "phone") });
   }
 
   /* أجهزة الفرع وآخر تسليم لكل جهاز (للمدير: كم جهازاً مربوطاً، ومتى آخر تحديث) — قراءة فقط */

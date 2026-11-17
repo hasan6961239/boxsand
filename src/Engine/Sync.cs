@@ -113,7 +113,10 @@ namespace Qirtasiya.Engine
         /* قائمة كتب الفرع للفروع الأخرى: كل نصف ساعة إن تغيّرت. لعشرين ألف كتاب 800 ك.ب صعوداً،
            وكل فرع آخر ينزّلها: كل عشر دقائق كانت 50 ميغا في اليوم مع البيع، ونصف دقيقة من كل عشر
            على رفع بطيء. «حدّث الآن» يرسلها في الحال */
-        public static int CatalogEveryMin = 30;
+        public static int CatalogEveryMin = 60;
+        /* تغييرات القائمة للهواتف (v2/catdelta): كل دورة فيها تغيير، مضغوطة. فوق هذا العدد من
+           الأصناف المتغيّرة منذ آخر نشر كامل يُنشر كاملاً من جديد (تبدأ التغييرات من صفر) */
+        public static int DeltaMaxItems = 400;
         /* قائمة لم تُنشر أو لم تُجلب: تُعاد بعد دقيقتين، لا مع كل دورة (طرابلس: كل 4 ثوانٍ، والقائمة ميغا) */
         public static int CatalogRetryMin = 2, CatalogPubRetryMin = 10;
         public static int SnapshotEveryHours = 24;
@@ -148,6 +151,13 @@ namespace Qirtasiya.Engine
         DateTime nextCatalog = DateTime.MinValue;
         string catAt = "", catPubErr = "", catGetErr = "";
         long catSeen, catWant;
+        /* تغييرات القائمة للهواتف: آخر ما نُشر (القائمة الكاملة + رقم السجل)، والخادم القديم بلا المسار */
+        string deltaDone = "", deltaAt = "";
+        DateTime lastDeltaTry = DateTime.MinValue;
+        /* كل دقيقة على الأكثر (طرابلس: الدورة كل 4 ثوانٍ، والتغييرات لا تُرفع إلا مرة في الدقيقة) */
+        public static int DeltaEveryMs = 60000;
+        bool catForce;
+        DateTime deltaOffUntil = DateTime.MinValue;
 
         public SyncClient(Func<ShopDb> db, Func<Api> api, Func<string, string, ICloud> cloud, Action<string> logger, string machineFp, string temp)
         {
@@ -203,6 +213,23 @@ namespace Qirtasiya.Engine
             return j;
         }
 
+        /* «تحديث الفروع»: قوائم الفروع الآن (نشر قائمتنا إن تغيّرت، وجلب ما تغيّر عندهم) */
+        public void CatalogsNow() { lock (stateGate) catForce = true; }
+
+        /* فك ربط جهاز من «الأجهزة المربوطة» (جهاز المحل وحده) */
+        public Dictionary<string, object> Unlink(string target)
+        {
+            ShopDb db = dbOf();
+            if (db == null || (db.Local("sync.url") ?? "").Length == 0) throw new SyncException("not-linked", "هذا الجهاز غير مربوط.");
+            if (db.Replica) throw new SyncException("second", "فك الربط من جهاز المحل وحده.");
+            ICloud cloud = cloudOf(db.Local("sync.url"), db.Local("sync.key") ?? "");
+            CloudReply r = cloud.Call("POST", "v2/unlink", Q("branch", db.Local("sync.branch") ?? "", "device", db.Local("sync.device") ?? "", "target", target), "");
+            if (r.Status == 404 && r.Json != null && Json.Str(r.Json, "error").Contains("المسار"))
+                throw new SyncException("old", "فك الربط يحتاج تحديث كود خادم الربط مرة واحدة: «خطوات الربط» ← انسخ الكود ← الصقه في Cloudflare ← Deploy.");
+            if (r.Status != 200 || r.Json == null) throw Fail(r, "فك الربط");
+            return r.Json;
+        }
+
         public Dictionary<string, object> Status()
         {
             ShopDb db = dbOf();
@@ -240,11 +267,15 @@ namespace Qirtasiya.Engine
                 o["catAt"] = catAt;
                 o["catPubError"] = catPubErr;
                 o["catError"] = catGetErr;
+                o["deltaAt"] = deltaAt;
+                /* خادم الربط قبل 4.4: الهواتف تأخذ القائمة الكاملة فقط (الإعدادات تقول «حدّث كود الخادم») */
+                o["deltaOld"] = DateTime.UtcNow < deltaOffUntil;
             }
             if (db != null)
             {
                 o["catPub"] = db.Local("sync.cat_at") ?? "";
                 o["catN"] = db.LocalLong("sync.cat_n", 0);
+                o["branchEvery"] = BranchEvery(db);
                 o["remotes"] = db.RemoteBranchesBrief();
             }
             return o;
@@ -318,6 +349,57 @@ namespace Qirtasiya.Engine
                جهاز المحل، أو الخادم رفض قائمتنا)، ولها خطؤها في الإعدادات */
             try { Catalogs(db, cloud, force, tickOk); }
             finally { Phase(""); }
+            /* الهواتف: ما تغيّر في القائمة كل دقيقة (فرع كبير بواجهة 3.x — هواتفه تأخذ القائمة لا لقطة KV) */
+            if (tickOk && !db.Replica && db.X3Mode && db.LocalLong("sync.cat_n", 0) > OldMaxItems && (force || (DateTime.UtcNow - lastDeltaTry).TotalMilliseconds >= DeltaEveryMs))
+            {
+                try { PublishDelta(db, cloud); }
+                catch (Exception e) { log("المزامنة: تغييرات القائمة للهواتف: " + ErrText(e)); }
+                finally { Phase(""); }
+            }
+        }
+
+        /* كل كم دقيقة تُنشر قائمتنا الكاملة وتُجلب قوائم الفروع (الإعدادات: كل ساعة، كل 6 ساعات، مرة في اليوم) */
+        public static int BranchEvery(ShopDb db)
+        {
+            long m = db.LocalLong("sync.branch_every", 0);
+            return m >= 5 && m <= 1440 ? (int)m : CatalogEveryMin;
+        }
+
+        void PublishDelta(ShopDb db, ICloud cloud)
+        {
+            lastDeltaTry = DateTime.UtcNow;
+            if (DateTime.UtcNow < deltaOffUntil) return;
+            string baseVer = db.Local("sync.cat_ver") ?? "";
+            long seq0 = db.LocalLong("sync.delta_seq0", -1);
+            if (baseVer.Length == 0 || seq0 < 0) return;
+            long upTo = db.LogSeq();
+            string done = baseVer + ":" + S(upTo);
+            if (done == deltaDone || upTo <= seq0) return;
+            int n;
+            string json = db.X3CatalogDelta(seq0, upTo, DeltaMaxItems, out n);
+            if (json == null)
+            {
+                /* تغيّر كثير (أو مخزن): القائمة الكاملة في الدورة القادمة تبدأ التغييرات من جديد */
+                lock (stateGate) catForce = true;
+                deltaDone = done;
+                return;
+            }
+            Phase("تغييرات القائمة للهواتف");
+            /* رقم القائمة ورقم التغييرات داخل النص نفسه: الهاتف (من أصل آخر) لا يقرأ ترويسات الرد */
+            string dver = NewToken();
+            string body = "{\"base\":\"" + baseVer + "\",\"ver\":\"" + dver + "\"," + json.Substring(1);
+            CloudReply r = cloud.Call("POST", "v2/catdelta", Q("branch", db.Local("sync.branch") ?? "", "device", db.Local("sync.device") ?? "",
+                "base", baseVer, "ver", dver, "n", S(n)), ShopDb.Pack(body));
+            if (r.Status == 404)
+            {
+                /* خادم ربط قبل هذا الإصدار: الهواتف تأخذ القائمة الكاملة كما كانت. نسأل بعد نصف ساعة */
+                deltaOffUntil = DateTime.UtcNow.AddMinutes(30);
+                log("المزامنة: خادم الربط لا يعرف تغييرات القائمة للهواتف — حدّث كوده (الإعدادات ← خطوات الربط)");
+                return;
+            }
+            if (r.Status != 200) throw Fail(r, "تغييرات القائمة للهواتف");
+            deltaDone = done;
+            lock (stateGate) deltaAt = ShopDb.Stamp(db.Now);
         }
 
         static string ErrText(Exception e)
@@ -615,7 +697,9 @@ namespace Qirtasiya.Engine
            قائمته (ميغا ونصف تُرفض كل مرة)، لكنه يبقى يجلب قوائم الفروع */
         void Catalogs(ShopDb db, ICloud cloud, bool force, bool canPublish)
         {
-            bool due = force || db.Now >= nextCatalog;
+            bool forced;
+            lock (stateGate) { forced = catForce; catForce = false; }
+            bool due = force || forced || db.Now >= nextCatalog;
             long want;
             lock (stateGate) want = catWant;
             if (!due && want == 0) return;
@@ -628,7 +712,7 @@ namespace Qirtasiya.Engine
                 try
                 {
                     /* قائمتنا ليست على الخادم (خادم أو قاعدة D1 جديدة، أو نشر انقطع): تُنشر ولو لم تتغيّر */
-                    PublishCatalog(db, cloud, !Listed(list, db.Local("sync.branch") ?? ""));
+                    PublishCatalog(db, cloud, !Listed(list, db.Local("sync.branch") ?? ""), forced);
                     /* بواجهة 3.x شاشاتها ترفع لقطة التلفون بنفسها كما كانت (وتأخذ طلباته) */
                     if (!db.X3Mode) PublishOld(db, cloud, force);
                 }
@@ -651,7 +735,7 @@ namespace Qirtasiya.Engine
             /* جلب فشل: بعد دقيقتين. نشر فشل (الخادم رفض القائمة): بعد عشر، لا تُرفع ميغا كل دقيقتين.
                التسليم فشل فلم ننشر: الدورة التالية الناجحة تنشر */
             if (due && !canPublish && !db.Replica) nextCatalog = db.Now + TimeSpan.FromMinutes(CatalogRetryMin);
-            else if (due) nextCatalog = db.Now + TimeSpan.FromMinutes(getErr.Length > 0 ? CatalogRetryMin : pubErr.Length > 0 ? CatalogPubRetryMin : CatalogEveryMin);
+            else if (due) nextCatalog = db.Now + TimeSpan.FromMinutes(getErr.Length > 0 ? CatalogRetryMin : pubErr.Length > 0 ? CatalogPubRetryMin : BranchEvery(db));
             else if (getErr.Length > 0) lock (stateGate) catWant = 0;   // يُعاد مع الدورة أو التسليم القادم
         }
 
@@ -691,13 +775,27 @@ namespace Qirtasiya.Engine
             db.SetLocals(st);
         }
 
-        void PublishCatalog(ShopDb db, ICloud cloud, bool missing)
+        /* rebase: القائمة لم تتغيّر لكن التغييرات تبدأ من الآن (السجل قُصّ، أو «تحديث الفروع») */
+        void PublishCatalog(ShopDb db, ICloud cloud, bool missing, bool rebase)
         {
             int n;
+            /* رقم السجل قبل القائمة: ما تغيّر بعده يصل الهواتف تغييراتٍ (قد يتكرر صنف، ولا يضيع) */
+            long seq0 = db.LogSeq();
             string json = db.CatalogJson(out n);
             int at = json.IndexOf("\"items\":", StringComparison.Ordinal);
             string hash = Hash(json.Substring(at < 0 ? 0 : at) + "|" + json.Substring(0, Math.Max(0, json.IndexOf(",\"at\":", StringComparison.Ordinal))));
-            if (hash == db.Local("sync.cat_hash") && !missing) return;
+            /* نُشرت بإصدار قبل التغييرات (بلا رقمها): تُنشر مرة كاملة لتبدأ منها */
+            if (hash == db.Local("sync.cat_hash") && !missing && (db.Local("sync.cat_ver") ?? "").Length > 0)
+            {
+                if (rebase)
+                {
+                    Dictionary<string, string> rb = new Dictionary<string, string>();
+                    rb["sync.delta_seq0"] = S(seq0);
+                    db.SetLocals(rb);
+                    deltaDone = "";
+                }
+                return;
+            }
             Phase("نشر قائمة الكتب");
             string packed = ShopDb.Pack(json);
             string ver = NewToken();
@@ -715,7 +813,10 @@ namespace Qirtasiya.Engine
             st["sync.cat_hash"] = hash;
             st["sync.cat_at"] = ShopDb.Stamp(db.Now);
             st["sync.cat_n"] = S(n);
+            st["sync.cat_ver"] = ver;
+            st["sync.delta_seq0"] = S(seq0);
             db.SetLocals(st);
+            deltaDone = "";
             log("المزامنة: نُشرت قائمة الكتب (" + n + " صنف)");
         }
 

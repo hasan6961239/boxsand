@@ -27,8 +27,8 @@ namespace Qirtasiya
         static readonly string DataName = Tripoli ? "Qirtasiya-Tripoli" : "Qirtasiya";
         /* لكل تطبيق إصداره (tools/build-linux.sh يقرأ سطر تطبيقه): مصراتة رسمية،
            وطرابلس تجريبية حتى يعتمدها المحل. ملف التثبيت: الرقم لويندوز، و«-test» في اسمه */
-        const string AppVersionMisrata = "4.3";
-        const string AppVersionTripoli = "4.3-test";
+        const string AppVersionMisrata = "4.4";
+        const string AppVersionTripoli = "4.4-test";
         static readonly string AppVersion = Tripoli ? AppVersionTripoli : AppVersionMisrata;
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
@@ -212,6 +212,63 @@ namespace Qirtasiya
             int diff = 0;                          // مقارنة لا تتأثر بتوقيت التنفيذ
             for (int i = 0; i < got.Length; i++) diff |= got[i] ^ want[i];
             return diff == 0;
+        }
+
+        // ---------- بيانات كتاب من رقم الباركود ----------
+        static string HttpGetText(string url, int timeoutMs)
+        {
+            HttpWebRequest rq = (HttpWebRequest)WebRequest.Create(url);
+            rq.Timeout = timeoutMs;
+            rq.ReadWriteTimeout = timeoutMs;
+            rq.UserAgent = "Qirtasiya/" + AppVersion;
+            rq.Accept = "application/json";
+            using (HttpWebResponse rs = (HttpWebResponse)rq.GetResponse())
+            using (StreamReader rd = new StreamReader(rs.GetResponseStream(), Encoding.UTF8))
+                return rd.ReadToEnd();
+        }
+
+        static string IsbnLookup(string code)
+        {
+            string err = "";
+            try
+            {
+                Dictionary<string, object> g = Json.Parse(HttpGetText("https://www.googleapis.com/books/v1/volumes?q=isbn:" + code, 9000)) as Dictionary<string, object>;
+                List<object> items = g == null ? null : Json.Arr(g, "items");
+                Dictionary<string, object> v = items != null && items.Count > 0 ? Json.Obj(items[0] as Dictionary<string, object>, "volumeInfo") : null;
+                if (v != null && Json.Str(v, "title").Length > 0)
+                {
+                    List<string> au = new List<string>();
+                    foreach (object a in Json.Arr(v, "authors")) au.Add(Convert.ToString(a, CultureInfo.InvariantCulture));
+                    string title = Json.Str(v, "title") + (Json.Str(v, "subtitle").Length > 0 ? " — " + Json.Str(v, "subtitle") : "");
+                    string date = Json.Str(v, "publishedDate");
+                    return "{\"ok\":true,\"found\":true,\"source\":\"Google Books\",\"title\":" + JsonStr(title) + ",\"author\":" + JsonStr(string.Join("، ", au.ToArray())) +
+                        ",\"publisher\":" + JsonStr(Json.Str(v, "publisher")) + ",\"year\":" + JsonStr(date.Length >= 4 ? date.Substring(0, 4) : "") +
+                        ",\"pages\":" + Json.Long(v, "pageCount", 0).ToString(CultureInfo.InvariantCulture) + "}";
+                }
+            }
+            catch (Exception ex) { err = ex.Message; }
+            try
+            {
+                Dictionary<string, object> o = Json.Parse(HttpGetText("https://openlibrary.org/api/books?bibkeys=ISBN:" + code + "&format=json&jscmd=data", 9000)) as Dictionary<string, object>;
+                Dictionary<string, object> b = o == null ? null : Json.Obj(o, "ISBN:" + code);
+                if (b != null && Json.Str(b, "title").Length > 0)
+                {
+                    List<string> au = new List<string>(), pb = new List<string>();
+                    foreach (object a in Json.Arr(b, "authors")) { Dictionary<string, object> ad = a as Dictionary<string, object>; if (ad != null) au.Add(Json.Str(ad, "name")); }
+                    foreach (object a in Json.Arr(b, "publishers")) { Dictionary<string, object> ad = a as Dictionary<string, object>; if (ad != null) pb.Add(Json.Str(ad, "name")); }
+                    string date = Json.Str(b, "publish_date");
+                    System.Text.RegularExpressions.Match ym = System.Text.RegularExpressions.Regex.Match(date, "(1[5-9]|20)\\d\\d");
+                    return "{\"ok\":true,\"found\":true,\"source\":\"Open Library\",\"title\":" + JsonStr(Json.Str(b, "title")) + ",\"author\":" + JsonStr(string.Join("، ", au.ToArray())) +
+                        ",\"publisher\":" + JsonStr(pb.Count > 0 ? pb[0] : "") + ",\"year\":" + JsonStr(ym.Success ? ym.Value : "") +
+                        ",\"pages\":" + Json.Long(b, "number_of_pages", 0).ToString(CultureInfo.InvariantCulture) + "}";
+                }
+                return "{\"ok\":true,\"found\":false}";
+            }
+            catch (Exception ex)
+            {
+                Log("بيانات الكتاب من الإنترنت: " + (err.Length > 0 ? err + " / " : "") + ex.Message);
+                return "{\"ok\":false,\"error\":\"ما قدرناش نوصلو للإنترنت — تأكد من الاتصال، أو اكتب البيانات بيدك\"}";
+            }
         }
 
         // ---------- التفعيل (قرار 0028) ----------
@@ -1009,6 +1066,8 @@ namespace Qirtasiya
                 delegate (string url, string key) { return (ICloud)new HttpCloud(url, key); }, Log, MachineFingerprint(), Path.GetTempPath());
             /* طرابلس: التسليم مرة كل دورة عادية (دقيقة)، وبينها دورات سريعة قراءةً فقط (SyncFastMs) */
             if (Tripoli) Sync.HelloEveryMs = SyncEveryMs;
+            /* تغييرات القائمة للهواتف: مرة في الدقيقة على الأكثر (الاختبار أقصر) */
+            SyncClient.DeltaEveryMs = EnvInt("QIRTASIYA_DELTA_MS", 60000);
             Thread t = new Thread(SyncLoop);
             t.IsBackground = true;
             t.Name = "sync";
@@ -2044,6 +2103,32 @@ namespace Qirtasiya
                 JoinAsSecond(url, key, Json.Str(req, "branch"), name, Json.Bool(req, "replace"));
             }
             else if (act == "now") SyncNowAndWait(EnvInt("QIRTASIYA_SYNC_WAIT_MS", 120000));
+            else if (act == "branches")
+            {
+                /* «تحديث الفروع»: قوائم الفروع في هذه الدورة لا بعد ساعة */
+                if (Sync != null) Sync.CatalogsNow();
+                SyncNowAndWait(EnvInt("QIRTASIYA_SYNC_WAIT_MS", 120000));
+            }
+            else if (act == "every")
+            {
+                /* كل كم دقيقة تُنشر قائمة الفرع وتُجلب قوائم الفروع الأخرى: ساعة، 6 ساعات، يوم */
+                long m = Json.Long(req, "minutes", 60);
+                if (m < 5 || m > 1440) throw new Exception("المدة بين 5 دقائق ويوم.");
+                ShopDb d = Db;
+                if (d == null) throw new Exception("لا قاعدة بيانات بعد.");
+                Dictionary<string, string> st = new Dictionary<string, string>();
+                st["sync.branch_every"] = m.ToString(CultureInfo.InvariantCulture);
+                d.SetLocals(st);
+                Log("المزامنة: قوائم الفروع كل " + m + " دقيقة");
+            }
+            else if (act == "unlink")
+            {
+                string target = Json.Str(req, "device").Trim().ToLowerInvariant();
+                if (Sync == null) throw new Exception("المزامنة لم تبدأ بعد.");
+                Dictionary<string, object> res;
+                lock (SyncLock) res = Sync.Unlink(target);
+                Log("ربط الأجهزة: فُكّ ربط جهاز " + target + (Json.Bool(res, "phone") ? " (هاتف)" : ""));
+            }
             else if (act == "stop") StopSync();
             else if (act != "status") throw new Exception("أمر غير معروف: " + act);
             return LinkStatus();
@@ -3039,6 +3124,21 @@ namespace Qirtasiya
                 catch { }
                 ab.Append("]");
                 SendJson(s, ab.ToString());
+                return;
+            }
+
+            /* بيانات كتاب من رقم الباركود (ISBN): Google Books ثم Open Library، من المحرك لا من الصفحة
+               (الصفحة لا تتصل بغير المحرك). لا يُرسل غير رقم الكتاب */
+            if (path == "/api/isbn")
+            {
+                string code = "";
+                int qi = rawPath.IndexOf("?code=", StringComparison.Ordinal);
+                if (qi >= 0) code = Uri.UnescapeDataString(rawPath.Substring(qi + 6));
+                StringBuilder c2 = new StringBuilder();
+                foreach (char ch in code) if ((ch >= '0' && ch <= '9') || ch == 'X' || ch == 'x') c2.Append(char.ToUpperInvariant(ch));
+                code = c2.ToString();
+                if (code.Length != 10 && code.Length != 13) { SendJson(s, "{\"ok\":false,\"error\":\"رقم الباركود لازم يكون 13 رقم (أو 10)\"}"); return; }
+                SendJson(s, IsbnLookup(code));
                 return;
             }
 

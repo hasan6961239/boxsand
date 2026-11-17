@@ -1523,47 +1523,127 @@ namespace Qirtasiya.Data
                 {
                     Dictionary<string, object> it = o as Dictionary<string, object>;
                     if (it == null) continue;
-                    double inWh;
-                    wh.TryGetValue(type + ":" + X3Str(it, "id"), out inWh);
-                    string lib = X3Str(it, "lib"), shelf = X3Str(it, "shelf"), loc = X3Str(it, "loc");
-                    string place = loc.Length > 0 ? loc : lib.Length > 0 || shelf.Length > 0 ?
-                        (lib.Length > 0 ? "خزانة " + lib : "") + (lib.Length > 0 && shelf.Length > 0 ? " · " : "") + (shelf.Length > 0 ? "رف " + shelf : "") : "";
                     if (count++ > 0) sb.Append(',');
-                    sb.Append('[');
-                    Json.Quote(sb, type); sb.Append(',');
-                    Json.Quote(sb, X3Str(it, "code")); sb.Append(',');
-                    Json.Quote(sb, X3Str(it, "title").Length > 0 ? X3Str(it, "title") : X3Str(it, "name")); sb.Append(',');
-                    Json.Quote(sb, X3Str(it, "author").Length > 0 ? X3Str(it, "author") : X3Str(it, "brand")); sb.Append(',');
-                    Json.Quote(sb, X3Str(it, "barcode")); sb.Append(',');
-                    Json.Quote(sb, X3Str(it, "cat")); sb.Append(',');
-                    double qty = X3Num(it, "qty");
-                    sb.Append(((long)Math.Round(qty)).ToString(CultureInfo.InvariantCulture)).Append(',');
-                    sb.Append(((long)Math.Round(inWh)).ToString(CultureInfo.InvariantCulture)).Append(',');
-                    sb.Append(((long)Math.Round(X3Num(it, "price") * 1000)).ToString(CultureInfo.InvariantCulture)).Append(',');
-                    Json.Quote(sb, place);
-                    object unc;
-                    bool uncounted = it.TryGetValue("uncounted", out unc) && unc is bool && (bool)unc;
-                    long room = (long)Math.Round(Math.Min(Math.Max(X3Num(it, "store"), 0), Math.Max(qty, 0)));
-                    string note = X3Str(it, "note");
-                    string[] extra = new string[] {
-                        Json.Write(X3Str(it, "publisher")),
-                        ((long)Math.Round(Math.Max(X3Num(it, "min"), 0))).ToString(CultureInfo.InvariantCulture),
-                        room.ToString(CultureInfo.InvariantCulture),
-                        ((long)Math.Round(Math.Max(X3Num(it, "priceW"), 0) * 1000)).ToString(CultureInfo.InvariantCulture),
-                        Json.Write(X3Str(it, "catFull")),
-                        Json.Write(note.Length > 300 ? note.Substring(0, 300) : note),
-                        Json.Write(X3Str(it, "unit")),
-                        Json.Write(X3Str(it, "supplierId")),
-                        uncounted ? "1" : "0"
-                    };
-                    int last = extra.Length - 1;
-                    while (last >= 0 && (extra[last] == "\"\"" || extra[last] == "0")) last--;
-                    for (int x = 0; x <= last; x++) sb.Append(',').Append(extra[x]);
-                    sb.Append(']');
+                    X3CatalogRow(sb, it, type, wh);
                 }
             }
             sb.Append("]}");
             return sb.ToString();
+        }
+
+        /* صف صنف في قائمة الفرع (الهاتف والفروع الأخرى) — بلا سعر شراء ولا ربح */
+        static void X3CatalogRow(StringBuilder sb, Dictionary<string, object> it, string type, Dictionary<string, double> wh)
+        {
+            double inWh;
+            wh.TryGetValue(type + ":" + X3Str(it, "id"), out inWh);
+            string lib = X3Str(it, "lib"), shelf = X3Str(it, "shelf"), loc = X3Str(it, "loc");
+            string place = loc.Length > 0 ? loc : lib.Length > 0 || shelf.Length > 0 ?
+                (lib.Length > 0 ? "خزانة " + lib : "") + (lib.Length > 0 && shelf.Length > 0 ? " · " : "") + (shelf.Length > 0 ? "رف " + shelf : "") : "";
+            sb.Append('[');
+            Json.Quote(sb, type); sb.Append(',');
+            Json.Quote(sb, X3Str(it, "code")); sb.Append(',');
+            Json.Quote(sb, X3Str(it, "title").Length > 0 ? X3Str(it, "title") : X3Str(it, "name")); sb.Append(',');
+            Json.Quote(sb, X3Str(it, "author").Length > 0 ? X3Str(it, "author") : X3Str(it, "brand")); sb.Append(',');
+            Json.Quote(sb, X3Str(it, "barcode")); sb.Append(',');
+            Json.Quote(sb, X3Str(it, "cat")); sb.Append(',');
+            double qty = X3Num(it, "qty");
+            sb.Append(((long)Math.Round(qty)).ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(((long)Math.Round(inWh)).ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(((long)Math.Round(X3Num(it, "price") * 1000)).ToString(CultureInfo.InvariantCulture)).Append(',');
+            Json.Quote(sb, place);
+            object unc;
+            bool uncounted = it.TryGetValue("uncounted", out unc) && unc is bool && (bool)unc;
+            long room = (long)Math.Round(Math.Min(Math.Max(X3Num(it, "store"), 0), Math.Max(qty, 0)));
+            string note = X3Str(it, "note");
+            string[] extra = new string[] {
+                Json.Write(X3Str(it, "publisher")),
+                ((long)Math.Round(Math.Max(X3Num(it, "min"), 0))).ToString(CultureInfo.InvariantCulture),
+                room.ToString(CultureInfo.InvariantCulture),
+                ((long)Math.Round(Math.Max(X3Num(it, "priceW"), 0) * 1000)).ToString(CultureInfo.InvariantCulture),
+                Json.Write(X3Str(it, "catFull")),
+                Json.Write(note.Length > 300 ? note.Substring(0, 300) : note),
+                Json.Write(X3Str(it, "unit")),
+                Json.Write(X3Str(it, "supplierId")),
+                uncounted ? "1" : "0"
+            };
+            int last = extra.Length - 1;
+            while (last >= 0 && (extra[last] == "\"\"" || extra[last] == "0")) last--;
+            for (int x = 0; x <= last; x++) sb.Append(',').Append(extra[x]);
+            sb.Append(']');
+        }
+
+        /* مفتاح الصنف كما يعرفه الهاتف (site/core.js itemKey): الباركود، وإلا الرمز */
+        static string X3ItemKey(Dictionary<string, object> it)
+        {
+            string b = X3Str(it, "barcode").Trim(), k = X3Str(it, "code").Trim();
+            return b.Length > 0 ? "b:" + b : k.Length > 0 ? "k:" + k.ToUpperInvariant() : "";
+        }
+
+        /* ما تغيّر في قائمة الفرع بعد رقم السجل after (نشر كامل أُخذ عنده): صفوف الأصناف التي
+           تغيّرت كما هي الآن، ومفاتيح ما حُذف. الهاتف يطبّقها فوق القائمة الكاملة كل دقيقة.
+           null = يلزم نشر كامل: السجل قُصّ قبل after، أو تغيّر مخزن (كمياته على أصناف كثيرة) */
+        public string X3CatalogDelta(long after, long upTo, int maxItems, out int count)
+        {
+            count = 0;
+            lock (gate)
+            {
+                long minSeq = db.Long("SELECT MIN(seq) FROM change_log", 0);
+                if (upTo > after && (minSeq == 0 || minSeq > after + 1)) return null;
+                List<long> ids = new List<long>();
+                foreach (object[] r in db.Rows("SELECT DISTINCT row_id FROM change_log WHERE tbl = 'x3_docs' AND seq > ? AND seq <= ?", after, upTo))
+                    ids.Add((long)r[0]);
+                if (ids.Count > maxItems * 2) return null;
+                Dictionary<string, double> wh = new Dictionary<string, double>(StringComparer.Ordinal);
+                foreach (object[] r in db.Rows("SELECT body FROM x3_docs WHERE coll = 'warehouses' AND key <> ''"))
+                {
+                    Dictionary<string, object> wd = Json.Parse((string)r[0]) as Dictionary<string, object>;
+                    if (wd == null) continue;
+                    foreach (object o in Json.Arr(wd, "stock"))
+                    {
+                        Dictionary<string, object> st = o as Dictionary<string, object>;
+                        if (st == null) continue;
+                        string k = Json.Str(st, "type") + ":" + X3Str(st, "itemId");
+                        double q;
+                        wh.TryGetValue(k, out q);
+                        wh[k] = q + X3Num(st, "qty");
+                    }
+                }
+                StringBuilder items = new StringBuilder();
+                List<string> gone = new List<string>();
+                foreach (long id in ids)
+                {
+                    List<object[]> cur = db.Rows("SELECT coll, body FROM x3_docs WHERE id = ?", id);
+                    string coll, body;
+                    if (cur.Count > 0) { coll = (string)cur[0][0]; body = (string)cur[0][1]; }
+                    else
+                    {
+                        /* حُذف: آخر صورة له في السجل تقول أي صنف كان */
+                        string img = db.Text("SELECT data FROM change_log WHERE tbl = 'x3_docs' AND row_id = ? AND data IS NOT NULL ORDER BY seq DESC LIMIT 1", id);
+                        Dictionary<string, object> d = img == null ? null : Json.Parse(img) as Dictionary<string, object>;
+                        if (d == null) continue;
+                        coll = Json.Str(d, "coll");
+                        if (coll != "books" && coll != "stationery") continue;
+                        Dictionary<string, object> old = Json.Parse(Json.Str(d, "body")) as Dictionary<string, object>;
+                        string k = old == null ? "" : X3ItemKey(old);
+                        if (k.Length > 0 && !gone.Contains(k)) gone.Add(k);
+                        continue;
+                    }
+                    if (coll == "warehouses") return null;
+                    if (coll != "books" && coll != "stationery") continue;
+                    Dictionary<string, object> it = Json.Parse(body) as Dictionary<string, object>;
+                    if (it == null) continue;
+                    if (count++ > 0) items.Append(',');
+                    X3CatalogRow(items, it, coll == "books" ? "book" : "stat", wh);
+                    if (count > maxItems) return null;
+                }
+                StringBuilder sb = new StringBuilder("{\"v\":1,\"at\":");
+                Json.Quote(sb, Stamp(clock()));
+                sb.Append(",\"items\":[").Append(items.ToString()).Append("],\"gone\":[");
+                for (int i = 0; i < gone.Count; i++) { if (i > 0) sb.Append(','); Json.Quote(sb, gone[i]); }
+                sb.Append("]}");
+                count += gone.Count;
+                return sb.ToString();
+            }
         }
 
         /* حقول 3.x كما كتبتها الواجهة: النص قد يكون رقماً، والرقم قد يكون نصاً */

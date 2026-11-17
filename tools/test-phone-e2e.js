@@ -10,11 +10,14 @@
    - تعديل اسم كتاب من الهاتف يُطبَّق في المنظومة، ويعود في قائمة الفرع.
    - هاتف 3.0: قائمة الفرع بأعمدتها كلها، وتعديل كل الحقول، وإضافة كمية (تُسجَّل
      إدخال بضاعة)، وصنف جديد (يأخذ رمزه من المنظومة ويعود في القائمة بلا تكرار).
+   - الهاتف في «الأجهزة المربوطة» باسمه ومن دخل منه، وما يتغيّر على الكمبيوتر يصله
+     تغييراتٍ صغيرة بلا قائمة كاملة (v2/catdelta)، بلا سعر شراء، وفك ربطه من المنظومة.
      node tools/test-phone-e2e.js            (BOOKS=… لعدد آخر)
    ============================================================ */
 'use strict';
 process.env.QIRTASIYA_SYNC_MS = '3000';
 process.env.QIRTASIYA_SYNC_FAST_MS = '1000';
+process.env.QIRTASIYA_DELTA_MS = '1500';
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os');
 const { chromium, devices } = require('playwright-core');
 const E = require('./engine');
@@ -210,6 +213,52 @@ function site(cfg) {
     ok(fin.a && fin.a.code === b4.code && fin.a.d === 'دار من الهاتف' && fin.a.pw === 9.5 && fin.a.room === 1 && fin.a.nt === 'ملاحظة من الهاتف' && fin.a.m === 4 && !fin.old, 'والكتاب المعدّل يُعثر عليه بباركوده الجديد (والقديم لم يعد)، وبياناته الجديدة', fin.a);
     ok(fin.bq === b5.qty + 7 && fin.broom === (b5.store || 0) + 7, 'والكمية المضافة في القائمة مرة واحدة (لا تُجمع مرتين)', { q: fin.bq, room: fin.broom });
 
+    console.log('\n== الهاتف في «الأجهزة المربوطة»، وتغييرات الكمبيوتر تصله خلال دقيقة ==');
+    await p.evaluate(() => { Core.S.phone.name = 'عبد الرحمن'; Core.save(); });
+    await p.evaluate(() => Core.quick());
+    let devs = (await raw('/api/link/devices')).body;
+    const meDev = devs && devs.ok && devs.data.devices.find(d => d.role === 'phone');
+    ok(meDev && meDev.name.split('|')[0] === 'عبد الرحمن' && Date.now() - meDev.seen < 60000, 'الهاتف في قائمة أجهزة الفرع باسمه وآخر ظهوره', devs && devs.data);
+    const b6 = good[8], b7 = good[9];
+    const cv0 = await p.evaluate(() => Core.S.catVer);
+    await pc.evaluate(([x, y]) => {
+      const a = App.S.books.find(b => b.barcode === x); a.qty = 77; a.price = 41.25;
+      const b = App.S.books.find(z => z.barcode === y); b.qty = 0;
+      App.save();
+    }, [b6.barcode, b7.barcode]);
+    await pc.evaluate(() => App.flushSave ? App.flushSave().catch(() => { }) : null);
+    const tD = Date.now();
+    let g6 = null;
+    for (let i = 0; i < 40; i++) {
+      await sleep(700);
+      await p.evaluate(() => Core.quick());
+      g6 = await p.evaluate(([x, y]) => { const a = Core.byCode(x), b = Core.byCode(y); return { q: a.q, p: a.p, q7: b.q }; }, [b6.barcode, b7.barcode]);
+      if (g6.q === 77 && g6.q7 === 0) break;
+    }
+    ok(g6 && g6.q === 77 && Math.abs(g6.p - 41.25) < 0.001 && g6.q7 === 0, 'كمية وسعر عُدّلا على الكمبيوتر وصلا الهاتف خلال ' + ((Date.now() - tD) / 1000).toFixed(1) + ' ث', g6);
+    ok(await p.evaluate(v => Core.S.catVer === v, cv0), 'بلا قائمة كاملة جديدة: تغييرات صغيرة فوق القائمة نفسها', cv0);
+    const dr = await fetch(cloud.url + '/v2/catdelta?branch=tripoli', { headers: { 'X-Shop-Key': KEY } });
+    const dtext = dr.status === 200 ? require('zlib').gunzipSync(Buffer.from(await dr.text(), 'base64')).toString('utf8') : '';
+    const dj = dtext ? JSON.parse(dtext) : null;
+    ok(dj && dj.items.length >= 2 && dj.items.length < 50 && !/cost|profit/.test(dtext), 'التغييرات المنشورة صغيرة (' + (dj && dj.items.length) + ' صنف) وبلا سعر شراء ولا ربح', dj && dj.items.length);
+    const inf2 = await p.evaluate(() => Core.info());
+    ok(inf2.n === fin.n, 'عدد الكتب على الهاتف لم يتغيّر (التغيير استبدال لا إضافة)', { before: fin.n, after: inf2.n });
+    /* إعادة فتح الهاتف: التغييرات محفوظة معه بلا إنترنت */
+    await p.reload(); await p.waitForFunction(() => window.Core && Core.S && Core.info && Core.info().n > 0, null, { timeout: 30000 });
+    const g6b = await p.evaluate(x => Core.byCode(x).q, b6.barcode);
+    ok(g6b === 77, 'بعد إعادة فتح التطبيق: التغييرات باقية على الهاتف', g6b);
+
+    console.log('\n== فك ربط الهاتف من المنظومة ==');
+    const phId = meDev ? meDev.device : '';
+    const ur = await pc.evaluate(id => App.apiWrite('/api/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'unlink', device: id }) }).then(r => r, e => ({ err: e.message })), phId);
+    ok(ur && ur.ok, 'جهاز المحل فكّ ربط الهاتف', ur);
+    devs = (await raw('/api/link/devices')).body;
+    ok(devs.ok && !devs.data.devices.some(d => d.device === phId), 'خرج من قائمة الأجهزة', devs.data && devs.data.devices.map(d => d.device));
+    await p.evaluate(() => Core.quick()); await sleep(800);
+    const unl = await p.evaluate(() => ({ c: Core.configured(), id: Core.S.phone.id }));
+    ok(!unl.c && unl.id && ('ph' + unl.id.replace(/^phone-/, '')) !== phId, 'الهاتف عرف أنه فُكّ ربطه: رجع لشاشة الربط برقم جهاز جديد', unl);
+    ok(await p.evaluate(() => /فُكّ ربط/.test(document.body.textContent)), 'وشاشة الربط تقول له السبب');
+
     ok(errs.length === 0, 'بلا أخطاء في الصفحات', errs.slice(0, 5));
     await ctx.close();
   } catch (e) {
@@ -220,7 +269,7 @@ function site(cfg) {
     if (st) st.srv.close();
     if (proc) E.stopEngine(proc);
     await cloud.close();
-    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { }
+    if (!process.env.KEEP_TMP) try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { } else console.log('tmp: ' + tmp);
   }
   console.log('\n==================================================');
   console.log('  نجح: ' + pass + '    فشل: ' + fail);

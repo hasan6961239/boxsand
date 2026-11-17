@@ -1991,3 +1991,47 @@ body.act-body{background:var(--bg,#f1f2f1);min-height:100vh;margin:0}
 .act-foot{margin:14px 0 0}
 .act-bar{margin:0 24px 0;padding:10px 14px;border-radius:12px;background:var(--amber-wash,#fff4dc);border:1px solid #f0d9a6;line-height:1.8;font-size:14px}
 .act-bar a{font-weight:700;margin-inline-start:6px}
+
+/* ---------- التحديث: داخل الفرع والفروع ---------- */
+.sync-two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.sync-pane{border:1px solid var(--line,#dde1e6);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.sync-pane h4{margin:0;font-size:15px}
+.sync-pane p{margin:0;line-height:1.7}
+.sync-fixed{display:flex;align-items:center;color:var(--ink,#1a1f24);background:var(--paper,#fff)}
+@media (max-width:900px){.sync-two{grid-template-columns:1fr}}
+
+/* ---------- المصروفات ---------- */
+.exp-bar{gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.exp-month{display:flex;align-items:center;gap:6px;background:var(--ink,#16191d);color:#fff;border-radius:999px;padding:4px 6px}
+.exp-month b{background:var(--accent,#0E6E62);border-radius:999px;padding:6px 14px;font-size:14px;white-space:nowrap}
+.exp-month .btn{color:#fff;border:0;background:transparent}
+.exp-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:16px;align-items:start}
+@media (max-width:1100px){.exp-grid{grid-template-columns:1fr}}
+.exp-cat{display:grid;grid-template-columns:90px 1fr 80px;gap:10px;align-items:center;margin:0 0 12px}
+.exp-track{height:10px;background:var(--line,#e6e9ed);border-radius:99px;overflow:hidden}
+.exp-track i{display:block;height:100%;background:var(--accent,#0E6E62);border-radius:99px}
+.exp-out{color:var(--stamp,#b42323)}
+
+/* ---------- تغيير أسعار جماعي ---------- */
+.bp-h{font-weight:700;margin:14px 0 8px}
+.bp-h:first-child{margin-top:0}
+.bp-checks{gap:18px;flex-wrap:wrap}
+.bp-checks label,.bp-auto{display:flex;align-items:center;gap:6px;cursor:pointer}
+.bp-change{gap:10px;flex-wrap:wrap}
+.bp-change .inp{width:auto;flex:1;min-width:140px}
+.bp-auto{margin-top:12px}
+.bp-sum{margin:14px 0 8px;padding:12px 14px;border-radius:12px;background:var(--amber-wash,#fff4dc);color:#8a5a00;font-weight:700;line-height:1.7}
+.bp-sum.none{background:var(--soft,#f1f3f5);color:var(--muted,#6b7a87)}
+.bp-tbl td,.bp-tbl th{padding:8px 10px}
+.bp-new{color:var(--accent,#0E6E62);font-weight:700}
+
+/* ---------- بيانات الكتاب من الباركود ---------- */
+.isbn-box{border:2px dashed var(--line,#dde1e6);border-radius:14px;padding:12px 14px;margin-bottom:14px}
+.isbn-h{font-weight:700;margin-bottom:8px}
+.isbn-row{gap:10px;margin-bottom:6px}
+.isbn-row .inp{flex:1;font-size:17px;letter-spacing:1px}
+.isbn-card{margin-top:10px;padding:12px 14px;border-radius:12px;background:var(--soft,#f4f6f8);line-height:1.9}
+.isbn-card.bad{background:#fdecec;color:#8a1f1f}
+.isbn-card.found{display:flex;gap:12px;border-inline-start:4px solid var(--accent,#0E6E62)}
+.isbn-ic{font-size:34px;width:64px;height:64px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:linear-gradient(135deg,#1f4596,#0E6E62);flex:none}
+.isbn-info{flex:1}
