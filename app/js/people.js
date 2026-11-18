@@ -963,6 +963,7 @@ var People = (function () {
           { h: "السعر", cls: "num", c: function (b) { return App.num(b.price) > 0 ? App.money0(b.price) : '<span class="muted">—</span>'; } },
           { h: "", cls: "act", c: function (b) { return '<button class="btn sm ghost" onclick="Inv.editBook(\'' + b.id + '\')">تعديل</button>'; } }
         ], books, { lazy: 100, emptyIcon: "books", emptyTitle: "لا كتب مربوطة", emptyText: "اربط كتبه من «تعديل» الكتاب." }),
+      actions: [],                      // زر «إغلاق» وحده في أسفل النافذة
       cancelLabel: "إغلاق"
     });
   }

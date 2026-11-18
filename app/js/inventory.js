@@ -3712,10 +3712,10 @@ var Exp = (function () {
         title: "كتب كثيرة على PDF",
         size: "narrow",
         body: '<p style="line-height:1.9;margin-top:0">' + (ex.nsel ? "اخترت " : "ما اخترتش كتباً، فالـPDF فيه كل المعروض: ") +
-          "<b>" + list.length.toLocaleString("en") + "</b> كتاب، حوالي <b>" + Math.ceil(list.length / 40).toLocaleString("en") +
-          "</b> صفحة — نافذة الطباعة تعلق بيه.</p>" +
-          '<p style="line-height:1.9;margin:0">PDF حتى <b>' + PDF_MAX.toLocaleString("en") + "</b> كتاب: اختر الكتب، أو تخصصاً من القائمة فوق، أو «المتوفر فقط». " +
-          "وللكل استعمل <b>«تصدير Excel»</b>.</p>",
+          "<b>" + list.length.toLocaleString("en") + "</b> كتاب (حوالي <b>" + Math.ceil(list.length / 40).toLocaleString("en") + "</b> صفحة).</p>" +
+          '<p style="line-height:1.9;margin:0">الـPDF حتى <b>' + PDF_MAX.toLocaleString("en") + "</b> كتاب، لأن الأكثر يثقّل نافذة الطباعة وممكن تعلق. " +
+          "اختر الكتب، أو تخصصاً من القائمة فوق، أو «المتوفر فقط». وللكل استعمل <b>«تصدير Excel»</b>.</p>",
+        actions: [],                    // زر «تمام» وحده في أسفل النافذة
         cancelLabel: "تمام"
       });
       return;

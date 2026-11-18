@@ -26,6 +26,14 @@ function ok(c, name, d) {
   else { fail++; console.log('  FAIL  ' + name + (d === undefined ? '' : ' — ' + (typeof d === 'string' ? d : JSON.stringify(d)).slice(0, 500))); }
 }
 const lastModal = p => p.evaluate(() => ([...document.querySelectorAll('#modalHost .modal')].pop() || {}).innerText || '');
+/* زر الإغلاق في أسفل آخر نافذة: موجود بنصّه، والضغط عليه يسكّرها */
+async function closeByFoot(p, label) {
+  const n0 = await p.evaluate(() => document.querySelectorAll('#modalHost .modal').length);
+  const has = await p.evaluate(l => { const m = [...document.querySelectorAll('#modalHost .modal')].pop(); const b = m && [...m.querySelectorAll('.m-foot button')].find(x => x.textContent.trim() === l); if (b) b.click(); return !!b; }, label);
+  await sleep(300);
+  const n1 = await p.evaluate(() => document.querySelectorAll('#modalHost .modal').length);
+  return has && n1 === n0 - 1;
+}
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qal-'));
@@ -154,7 +162,7 @@ const lastModal = p => p.evaluate(() => ([...document.querySelectorAll('#modalHo
     if (hasBtn) { await p.click('button[onclick^="People.authorBooks"]'); await sleep(500); }
     const ab = await lastModal(p);
     ok(/كتب المؤلف — أحمد رحيل/.test(ab) && /كتاب عادي/.test(ab) && !/كتاب تجربة رقم/.test(ab), 'تفتح كتبه المربوطة بحصته فقط', ab.slice(0, 160));
-    await p.keyboard.press('Escape'); await sleep(300);
+    ok(await closeByFoot(p, 'إغلاق'), 'وتتسكّر بزر «إغلاق» تحت');
 
     console.log('\n== تصدير الكتب بلا اختيار ==');
     await p.evaluate(() => { location.hash = '#/export'; App.route(); }); await sleep(800);
@@ -164,7 +172,7 @@ const lastModal = p => p.evaluate(() => ([...document.querySelectorAll('#modalHo
     await p.evaluate(() => Exp.pdf()); await sleep(600);
     const pm = await lastModal(p);
     ok(prints === 0 && /كتب كثيرة على PDF/.test(pm) && /تصدير Excel/.test(pm), 'PDF لـ2,501 كتاب بلا اختيار: رسالة بدل نافذة طباعة تعلق', pm.slice(0, 160));
-    await p.keyboard.press('Escape'); await sleep(300);
+    ok(await closeByFoot(p, 'تمام'), 'والرسالة تتسكّر بزر «تمام» تحت');
     const t0 = Date.now();
     const xl = await p.evaluate(() => Exp.__blob().size);
     ok(xl > 50000, 'Excel للكل (2,501 كتاب) يتجهّز (' + Math.round(xl / 1024) + ' ك.ب في ' + (Date.now() - t0) + ' ms)');
