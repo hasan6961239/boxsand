@@ -237,6 +237,27 @@ function dump(d) {
     const q4 = await B.data('item.add', { title: 'بلا ربط', price: 1000 });
     ok(q4.queued, 'ولا يكتب في قاعدته (لا يصير محلاً ثانياً بالخطأ)', q4);
 
+    console.log('\n== كمبيوتر محل جديد يأخذ المكان: ما أرسله جهازي للمحل القديم لا يُنفّذ عنده ==');
+    /* يوم تركيب طرابلس: لابتوب كان جهاز المحل وجهاز ثانٍ باع عليه تجارب، ثم كمبيوتر المحل ببياناته هو يأخذ المكان.
+       كان يقرأ أوامر الأجهزة الثانية من أولها فتدخل بيعات التجربة وتتكرر الكتب */
+    const N = device(tmp, 'N');
+    for (const f of ['Qirtasiya.exe', 'Qirtasiya.exe.config']) fs.copyFileSync(path.join(A.dir, f), path.join(N.dir, f));
+    await N.start();
+    ow = await N.owner();
+    await N.raw('/api/v2/create', { shopName: 'دار الحكمة', city: 'مصراتة' }, { 'X-Owner': ow });
+    const nInv = N.q('SELECT COUNT(*) AS n FROM invoices')[0].n, nItemsN = N.q('SELECT COUNT(*) AS n FROM items')[0].n;
+    st = await N.v2('sync.setup', { role: 'main', url: cloud.url, key: KEY, name: 'كمبيوتر المحل الجديد' });
+    ok(st.ok === false && st.code === 'main-taken', 'يسأل قبل أن يأخذ المكان', st);
+    st = await N.v2('sync.setup', { role: 'main', url: cloud.url, key: KEY, name: 'كمبيوتر المحل الجديد', force: true });
+    ok(st.ok, 'وبالموافقة يأخذه', st);
+    await N.sync(); await N.sync();
+    ok(N.q("SELECT COUNT(*) AS n FROM items WHERE title = 'كتاب من جهازي'")[0].n === 0, 'كتاب أضافه جهازي للمحل القديم لا يُضاف عنده');
+    ok(N.q('SELECT COUNT(*) AS n FROM invoices')[0].n === nInv && N.q('SELECT COUNT(*) AS n FROM items')[0].n === nItemsN,
+      'ولا بيعاته: فواتيره وكتبه كما كانت', { inv: N.q('SELECT COUNT(*) AS n FROM invoices')[0].n, nInv });
+    ok(N.q('SELECT COUNT(*) AS n FROM remote_cmds')[0].n === 0, 'ولم يُنفَّذ عنده أي أمر قديم');
+    ok(/لا تُنفّذ هنا/.test(fs.readFileSync(path.join(N.dir, 'data', 'log.txt'), 'utf8')), 'وسجله يقول ذلك');
+    N.stop();
+
     console.log('\n== حدود الخادم المجاني ==');
     const w = cloud.env.DB.stats;
     ok(w.writes < 2000, 'كتابات D1 في هذا الاختبار كله ' + w.writes + ' (الحد اليومي 100 ألف)', w);

@@ -27,8 +27,8 @@ namespace Qirtasiya
         static readonly string DataName = Tripoli ? "Qirtasiya-Tripoli" : "Qirtasiya";
         /* لكل تطبيق إصداره (tools/build-linux.sh يقرأ سطر تطبيقه): مصراتة رسمية،
            وطرابلس تجريبية حتى يعتمدها المحل. ملف التثبيت: الرقم لويندوز، و«-test» في اسمه */
-        const string AppVersionMisrata = "4.6";
-        const string AppVersionTripoli = "4.6-test";
+        const string AppVersionMisrata = "4.7";
+        const string AppVersionTripoli = "4.7-test";
         static readonly string AppVersion = Tripoli ? AppVersionTripoli : AppVersionMisrata;
 
         /* مجلد app المجاور للبرنامج كان يُقدَّم قبل الموارد المدمجة، والتثبيت
@@ -1275,8 +1275,17 @@ namespace Qirtasiya
                 st["sync.device"] = device; st["sync.name"] = name; st["sync.machine"] = fp;
                 /* سلسلة جديدة: الدورة القادمة ترفع نسخة كاملة، والأجهزة الثانية تبدأ منها */
                 st["sync.chain"] = null; st["sync.pushed"] = null; st["sync.snap_at"] = null; st["sync.cat_hash"] = null;
-                if (d.Local("sync.url") != url) st["sync.cmd_after"] = null;
+                /* أوامر الأجهزة الثانية: قاعدة لم تنفّذ أمراً قط (كمبيوتر جديد، أو بياناته هو يأخذ بها مكان جهاز محل آخر)
+                   تبدأ من حيث وصل الخادم لحظة الربط. كانت تقرأها من أولها فتنفّذ ما أُرسل لجهاز المحل قبلها: بيعات التجربة
+                   تدخل والكتب تتكرر بأرقام الجهاز القديم. قاعدة نفّذت أوامر قبل (جهاز المحل نفسه، أو نسخته الاحتياطية)
+                   تقرأ كما كانت، وما نفّذته من قبل لا يتكرر (remote_cmds) */
+                bool ranBefore = d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT COUNT(*) FROM remote_cmds", 0); }) > 0;
+                long cmdMax = Json.Long(j, "cmdMax", 0);
+                if (!ranBefore) st["sync.cmd_after"] = cmdMax.ToString(CultureInfo.InvariantCulture);
+                else if (d.Local("sync.url") != url) st["sync.cmd_after"] = null;
                 d.SetLocals(st);
+                if (!ranBefore && cmdMax > 0)
+                    Log("الربط: أوامر الأجهزة الثانية المرسلة قبل هذا الربط (حتى " + cmdMax.ToString(CultureInfo.InvariantCulture) + ") لا تُنفّذ هنا");
                 Sync.ClearState();
                 Log("الربط: هذا جهاز المحل لفرع " + branch + " على " + url);
             }
