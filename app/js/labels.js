@@ -690,7 +690,9 @@ var Labels = (function () {
       ".lbl-name{font-size:" + namePt(L).toFixed(2) + "pt;font-weight:700;" +
       "line-height:1.1;text-align:center;max-height:" + nameMm + "mm;overflow:hidden;" +
       "width:100%;white-space:nowrap;text-overflow:ellipsis}" +
-      ".lbl-bc{width:100%;display:flex;justify-content:center;line-height:0}" +
+      /* ltr: رقم الباركود الأعرض من أعمدته (13 رقماً على لاصقة 30 مم) يرسمه JsBarcode من x=0 بـ
+         text-anchor:start، و«start» في صفحة rtl هو اليمين فيخرج الرقم كله يسار اللاصقة ويختفي */
+      ".lbl-bc{width:100%;display:flex;justify-content:center;line-height:0;direction:ltr}" +
       /* بلا max-width: تصغير الباركود ليدخل يُنقص عرض العمود تحت الحدّ
          الذي يقرؤه الماسح، فيخرج باركود يبدو سليماً ولا يُقرأ. الحجم
          محسوب ليدخل أصلاً، وما لا يدخل لا يُرسم. */

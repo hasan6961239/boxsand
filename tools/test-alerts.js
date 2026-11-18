@@ -10,6 +10,7 @@
    - التنبيهات: زر «حذف» يسأل قبل الحذف، والحذف محفوظ في الكتاب نفسه (alertOff)
      فيصل الأجهزة والهواتف، ويرجع التنبيه لما تدخل كمية جديدة وتخلص.
    - المؤلفون: زر «عرض كتبه» يفتح الكتب المربوطة بحصته.
+   - اللاصقات: رقم الباركود (13 رقماً على لاصقة 30 مم) والمكان داخل اللاصقة.
    - تصدير الكتب بلا اختيار: PDF لآلاف الكتب رسالة بدل نافذة طباعة تعلق، وExcel يتجهّز.
      node tools/test-alerts.js
    ============================================================ */
@@ -163,6 +164,26 @@ async function closeByFoot(p, label) {
     const ab = await lastModal(p);
     ok(/كتب المؤلف — أحمد رحيل/.test(ab) && /كتاب عادي/.test(ab) && !/كتاب تجربة رقم/.test(ab), 'تفتح كتبه المربوطة بحصته فقط', ab.slice(0, 160));
     ok(await closeByFoot(p, 'إغلاق'), 'وتتسكّر بزر «إغلاق» تحت');
+
+    console.log('\n== اللاصقات: رقم الباركود والمكان داخل اللاصقة ==');
+    /* رقم 13 خانة أعرض من الأعمدة على لاصقة 30 مم: كان يُرسم خارج اللاصقة (rtl) فيختفي */
+    const consId = await p.evaluate(() => App.S.books.find(b => b.consId).id);
+    await p.evaluate(() => { location.hash = '#/labels'; App.route(); }); await sleep(600);
+    for (const [w, h] of [[30, 25], [30, 20], [40, 30]]) {
+      const lb = await p.evaluate(([w, h, ids]) => {
+        App.S.meta.label = Object.assign(App.S.meta.label || {}, { w, h });
+        document.querySelectorAll('#modalHost .overlay').forEach(o => o.remove());
+        Labels.clearSel(); ids.forEach(i => Labels.toggle(i)); Labels.preview();
+        return new Promise(r => setTimeout(() => r([...document.querySelectorAll('.lbl-one')].map(l => {
+          const L = l.getBoundingClientRect();
+          const inside = e => { if (!e) return false; const q = e.getBoundingClientRect(); return q.width > 0 && q.left >= L.left - 0.5 && q.right <= L.right + 0.5 && q.top >= L.top - 0.5 && q.bottom <= L.bottom + 0.5; };
+          return { digits: [...l.querySelectorAll('svg text')].map(x => x.textContent).join(''), digitsIn: [...l.querySelectorAll('svg text')].every(inside) && !!l.querySelector('svg text'), locIn: inside(l.querySelector('.lf-loc')) };
+        })), 700));
+      }, [w, h, ['b1', consId]]);
+      ok(lb.length === 2 && lb.every(x => x.digitsIn && x.locIn) && lb.some(x => x.digits === '9789953305076'),
+        'لاصقة ' + w + '×' + h + ': رقم الباركود (13 رقم وكتاب المباع) والمكان داخل اللاصقة', lb);
+    }
+    await p.evaluate(() => document.querySelectorAll('#modalHost .overlay').forEach(o => o.remove()));
 
     console.log('\n== تصدير الكتب بلا اختيار ==');
     await p.evaluate(() => { location.hash = '#/export'; App.route(); }); await sleep(800);
