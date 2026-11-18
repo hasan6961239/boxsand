@@ -105,6 +105,9 @@ jobs:
       - name: تطبيق الهاتف مع منظومة طرابلس الحقيقية (بيع، تعديل كامل، إضافة كمية، صنف جديد)
         run: node tools/test-phone-e2e.js
 
+      - name: التنبيهات وكتب على المباع وكتب المؤلف والتصدير و«أهلاً بك»
+        run: node tools/test-alerts.js
+
       - name: الجهاز الثاني — حفظ كبير لا يوقف المزامنة
         run: node tools/test-bigcmd.js
 

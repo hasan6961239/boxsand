@@ -429,7 +429,7 @@ var Core = (function () {
       q: num(i.q), room: st, p: num(i.p), m: num(i.m),
       lib: book ? String(i.l || "") : "", shelf: book ? String(i.s || "") : "", loc: book ? "" : (i.loc || ""),
       d: i.d || "", nt: i.nt || "", u: i.u || "", sl: num(i.sl), ls: i.ls || "",
-      pw: num(i.pw), cf: i.cf || "", sp: i.sp || "", un: i.un ? 1 : 0
+      pw: num(i.pw), cf: i.cf || "", sp: i.sp || "", un: i.un ? 1 : 0, na: i.na ? 1 : 0
     };
   }
   function fromCat(a) {
@@ -441,7 +441,9 @@ var Core = (function () {
       /* الأعمدة بعد العاشر (منظومة 4.2 فما فوق): دار النشر، حد التنبيه، غرفة الخزين، سعر الجملة،
          التخصص الدقيق، الملاحظة، الوحدة، المورّد، لم يُجرد. منظومة أقدم: غير موجودة = فارغة */
       d: a[10] || "", nt: a[15] || "", u: a[16] || "", sl: 0, ls: "",
-      pw: num(a[13]) / 1000, cf: a[14] || "", sp: a[17] || "", un: num(a[18]) ? 1 : 0
+      pw: num(a[13]) / 1000, cf: a[14] || "", sp: a[17] || "", un: num(a[18]) ? 1 : 0,
+      /* العمود 20 (منظومة 4.7): بلا تنبيه — كتب على المباع، أو تنبيه حذفه المستخدم */
+      na: num(a[19]) ? 1 : 0
     };
   }
   function hay(g) { return norm([g.n, g.a, g.b, g.code, g.c, g.d, g.cf].join(" ")); }

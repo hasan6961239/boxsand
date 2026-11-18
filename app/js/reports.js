@@ -150,7 +150,7 @@ var Rep = (function () {
       "</div>";
 
     // الأصناف الناقصة
-    var lows = App.allItems().filter(function (x) { return App.stockState(x.it) !== "ok"; })
+    var lows = App.allItems().filter(function (x) { return App.alertState(x.it) !== "ok"; })
       .sort(function (a, b) { return App.num(a.it.qty) - App.num(b.it.qty); }).slice(0, 8);
 
     h += '<div class="card"><div class="card-head"><h3>يحتاج انتباهك</h3><div class="spacer"></div>' +
@@ -1689,7 +1689,7 @@ var Rep = (function () {
     var n = function (v) { return '<b class="num">' + Number(v || 0).toLocaleString("en") + "</b>"; };
     var t = function (v) { return '<span class="num">' + App.esc(v || "") + "</span>"; };
     var h = '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);line-height:2">' +
-      '<b>قوائم الفروع</b> <span class="muted small">— كتب كل فرع للفروع الأخرى، تتجدّد كل نصف ساعة وفي «حدّث الآن»</span>';
+      '<b>قوائم الفروع</b> <span class="muted small">— كتب كل فرع للفروع الأخرى، تتجدّد حسب مدة «الفروع» في «التحديث» فوق، وفي «حدّث الآن»</span>';
     if (main) {
       h += "<div>قائمة كتبنا: " + (link.catPub ? "نُشرت " + t(link.catPub) + " (" + n(link.catN) + " صنف)" : "لم تُنشر بعد") + "</div>";
       if (link.catPubError) h += red("لم تُنشر قائمتنا: " + link.catPubError);

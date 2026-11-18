@@ -117,9 +117,10 @@ var Consign = (function () {
       { h: "باقٍ عندك", cls: "num", c: function (r) { return r.a.left; } },
       {
         h: "المستحق له", cls: "num", c: function (r) {
-          return r.a.rest > 0.009
-            ? '<b style="color:var(--stamp)">' + App.money0(r.a.rest) + "</b>"
-            : '<span class="badge ok">خالص</span>';
+          /* «خالص» قبل أي بيعة كانت تُفهم «انباع وانحسب»: ما انباع شيء بعد فما عليك له شيء */
+          if (r.a.rest > 0.009) return '<b style="color:var(--stamp)">' + App.money0(r.a.rest) + "</b>";
+          if (!r.a.sold) return '<span class="badge">لم يُبع شيء بعد</span>';
+          return '<span class="badge ok">خالص</span>';
         }
       },
       { h: "ربحك منه", cls: "num", c: function (r) { return App.canProfit() ? App.money0(r.a.myProfit) : "—"; } },
@@ -180,7 +181,7 @@ var Consign = (function () {
 
     App.modal({
       title: "استلام كتب على المباع",
-      size: "wide",
+      size: "xwide",
       body: body,
       cancelLabel: "إلغاء",
       actions: [{
@@ -246,7 +247,7 @@ var Consign = (function () {
         '<td><input class="inp num" style="width:74px" type="number" min="1" value="' + App.num(l.qty) + '" onchange="Consign.setLine(' + i + ',\'qty\',this.value)"></td>' +
         '<td><input class="inp num" style="width:96px" type="number" step="0.25" min="0" value="' + App.num(l.ownerPrice) + '" onchange="Consign.setLine(' + i + ',\'ownerPrice\',this.value)"></td>' +
         '<td><input class="inp num" style="width:96px" type="number" step="0.25" min="0" value="' + App.num(l.price) + '" onchange="Consign.setLine(' + i + ',\'price\',this.value)"></td>' +
-        '<td class="num"><b style="color:' + (prof >= 0 ? "var(--accent)" : "var(--stamp)") + '">' + App.money0(prof) + "</b></td>" +
+        '<td class="num" id="cnProf' + i + '">' + profHtml(prof) + "</td>" +
         "<td>" + (isBook
           ? '<select class="inp" style="width:70px" onchange="Consign.setLine(' + i + ',\'lib\',this.value)">' +
             libs.map(function (x) { return '<option' + (l.lib === x ? " selected" : "") + ">" + App.esc(x) + "</option>"; }).join("") +
@@ -257,14 +258,23 @@ var Consign = (function () {
         '<td class="act"><button class="btn sm ghost" onclick="Consign.delLine(' + i + ')">✕</button></td></tr>';
     });
     h += "</tbody></table>";
-    host.innerHTML = h;
+    /* الجدول أعرض من النافذة على شاشة عادية: يتمرّر داخلها بدل أن يخرج منها */
+    host.innerHTML = '<div style="overflow-x:auto">' + h + "</div>";
   }
 
+  function profHtml(prof) {
+    return '<b style="color:' + (prof >= 0 ? "var(--accent)" : "var(--stamp)") + '">' + App.money0(prof) + "</b>";
+  }
+
+  /* كان كل تغيير يعيد رسم الجدول كله وهو في «blur» الخانة: يضيع مكان الكتابة (Tab للخانة التالية)
+     ويخرج خطأ في المتصفح. الآن: الربح وحده يُحدَّث، والجدول يُعاد فقط إن تغيّر النوع (عمود الموقع) */
   function setLine(i, k, v) {
     if (!draft || !draft.lines[i]) return;
     if (k === "qty" || k === "ownerPrice" || k === "price") v = App.num(v);
     draft.lines[i][k] = v;
-    paintLines();
+    if (k === "kind") { setTimeout(paintLines, 0); return; }
+    var l = draft.lines[i], c = document.getElementById("cnProf" + i);
+    if (c) c.innerHTML = profHtml((App.num(l.price) - App.num(l.ownerPrice)) * App.num(l.qty));
   }
 
   function delLine(i) { if (!draft) return; draft.lines.splice(i, 1); paintLines(); }

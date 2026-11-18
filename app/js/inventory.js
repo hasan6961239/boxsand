@@ -1782,10 +1782,10 @@ var Inv = (function () {
      ============================================================ */
 
   function alerts() {
-    var rows = App.allItems().filter(function (x) { return App.stockState(x.it) !== "ok"; });
+    var rows = App.allItems().filter(function (x) { return App.alertState(x.it) !== "ok"; });
     rows.sort(function (a, b) { return App.num(a.it.qty) - App.num(b.it.qty); });
 
-    var out = rows.filter(function (x) { return App.stockState(x.it) === "out"; }).length;
+    var out = rows.filter(function (x) { return App.alertState(x.it) === "out"; }).length;
     var low = rows.length - out;
 
     var h = '<div class="grid g3" style="margin-bottom:16px">' +
@@ -1824,14 +1824,15 @@ var Inv = (function () {
       { h: "الحالة", c: function (x) { return App.stockBadge(x.it); } },
       {
         h: "", cls: "act", c: function (x) {
-          return '<button class="btn sm primary" onclick="Inv.addStock(\'' + x.type + '\',\'' + x.it.id + '\')">+ كمية</button>';
+          return '<button class="btn sm primary" onclick="Inv.addStock(\'' + x.type + '\',\'' + x.it.id + '\')">+ كمية</button> ' +
+            '<button class="btn sm ghost" onclick="Inv.dropAlert(\'' + x.type + '\',\'' + x.it.id + '\')">حذف</button>';
         }
       }
     ], rows, {
       /* طرابلس: 56 ألف صنف كميته صفر أو أقل من الإكسل — رسمها كلها مرة واحدة كان 3 ثوانٍ.
          أول 100 تظهر فوراً والباقي يُلحق وأنت تنزل (القائمة القصيرة كما كانت) */
       lazy: 100,
-      rowClass: function (x) { return App.stockState(x.it) === "out" ? "out" : "low"; },
+      rowClass: function (x) { return App.alertState(x.it) === "out" ? "out" : "low"; },
       emptyIcon: "check",
       emptyTitle: "كل شيء متوفر",
       emptyText: "لا يوجد صنف وصل حد التنبيه. تُحدَّث هذه الصفحة تلقائياً بعد كل عملية بيع."
@@ -1923,8 +1924,23 @@ var Inv = (function () {
     App.printHtml(h);
   }
 
+  /* حذف تنبيه صنف: بتأكيد. يُحفظ في الصنف نفسه (alertOff) فيصل الأجهزة الثانية والهواتف،
+     ويرجع وحده إن دخلت كمية جديدة ثم نفدت من جديد */
+  function dropAlert(type, id) {
+    var it = App.findItem(type, id);
+    if (!it) return;
+    App.confirm("تحذف تنبيه «" + App.itemName(it) + "»؟\n\nيختفي من التنبيهات في كل الأجهزة والهواتف، " +
+      "ويرجع وحده لو دخلت كمية جديدة وخلصت من جديد.", function () {
+        it.alertOff = App.num(it.qty);
+        it.updated = App.nowStamp();
+        App.log("التنبيهات", "حُذف تنبيه «" + App.itemName(it) + "» (المتبقي " + App.num(it.qty) + ")");
+        App.save(); App.rerender();
+        App.toast("حُذف التنبيه.", "ok");
+      }, { yes: "حذف التنبيه", danger: true });
+  }
+
   function printShoppingList() {
-    var rows = App.allItems().filter(function (x) { return App.stockState(x.it) !== "ok"; });
+    var rows = App.allItems().filter(function (x) { return App.alertState(x.it) !== "ok"; });
     if (!rows.length) { App.toast("لا يوجد نقص للطباعة."); return; }
     var h = '<div class="receipt a4"><h2>' + App.esc(S().meta.shopName || "المحل") + "</h2>" +
       '<div class="c">قائمة الشراء — ' + App.dateAr(App.today()) + "</div><hr>" +
@@ -3538,7 +3554,7 @@ var Inv = (function () {
   }
 
   return {
-    books: books, stationery: stationery, alerts: alerts, purchases: purchases,
+    books: books, stationery: stationery, alerts: alerts, dropAlert: dropAlert, purchases: purchases,
     goods: goods, gset: gset,
     moveScreen: moveScreen, setNewDest: setNewDest, mvSet: mvSet, mvPick: mvPick, mvSuggest: mvSuggest, mvQty: mvQty, mvDel: mvDel, mvClear: mvClear, mvConfirm: mvConfirm,
     editBook: editBook, editStat: editStat, del: del, addStock: addStock, move: move,
@@ -3686,9 +3702,24 @@ var Exp = (function () {
   }
 
   /* ---------- PDF: ورقة A4 من نافذة الطباعة («حفظ PDF») ---------- */
+  /* PDF: أكثر من هذا يعلّق نافذة الطباعة (60 ألف كتاب ≈ 1,500 صفحة) ثم تنغلق الشاشة وتُعاد */
+  var PDF_MAX = 2000;
   function pdf() {
     var list = picked(), cs = cols(), sh = shopLines();
     if (!list.length) { App.toast("لا كتب للتصدير.", "warn"); return; }
+    if (list.length > PDF_MAX) {
+      App.modal({
+        title: "كتب كثيرة على PDF",
+        size: "narrow",
+        body: '<p style="line-height:1.9;margin-top:0">' + (ex.nsel ? "اخترت " : "ما اخترتش كتباً، فالـPDF فيه كل المعروض: ") +
+          "<b>" + list.length.toLocaleString("en") + "</b> كتاب، حوالي <b>" + Math.ceil(list.length / 40).toLocaleString("en") +
+          "</b> صفحة — نافذة الطباعة تعلق بيه.</p>" +
+          '<p style="line-height:1.9;margin:0">PDF حتى <b>' + PDF_MAX.toLocaleString("en") + "</b> كتاب: اختر الكتب، أو تخصصاً من القائمة فوق، أو «المتوفر فقط». " +
+          "وللكل استعمل <b>«تصدير Excel»</b>.</p>",
+        cancelLabel: "تمام"
+      });
+      return;
+    }
     var h = '<style>@page{size:A4;margin:14mm 12mm}.exp{direction:rtl;font-family:Tahoma,Arial,sans-serif;color:#17222E}' +
       ".exp .hd{text-align:center;margin-bottom:12px}.exp .hd img{height:70px}.exp h1{font-size:18px;margin:6px 0 0}.exp h2{font-size:14px;margin:2px 0;color:#444}" +
       ".exp h3{font-size:15px;margin:10px 0 2px}.exp .d{font-size:11px;color:#6B7A87}.exp table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:10px}" +

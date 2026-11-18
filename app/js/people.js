@@ -752,6 +752,7 @@ var People = (function () {
         h: "", cls: "act", c: function (a) {
           return (authorDue(a, tot) > 0.0005 ? '<button class="btn sm primary" onclick="People.authorPay(\'' + a.id + '\')">تسديد</button> ' : "") +
             '<button class="btn sm" onclick="People.authorStatement(\'' + a.id + '\')">كشف حساب</button> ' +
+            '<button class="btn sm" onclick="People.authorBooks(\'' + a.id + '\')">عرض كتبه</button> ' +
             '<button class="btn sm ghost" onclick="People.editAuthor(\'' + a.id + '\')">تعديل</button> ' +
             '<button class="btn sm ghost" onclick="People.delAuthor(\'' + a.id + '\')">حذف</button>';
         }
@@ -943,6 +944,26 @@ var People = (function () {
         { label: "طباعة الكشف", kind: "primary", click: function () { printAuthorStatement(id); } },
         { label: "تسديد", click: function (close) { close(); authorPay(id); } }
       ]
+    });
+  }
+
+  /* كتب المؤلف المربوطة بحصته (royAu): العنوان، الحصة، الكمية، السعر */
+  function authorBooks(id) {
+    var a = author(id);
+    if (!a) return;
+    var books = S().books.filter(function (b) { return b.royAu === id; });
+    App.modal({
+      title: "كتب المؤلف — " + a.name,
+      size: "wide",
+      body: '<p class="muted small" style="margin:0 0 10px">' + books.length + " كتاب مربوط بحصته. تُربط الكتب من «تعديل» الكتاب ← المؤلف وحصته.</p>" +
+        App.table([
+          { h: "الكتاب", c: function (b) { return '<div class="name">' + App.esc(b.title) + '</div><div class="sub">' + App.esc([b.code, b.barcode].filter(Boolean).join(" · ")) + "</div>"; } },
+          { h: "حصته", c: function (b) { return App.esc(royText(b.royT, b.royV)); } },
+          { h: "الكمية", cls: "num", c: function (b) { return b.uncounted ? '<span class="badge">لم يُجرد</span>' : App.num(b.qty); } },
+          { h: "السعر", cls: "num", c: function (b) { return App.num(b.price) > 0 ? App.money0(b.price) : '<span class="muted">—</span>'; } },
+          { h: "", cls: "act", c: function (b) { return '<button class="btn sm ghost" onclick="Inv.editBook(\'' + b.id + '\')">تعديل</button>'; } }
+        ], books, { lazy: 100, emptyIcon: "books", emptyTitle: "لا كتب مربوطة", emptyText: "اربط كتبه من «تعديل» الكتاب." }),
+      cancelLabel: "إغلاق"
     });
   }
 
@@ -1144,6 +1165,6 @@ var People = (function () {
     stampRoy: stampRoy, keepRoy: keepRoy, lineRoy: lineRoy, invRoy: invRoy, authorTotals: authorTotals,
     authorDue: authorDue, archRoy: archRoy, royAuthorOptions: royAuthorOptions,
     setAQ: setAQ, editAuthor: editAuthor, delAuthor: delAuthor, authorPay: authorPay,
-    authorRows: authorRows, authorStatement: authorStatement, printAuthorStatement: printAuthorStatement
+    authorRows: authorRows, authorStatement: authorStatement, printAuthorStatement: printAuthorStatement, authorBooks: authorBooks
   };
 })();

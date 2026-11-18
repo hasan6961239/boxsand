@@ -1555,6 +1555,10 @@ namespace Qirtasiya.Data
             bool uncounted = it.TryGetValue("uncounted", out unc) && unc is bool && (bool)unc;
             long room = (long)Math.Round(Math.Min(Math.Max(X3Num(it, "store"), 0), Math.Max(qty, 0)));
             string note = X3Str(it, "note");
+            /* بلا تنبيه في الهاتف: كتب على المباع (consId)، وتنبيه حذفه المستخدم (alertOff = الكمية لحظة الحذف) */
+            object aoff;
+            bool noAlert = X3Str(it, "consId").Length > 0 ||
+                (it.TryGetValue("alertOff", out aoff) && aoff != null && qty <= X3Num(it, "alertOff"));
             string[] extra = new string[] {
                 Json.Write(X3Str(it, "publisher")),
                 ((long)Math.Round(Math.Max(X3Num(it, "min"), 0))).ToString(CultureInfo.InvariantCulture),
@@ -1564,7 +1568,8 @@ namespace Qirtasiya.Data
                 Json.Write(note.Length > 300 ? note.Substring(0, 300) : note),
                 Json.Write(X3Str(it, "unit")),
                 Json.Write(X3Str(it, "supplierId")),
-                uncounted ? "1" : "0"
+                uncounted ? "1" : "0",
+                noAlert ? "1" : "0"
             };
             int last = extra.Length - 1;
             while (last >= 0 && (extra[last] == "\"\"" || extra[last] == "0")) last--;

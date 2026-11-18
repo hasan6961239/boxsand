@@ -248,6 +248,45 @@ function site(cfg) {
     const g6b = await p.evaluate(x => Core.byCode(x).q, b6.barcode);
     ok(g6b === 77, 'بعد إعادة فتح التطبيق: التغييرات باقية على الهاتف', g6b);
 
+    console.log('\n== التنبيهات على الهاتف: كتب على المباع والتنبيه المحذوف ==');
+    /* ثلاثة كتب: على المباع خلص، وكتاب حذف صاحب المحل تنبيهه، وكتاب عادي قارب على النفاد */
+    const al = [good[12], good[13], good[14]].map(b => b.barcode);
+    await pc.evaluate(([x, y, z]) => {
+      const f = c => App.S.books.find(b => b.barcode === c);
+      Object.assign(f(x), { consId: 'cn-e2e', qty: 0, min: 2 });
+      Object.assign(f(y), { qty: 1, min: 3, alertOff: 1 });
+      Object.assign(f(z), { qty: 1, min: 3 });
+      App.save();
+    }, al);
+    await pc.evaluate(() => App.flushSave ? App.flushSave().catch(() => { }) : null);
+    let ga = null;
+    for (let i = 0; i < 40; i++) {
+      await sleep(700);
+      await p.evaluate(() => Core.quick());
+      ga = await p.evaluate(cs => {
+        const list = UI.alertsList();
+        return cs.map(c => { const g = Core.byCode(c); return { q: g.q, na: g.na, alert: list.indexOf(g) >= 0 }; });
+      }, al);
+      if (ga[2].q === 1 && ga[0].q === 0 && ga[1].q === 1) break;
+    }
+    ok(ga && ga[2].q === 1 && ga[2].alert && !ga[2].na, 'كتاب عادي قارب على النفاد: يظهر في تنبيهات الهاتف', ga && ga[2]);
+    ok(ga && ga[0].q === 0 && ga[0].na === 1 && !ga[0].alert, 'كتاب «على المباع» خلص: ما يظهرش في تنبيهات الهاتف', ga && ga[0]);
+    ok(ga && ga[1].q === 1 && ga[1].na === 1 && !ga[1].alert, 'تنبيه حذفه صاحب المحل من الكمبيوتر: انحذف من الهاتف كمان', ga && ga[1]);
+    /* دخلت كمية للكتاب اللي انحذف تنبيهه ثم خلص من جديد: التنبيه يرجع على الهاتف */
+    await pc.evaluate(y => { const b = App.S.books.find(z => z.barcode === y); b.qty = 9; App.save(); }, al[1]);
+    await pc.evaluate(() => App.flushSave ? App.flushSave().catch(() => { }) : null);
+    await sleep(2500);
+    await pc.evaluate(y => { const b = App.S.books.find(z => z.barcode === y); b.qty = 1; App.save(); }, al[1]);
+    await pc.evaluate(() => App.flushSave ? App.flushSave().catch(() => { }) : null);
+    let gb = null;
+    for (let i = 0; i < 40; i++) {
+      await sleep(700);
+      await p.evaluate(() => Core.quick());
+      gb = await p.evaluate(c => { const g = Core.byCode(c); return { q: g.q, na: g.na, alert: UI.alertsList().indexOf(g) >= 0 }; }, al[1]);
+      if (gb.alert) break;
+    }
+    ok(gb && gb.q === 1 && !gb.na && gb.alert, 'دخلت كمية ثم خلصت: التنبيه رجع على الهاتف', gb);
+
     console.log('\n== فك ربط الهاتف من المنظومة ==');
     const phId = meDev ? meDev.device : '';
     const ur = await pc.evaluate(id => App.apiWrite('/api/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'unlink', device: id }) }).then(r => r, e => ({ err: e.message })), phId);

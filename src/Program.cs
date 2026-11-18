@@ -1292,9 +1292,40 @@ namespace Qirtasiya
             WakeSync(true);
         }
 
+        /* «أهلاً بك» لا تظهر إن كان عند البرنامج بيانات: قاعدة فيها كتب أو فواتير (الجداول الجديدة أو
+           سجلات شاشات 3.x)، أو store.json فيه محل مُعدّ */
+        static bool InfoHasData()
+        {
+            try
+            {
+                ShopDb d = Db;
+                if (d != null && (HasShopData(d) || X3HasData(d))) return true;
+                FileInfo fi = new FileInfo(StoreFile);
+                if (!fi.Exists || fi.Length < 20) return false;
+                string t;
+                lock (IoLock) t = File.ReadAllText(StoreFile, Encoding.UTF8);
+                return t.IndexOf("\"setupDone\":true", StringComparison.Ordinal) >= 0;
+            }
+            catch { return false; }
+        }
+
         static bool HasShopData(ShopDb d)
         {
             return d.Read<long>(delegate (Sqlite c) { return c.Long("SELECT (SELECT COUNT(*) FROM items) + (SELECT COUNT(*) FROM invoices)", 0); }) > 0;
+        }
+
+        /* شاشات 3.x (طرابلس): الكتب والفواتير سجلات في x3_docs، والإعداد في سجل meta */
+        static bool X3HasData(ShopDb d)
+        {
+            try
+            {
+                return d.Read<long>(delegate (Sqlite c)
+                {
+                    return c.Long("SELECT EXISTS(SELECT 1 FROM x3_docs WHERE coll IN ('books', 'stationery', 'invoices')) OR " +
+                        "EXISTS(SELECT 1 FROM x3_docs WHERE coll = 'meta' AND body LIKE '%\"setupDone\":true%')", 0);
+                }) > 0;
+            }
+            catch { return false; }
         }
 
         /* «جهاز ثانٍ لفرع مربوط»: قاعدة هذا الجهاز تُستبدل بنسخة جهاز المحل (والقديمة
@@ -3476,7 +3507,8 @@ namespace Qirtasiya
                     ",\"edition\":" + JsonStr(BuildInfo.Edition) + ",\"app\":" + JsonStr(AppTitle) +
                     ",\"build\":" + JsonStr(BuildStamp()) +
                     ",\"dataDir\":" + JsonStr(DataDir) + ",\"port\":" + Port.ToString(CultureInfo.InvariantCulture) +
-                    ",\"db\":" + (Db != null ? "true" : "false") + (X3On ? ",\"x3\":true" : "") + (DbError.Length > 0 ? ",\"dbError\":" + JsonStr(DbError) : "") + "}");
+                    ",\"db\":" + (Db != null ? "true" : "false") + (X3On ? ",\"x3\":true" : "") + (DbError.Length > 0 ? ",\"dbError\":" + JsonStr(DbError) : "") +
+                    (InfoHasData() ? ",\"hasData\":true" : "") + "}");
                 return;
             }
 

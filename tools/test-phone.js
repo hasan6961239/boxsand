@@ -504,7 +504,7 @@ function site(cfg) {
     await syncOk('الإعدادات');
     const secs = await p.$$eval('.ssec', x => x.map(e => e.textContent));
     ok(secs.join('|') === 'الحساب والأمان|المظهر|البيع والمسح|إضافة وتعديل|التحديث والإرسال|هذا الهاتف والربط|حول التطبيق', 'الإعدادات مرتّبة في أقسام', secs);
-    ok(/3\.1/.test(await txt(p, '.page')) && /محدّثة/.test(await txt(p, '.page')), 'فيها الإصدار 3.1، وأن منظومة الكمبيوتر تقبل ميزات الهاتف');
+    ok(/3\.2/.test(await txt(p, '.page')) && /محدّثة/.test(await txt(p, '.page')), 'فيها الإصدار 3.2، وأن منظومة الكمبيوتر تقبل ميزات الهاتف');
     await shot(p, 't19-settings');
     await p.click('[data-a="pPick"][data-v="dark"]'); await p.click('[data-a="pSet"][data-v="dark|dark"]'); await sleep(300);
     const dk = await p.evaluate(() => ({ dark: document.body.classList.contains('dark'), bg: getComputedStyle(document.body).backgroundColor, card: getComputedStyle(document.querySelector('.list')).backgroundColor, ink: getComputedStyle(document.body).color }));

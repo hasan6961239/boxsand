@@ -52,7 +52,9 @@ var Stock = (function () {
           /* للتعديل الكامل من التلفون (3.0): سعر الجملة، التخصص الدقيق، المورّد، و«لم يُجرد بعد» (طرابلس).
              تُحذف إن كانت فارغة فتبقى اللقطة صغيرة */
           pw: App.num(it.priceW) || undefined, cf: it.catFull || undefined,
-          sp: it.supplierId || undefined, un: it.uncounted ? 1 : undefined
+          sp: it.supplierId || undefined, un: it.uncounted ? 1 : undefined,
+          /* بلا تنبيه في الهاتف: كتب على المباع، وتنبيه حذفه المستخدم */
+          na: App.alertMuted(it) ? 1 : undefined
         };
       }),
       /* المخازن اليدوية ترافق اللقطة بأسماء أصنافها محلولة، ليعرضها
@@ -1175,7 +1177,7 @@ var Stock = (function () {
       '<p class="muted" style="margin:0 0 12px"><b class="num">' + books.toLocaleString("en") + "</b> كتاب" +
       (rows.length > books ? " و<b class=\"num\">" + (rows.length - books).toLocaleString("en") + "</b> صنف قرطاسية" : "") +
       ' · <b class="num">' + pieces.toLocaleString("en") + '</b> نسخة · <b class="num">' + out.toLocaleString("en") + "</b> نفد عندهم" +
-      ' <span class="muted small">— قائمة الفرع تصل كل نصف ساعة إن تغيّرت، و«↻ تحديث» يطلب الأحدث الآن</span></p>' +
+      ' <span class="muted small">— قائمة الفرع تصل حسب مدة تحديث الفروع (الإعدادات ← الأجهزة والفروع)، و«↻ تحديث» يطلب الأحدث الآن</span></p>' +
       '<div class="search-big"><span class="mag">⌕</span><input class="inp" id="rbq" autocomplete="off" ' +
       'placeholder="ابحث في كتب ' + App.esc(branchName(id)) + ': العنوان، المؤلف، الباركود…" value="' + App.esc(rv.q) + '" oninput="Stock.rSet(\'q\',this.value)"></div>' +
       '<div class="row" style="margin-bottom:14px">' +

@@ -16,7 +16,7 @@ var UI = (function () {
   "use strict";
   var C = Core, esc = C.esc, num = C.num, money = C.money, fmtN = C.fmtN;
   function S() { return C.S; }
-  var VERSION = "3.1";
+  var VERSION = "3.2";
   var v = {
     screen: "home", back: [], key: "", code: "", fresh: true,
     mode: "", q: "", filt: "", cat: "", shown: 40, place: null, mapLib: "",
@@ -406,6 +406,7 @@ var UI = (function () {
     alOf = all;
     alCache = all.filter(function (g) {
       if (g.un || g.isNew) return false;                    // لم يُجرد بعد: كميته غير معروفة، لا «نفد»
+      if (g.na) return false;                               // كتب على المباع، أو تنبيه حذفه صاحب المحل
       if (g.q <= 0) return g.m > 0 || (g.ls && String(g.ls).slice(0, 10) >= m0) || g.pend;
       return g.m > 0 && g.q <= g.m;
     });
@@ -1293,6 +1294,7 @@ var UI = (function () {
     }).join("") + '</div><button class="btn o mt" data-a="close">إغلاق</button>');
   }
   var NEWS = [
+    ["bell", "التنبيهات", "التنبيه اللي ينحذف من الكمبيوتر ينحذف من التلفون، وكتب «على المباع» ما تطلعش في التنبيهات."],
     ["edit", "تبويب «إضافة وتعديل»", "اختر أي كتاب أو صنف وعدّل كل بياناته كما في الكمبيوتر، أو أضف كمية، أو أضف صنفاً جديداً."],
     ["shelves", "ثلاثة عروض", "قائمة، بطاقات، وخريطة الرفوف — والكتب منفصلة عن القرطاسية."],
     ["home", "الرئيسية قائمة", "الجرد، الفواتير، الآجل، الديون، والتنبيهات."],
@@ -1954,7 +1956,7 @@ var UI = (function () {
 
   return {
     get S() { return { snap: C.configured() }; },
-    go: go, back: back, refresh: refresh, onScan: onScan, render: render, act: act, VERSION: VERSION,
+    go: go, back: back, refresh: refresh, onScan: onScan, render: render, act: act, VERSION: VERSION, alertsList: alertsList,
     __v: v
   };
 })();

@@ -1525,9 +1525,17 @@ var App = (function () {
     return '<span class="badge ok">متوفرة</span>';
   }
 
+  /* التنبيهات: كتب على المباع لا يُنبَّه عليها (ليست بضاعتنا نطلبها من جديد)، وتنبيه حذفه
+     المستخدم (alertOff = الكمية لحظة الحذف) لا يعود حتى تدخل كمية جديدة (fixStores يمسحه).
+     شارة الكتاب في القوائم (stockBadge) تبقى على stockState: «نفدت» صحيحة في القائمة */
+  function alertMuted(it) {
+    return !!it.consId || (it.alertOff !== undefined && it.alertOff !== null && num(it.qty) <= num(it.alertOff));
+  }
+  function alertState(it) { return alertMuted(it) ? "ok" : stockState(it); }
+
   function lowCount() {
     var n = 0;
-    allItems().forEach(function (x) { if (stockState(x.it) !== "ok") n++; });
+    allItems().forEach(function (x) { if (alertState(x.it) !== "ok") n++; });
     return n;
   }
 
@@ -1545,6 +1553,8 @@ var App = (function () {
      فيصير store = qty. يُستدعى قبل كل حفظ فيغطّي كل طرق الإنقاص. */
   function fixStores() {
     allItems().forEach(function (x) {
+      /* تنبيه محذوف: دخلت كمية جديدة فوق ما كانت لحظة الحذف ⇦ يرجع التنبيه عادياً */
+      if (x.it.alertOff !== undefined && num(x.it.qty) > num(x.it.alertOff)) delete x.it.alertOff;
       if (x.it.store === undefined) return;
       var s = storeQty(x.it);
       if (s !== x.it.store) {
@@ -3114,7 +3124,18 @@ var App = (function () {
         }
 
         return applyPreset().then(function () {
-          if (!S.meta.setupDone && !readOnly) { route(); Rep.firstRun(); }
+          if (!S.meta.setupDone && !readOnly) {
+            /* «أهلاً بك» لجهاز بلا بيانات فقط. إن وصلت الشاشةَ بياناتٌ فارغة والبرنامج عنده بيانات
+               (قاعدة فيها كتب أو فواتير)، فالضغط على «ابدأ من جديد» خطر: نطلب إعادة الفتح بدلها */
+            return apiJson("/api/info").then(function (inf) {
+              if (inf && inf.hasData) {
+                block("بيانات هذا الجهاز ما وصلتش للشاشة. سكّر البرنامج وافتحه من جديد.");
+                paintBlockBar(); route();
+                return;
+              }
+              route(); Rep.firstRun();
+            }, function () { route(); Rep.firstRun(); });
+          }
           else {
             route();
             if (readOnly) return;               // نافذة عرض: بلا مزامنة ولا إشعارات
@@ -3160,7 +3181,7 @@ var App = (function () {
     paintBlockBar: paintBlockBar, setProfitCode: setProfitCode, scanField: scanField,
     today: today, nowStamp: nowStamp, dateAr: dateAr, log: log,
     listOf: listOf, itemName: itemName, findItem: findItem, allItems: allItems,
-    stockState: stockState, stockBadge: stockBadge, lowCount: lowCount, sellPrice: sellPrice,
+    stockState: stockState, alertState: alertState, alertMuted: alertMuted, stockBadge: stockBadge, lowCount: lowCount, sellPrice: sellPrice,
     storeQty: storeQty, shelfQty: shelfQty, moveStock: moveStock, receiveStock: receiveStock, restockList: restockList,
     nextCode: nextCode, locChip: locChip, locPin: locPin,
     toast: toast, modal: modal, confirm: confirm, form: form, table: table, setField: setField,
