@@ -3,7 +3,8 @@
    ------------------------------------------------------------
    المحرك الحقيقي لتطبيق طرابلس (شاشات 3.x) بـ2,501 كتاب، والشاشات في متصفح:
    - «أهلاً بك» لجهاز جديد فقط: البرنامج يقول إن عنده بيانات (hasData) فلا تُعرض
-     على جهاز فيه محل مُعدّ، وتبقى تظهر على جهاز جديد فاضي.
+     على جهاز فيه محل مُعدّ، وتبقى تظهر على جهاز جديد فاضي. ومحل فيه كتب تخطّى
+     «الإعداد السريع» («لاحقاً») ما تطلعش له كل مرة: يُحفظ أنه مُعدّ.
    - كتب على المباع: نافذة الاستلام كل خاناتها داخلها، وحالة الكتاب قبل البيع
      «لم يُبع شيء بعد» لا «خالص»، وبعد بيعه المستحق لصاحبه، وما يطلعش في التنبيهات.
    - التنبيهات: زر «حذف» يسأل قبل الحذف، والحذف محفوظ في الكتاب نفسه (alertOff)
@@ -28,8 +29,8 @@ const lastModal = p => p.evaluate(() => ([...document.querySelectorAll('#modalHo
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qal-'));
-  const A = path.join(tmp, 'shop'), N = path.join(tmp, 'new');
-  for (const d of [A, N]) { fs.mkdirSync(path.join(d, 'data'), { recursive: true }); fs.mkdirSync(d + '-home', { recursive: true }); }
+  const A = path.join(tmp, 'shop'), N = path.join(tmp, 'new'), K = path.join(tmp, 'skipped');
+  for (const d of [A, N, K]) { fs.mkdirSync(path.join(d, 'data'), { recursive: true }); fs.mkdirSync(d + '-home', { recursive: true }); }
   const books = [{ id: 'b1', code: 'K0001', title: 'كتاب عادي', lib: 'B', shelf: '3', barcode: '9789953305076', cost: 10, price: 15, qty: 1, min: 2, royAu: 'au1', royT: 'pct', royV: 10 }];
   for (let i = 0; i < 2500; i++) books.push({ id: 'g' + i, code: 'G' + i, title: 'كتاب تجربة رقم ' + i, lib: 'A', shelf: '1', cost: 5, price: 10, qty: 3, min: 0 });
   fs.writeFileSync(path.join(A, 'data', 'store.json'), JSON.stringify({
@@ -38,13 +39,19 @@ const lastModal = p => p.evaluate(() => ([...document.querySelectorAll('#modalHo
     books, stationery: [], customers: [], invoices: [], payments: [], counters: { invoice: 0, book: 2501, stat: 0 },
     authors: [{ id: 'au1', name: 'أحمد رحيل', phone: '' }]
   }));
+  /* محل تخطّى «الإعداد السريع»: كتب وفواتير بلا setupDone */
+  fs.writeFileSync(path.join(K, 'data', 'store.json'), JSON.stringify({
+    meta: { shopName: '', currency: 'د.ل', libraries: ['A'], shelves: 4 },
+    branch: { id: 'tripoli', name: '', city: 'طرابلس', no: 2 },
+    books: books.slice(0, 50), stationery: [], customers: [], invoices: [], payments: [], counters: { invoice: 0, book: 50, stat: 0 }
+  }));
   console.log('يبني تطبيق طرابلس…');
   E.buildEngine(A, 'tripoli');
-  E.copyEngine(A, N);
-  const engA = E.startEngine(A, A + '-home'), engN = E.startEngine(N, N + '-home');
+  E.copyEngine(A, N); E.copyEngine(A, K);
+  const engA = E.startEngine(A, A + '-home'), engN = E.startEngine(N, N + '-home'), engK = E.startEngine(K, K + '-home');
   let browser = null;
   try {
-    const [port, portN] = await Promise.all([E.waitPort(A), E.waitPort(N)]);
+    const [port, portN, portK] = await Promise.all([E.waitPort(A), E.waitPort(N), E.waitPort(K)]);
     browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
     console.log('\n== «أهلاً بك» ==');
@@ -58,6 +65,27 @@ const lastModal = p => p.evaluate(() => ([...document.querySelectorAll('#modalHo
     await sleep(500);
     ok(/ابدأ من جديد/.test(await lastModal(pn)), 'وعلى الجهاز الجديد «أهلاً بك» تظهر عادي', (await lastModal(pn)).slice(0, 120));
     await pn.close();
+    const pk = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+    const errK = [];
+    pk.on('pageerror', e => errK.push(e.message));
+    for (let round = 1; round <= 2; round++) {
+      await pk.goto('http://127.0.0.1:' + portK + '/');
+      await pk.waitForFunction(() => window.App && App.S && App.S.books && App.S.books.length === 50, null, { timeout: 60000 });
+      await sleep(2500);
+      const k = await pk.evaluate(() => ({ done: !!App.S.meta.setupDone, welcome: /ابدأ من جديد/.test(([...document.querySelectorAll('#modalHost .modal')].pop() || {}).innerText || ''), ro: App.isReadOnly(), why: App.readOnlyReason() }));
+      ok(k.done && !k.welcome && !k.ro, (round === 1 ? 'محل فيه كتب تخطّى «الإعداد السريع»: بلا «أهلاً بك» وبلا قفل' : 'وبعد إعادة الفتح: ما رجعتش'), k);
+      if (round === 1) {
+        /* محفوظ في البرنامج نفسه (مرآة store.json يكتبها المحرك من القاعدة)، لا في الشاشة فقط */
+        let saved = false;
+        for (let i = 0; i < 40 && !saved; i++) {
+          try { saved = /"setupDone":true/.test(fs.readFileSync(path.join(K, 'data', 'store.json'), 'utf8')); } catch (e) { }
+          if (!saved) await sleep(500);
+        }
+        ok(saved, 'وانحفظ في البرنامج إن المحل مُعدّ');
+      }
+    }
+    ok(errK.length === 0, 'بلا أخطاء في الصفحة', errK.slice(0, 3));
+    await pk.close();
 
     const p = await browser.newPage({ viewport: { width: 1366, height: 768 } });
     const errs = [];
@@ -145,7 +173,7 @@ const lastModal = p => p.evaluate(() => ([...document.querySelectorAll('#modalHo
   finally {
     console.log('\n' + '='.repeat(50) + '\n  نجح: ' + pass + '    فشل: ' + fail + '\n' + '='.repeat(50));
     if (browser) await browser.close();
-    E.stopEngine(engA); E.stopEngine(engN);
+    E.stopEngine(engA); E.stopEngine(engN); E.stopEngine(engK);
     await sleep(500);
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { }
     process.exit(fail ? 1 : 0);

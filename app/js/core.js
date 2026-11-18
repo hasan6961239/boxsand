@@ -3083,6 +3083,12 @@ var App = (function () {
     });
   }
 
+  /* في الشاشة نفسها بيانات محل (لا الافتراضي الفاضي) */
+  function screenHasData() {
+    return !!((S.books && S.books.length) || (S.stationery && S.stationery.length) ||
+      (S.invoices && S.invoices.length) || (S.customers && S.customers.length));
+  }
+
   function bootApp() {
     /* دور الجهاز (جهاز المحل أو جهاز ثانٍ) يُعرف قبل أول رسم: ما يُثبَّت على كل الأصناف عند
        الفتح (Stale.backfill) لا يكون من الجهاز الثاني */
@@ -3124,6 +3130,13 @@ var App = (function () {
         }
 
         return applyPreset().then(function () {
+          /* محل شغّال تخطّى «الإعداد السريع» («لاحقاً» في «أهلاً بك»): كتبه أو فواتيره في الشاشة نفسها،
+             فهو مُعدّ. كانت «أهلاً بك» تطلع له كل مرة يفتح. الحفظ هنا آمن: البيانات وصلت الشاشة */
+          if (!S.meta.setupDone && !readOnly && ok && screenHasData()) {
+            S.meta.setupDone = true;
+            save();
+            log("الإعداد", "المحل فيه بيانات: «أهلاً بك» ما تطلعش بعد اليوم");
+          }
           if (!S.meta.setupDone && !readOnly) {
             /* «أهلاً بك» لجهاز بلا بيانات فقط. إن وصلت الشاشةَ بياناتٌ فارغة والبرنامج عنده بيانات
                (قاعدة فيها كتب أو فواتير)، فالضغط على «ابدأ من جديد» خطر: نطلب إعادة الفتح بدلها */
