@@ -4,6 +4,7 @@ import { player, unlockMedia } from './player.js';
 import { initPlayerUI, dismissNP } from './nowplaying.js';
 import { icon } from './icons.js';
 import * as themes from './themes.js';
+import { VERSION } from './version.js';
 import { $, $$, toast } from './util.js';
 import * as views from './views.js';
 import { reelsView } from './reels.js';
@@ -76,7 +77,9 @@ async function boot() {
   }
   lib.on('settings', (k) => { if (k === 'theme' || k === 'accent') themes.apply(); });
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (lib.settings.theme === 'auto') themes.apply(); });
+  if (lib.repairedOnLoad) setTimeout(() => toast(`صلّحنا أسماء ${lib.repairedOnLoad} أغنية كانت تظهر برموز غريبة ✓`, { ms: 5000 }), 1200);
   initPlayerUI();
+  player.applyCarButtons();
   document.body.classList.add('no-mini');
   window.addEventListener('hashchange', route);
   route();
@@ -99,17 +102,77 @@ async function boot() {
   document.addEventListener('click', unlock, true);
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').then((reg) => {
-      reg.addEventListener('updatefound', () => {
-        const w = reg.installing;
-        w && w.addEventListener('statechange', () => {
-          if (w.state === 'installed' && navigator.serviceWorker.controller) {
-            toast('نسخة جديدة من التطبيق جاهزة', { action: { label: 'تحديث', fn: () => location.reload() }, ms: 10000 });
-          }
-        });
-      });
-    }).catch(() => {});
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+  setupUpdates();
+}
+
+// ---------------------------------------------------------------- updates
+// iOS often resumes a home-screen app from memory without reloading it, so
+// the app asks for version.json itself on launch and whenever it comes back
+// to the foreground, and reloads into the new version when that is harmless
+// (nothing playing). A stuck old service worker is removed as a last resort.
+
+let pendingUpdate = null;
+let lastCheck = 0;
+
+export async function checkForUpdate({ force = false, manual = false } = {}) {
+  if (location.protocol === 'file:') return { current: VERSION };
+  lastCheck = Date.now();
+  if (force) {
+    // user asked: drop the saved app copy and load fresh files (library data is untouched)
+    player.saveQueue();
+    const reg = await navigator.serviceWorker?.getRegistration().catch(() => null);
+    if (reg) await reg.unregister().catch(() => {});
+    if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+    location.reload();
+    return { current: VERSION };
+  }
+  let remote;
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    remote = (await r.json()).version;
+  } catch {
+    if (manual) toast('ما قدرت نتحقق — تأكد من الإنترنت', { error: true });
+    return { current: VERSION, remote: null };
+  }
+  if (!remote || remote === VERSION) {
+    if (manual) toast(`عندك آخر نسخة ✓ (${VERSION})`);
+    return { current: VERSION, remote };
+  }
+  const reg = await navigator.serviceWorker?.getRegistration().catch(() => null);
+  try { await reg?.update(); } catch { /* offline */ }
+  pendingUpdate = remote;
+  let tried = null;
+  try { tried = sessionStorage.getItem('dd-reloaded-for'); } catch { /* private mode */ }
+  if (tried === remote) {
+    // already reloaded once for this version and still old: clear the cache layer
+    try { sessionStorage.setItem('dd-reloaded-for', remote + ':forced'); } catch { /* ignore */ }
+    if (reg) await reg.unregister().catch(() => {});
+    if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+    location.reload();
+    return { current: VERSION, remote };
+  }
+  if (!player.playing || manual) applyUpdate();
+  else toast(`تحديث جديد (${remote}) — يتحدّث لما توقف الأغنية`, { action: { label: 'الآن', fn: applyUpdate }, ms: 8000 });
+  return { current: VERSION, remote };
+}
+
+function applyUpdate() {
+  if (!pendingUpdate) return;
+  try { sessionStorage.setItem('dd-reloaded-for', pendingUpdate); } catch { /* ignore */ }
+  player.saveQueue();
+  setTimeout(() => location.reload(), 300);
+}
+
+function setupUpdates() {
+  setTimeout(() => checkForUpdate(), 2500);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastCheck > 5 * 60e3) checkForUpdate();
+  });
+  player.addEventListener('state', () => {
+    if (pendingUpdate && !player.playing && document.visibilityState === 'hidden') applyUpdate();
+  });
 }
 
 boot();

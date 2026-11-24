@@ -24,7 +24,57 @@ function decodeLegacy(bytes) {
 }
 
 function clean(s) {
-  return (s || '').replace(/\u0000/g, '').replace(/﻿/g, '').replace(/\s+/g, ' ').trim();
+  return fixMojibake((s || '').replace(/\u0000/g, '').replace(/﻿/g, '').replace(/\s+/g, ' ').trim());
+}
+
+// ---------------------------------------------------------------- mojibake
+// Arabic text that went through the wrong encoding once shows up as Latin
+// letters with accents: "ÚãÑæ ÏíÇÈ" (Windows-1256 read as Latin-1) or
+// "Ø¹Ù…Ø±Ùˆ" (UTF-8 read as Latin-1). Both are reversible.
+const CP1252_BACK = {
+  0x20ac: 0x80, 0x201a: 0x82, 0x0192: 0x83, 0x201e: 0x84, 0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02c6: 0x88,
+  0x2030: 0x89, 0x0160: 0x8a, 0x2039: 0x8b, 0x0152: 0x8c, 0x017d: 0x8e, 0x2018: 0x91, 0x2019: 0x92, 0x201c: 0x93,
+  0x201d: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x02dc: 0x98, 0x2122: 0x99, 0x0161: 0x9a, 0x203a: 0x9b,
+  0x0153: 0x9c, 0x017e: 0x9e, 0x0178: 0x9f,
+};
+function asBytes(s) {
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c <= 0xff) out[i] = c;
+    else if (CP1252_BACK[c]) out[i] = CP1252_BACK[c];
+    else return null;
+  }
+  return out;
+}
+const AR = /[\u0600-\u06FF]/g;
+export function fixMojibake(s) {
+  if (!s || /[\u0600-\u06FF]/.test(s) || !/[\u00C0-\u00FF]/.test(s)) return s;
+  const b = asBytes(s);
+  if (!b) return s;
+  if (UTF8_FATAL) {
+    try {
+      const u = UTF8_FATAL.decode(b);
+      if ((u.match(AR) || []).length >= 2) return u;
+    } catch { /* not double-encoded UTF-8 */ }
+  }
+  if (CP1256) {
+    const a = CP1256.decode(b);
+    const ar = (a.match(AR) || []).length;
+    const letters = (a.match(/\p{L}/gu) || []).length;
+    if (ar >= 2 && ar >= letters * 0.6) return a;
+  }
+  return s;
+}
+
+/** UTF-16 text without a byte-order mark: guess the byte order. */
+function utf16NoBom(b) {
+  let even = 0, odd = 0;
+  for (let i = 0; i + 1 < b.length; i += 2) {
+    if (b[i] === 0 || b[i] === 0x06) even++;
+    if (b[i + 1] === 0 || b[i + 1] === 0x06) odd++;
+  }
+  return even > odd ? UTF16BE.decode(b) : UTF16LE.decode(b);
 }
 
 // Junk that download sites stamp into tags.
@@ -61,7 +111,7 @@ function decodeText(enc, b) {
     case 1: {
       if (b[0] === 0xff && b[1] === 0xfe) return UTF16LE.decode(b.subarray(2));
       if (b[0] === 0xfe && b[1] === 0xff) return UTF16BE.decode(b.subarray(2));
-      return UTF16LE.decode(b);
+      return utf16NoBom(b);
     }
     case 2: return UTF16BE.decode(b);
     case 3: return UTF8.decode(b);
@@ -410,7 +460,7 @@ export function stripNoise(s) {
 }
 
 export function parseFileName(name, knownArtists = null) {
-  let base = name.replace(/^.*[\\/]/, '').replace(/\.[^.]{2,5}$/, '');
+  let base = fixMojibake(name.replace(/^.*[\\/]/, '').replace(/\.[^.]{2,5}$/, ''));
   base = base.replace(/(?:https?:\/\/)?(?:www\.)?[\w-]+\.(?:com|net|org|info|me|tv|co)\b/gi, ' ');
   base = base.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
   base = stripNoise(base);

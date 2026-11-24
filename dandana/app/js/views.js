@@ -8,6 +8,7 @@ import * as cobalt from './cobalt.js';
 import * as ytapi from './ytapi.js';
 import * as themes from './themes.js';
 import * as ai from './ailyrics.js';
+import { VERSION } from './version.js';
 import { player } from './player.js';
 import { coverEl } from './art.js';
 import {
@@ -19,7 +20,6 @@ import {
   fmtTime, fmtBytes, fmtDuration, songsCount, isStandalone, isIOS, norm, $,
 } from './util.js';
 
-const VERSION = '1.2.0';
 
 function page(root, ...kids) {
   const p = h('div.page', ...kids);
@@ -759,6 +759,13 @@ export function settings(root) {
     input.addEventListener('change', () => { lib.setSetting(key, input.checked); after && after(input.checked); });
     return h('label.set-row', ic(iconName), h('div.lbl', h('b', label), sub ? h('small', sub) : null), h('span.switch', input, h('i')));
   };
+  const choiceCb = (label, iconName, opts, key, after) => {
+    const cur = () => (opts.find((o) => o[0] === S[key]) || opts[0])[1];
+    const val = h('span.muted', cur());
+    return h('button.set-row', { style: { width: '100%', textAlign: 'start' }, onclick: () => actionSheet(opts.map(([v, l]) => ({
+      icon: v === S[key] ? 'check' : iconName, label: l, fn: async () => { await lib.setSetting(key, v); val.textContent = cur(); after && after(v); },
+    })), { title: label }) }, ic(iconName), h('div.lbl', h('b', label)), val);
+  };
   const choice = (label, iconName, opts, key) => {
     const cur = () => (opts.find((o) => o[0] === S[key]) || opts[0])[1];
     const val = h('span.muted', cur());
@@ -882,6 +889,8 @@ export function settings(root) {
 
   p.append(...group('التشغيل',
     toggle('bgAudio', 'الفيديو يكمل كصوت عند قفل الشاشة', 'آيفون يوقف الفيديو في الخلفية، فنحوّله لصوت تلقائياً', 'moon'),
+    choiceCb('أزرار السيارة والسماعات', 'radio', [['tracks', 'الأغنية التالية / السابقة'], ['seek', 'تقديم / ترجيع 15 ثانية']], 'carButtons', () => player.applyCarButtons()),
+    toggle('sponsorSkip', 'تخطّي الأجزاء اللي مش غناء', 'لأغاني يوتيوب: يتخطى المقدمات والكلام في الكليبات (من SponsorBlock)', 'next'),
     toggle('mixNew', 'أغاني جديدة داخل «على ذوقي»', 'كل رابع أغنية اقتراح جديد من يوتيوب (يحتاج مفتاح يوتيوب)', 'sparkle'),
   ));
 
@@ -925,7 +934,17 @@ export function settings(root) {
   p.append(...group('حول',
     h('a.set-row', { href: '#/guide' }, ic('info'), h('div.lbl', h('b', 'دليل الاستخدام')), ic('chevL')),
     h('a.set-row', { href: '#/stats' }, ic('stats'), h('div.lbl', h('b', 'إحصائيات الاستماع')), ic('chevL')),
-    h('div.set-row', ic('note'), h('div.lbl', h('b', 'دندنة'), h('small', `الإصدار ${VERSION}`))),
+    h('div.set-row', ic('note'), h('div.lbl', h('b', 'دندنة'), h('small', `الإصدار ${VERSION}`)),
+      btn('refresh', 'تحقق من التحديث', async () => { const m = await import('./main.js'); m.checkForUpdate({ manual: true }); }, 'sm ghost')),
+    h('button.set-row', { style: { width: '100%', textAlign: 'start' }, onclick: async () => {
+      if (!(await confirmDialog('يمسح نسخة التطبيق المحفوظة ويحمّل آخر نسخة من الإنترنت. أغانيك وقوائمك ما تتأثرش.', { ok: 'حدّث الآن' }))) return;
+      const m = await import('./main.js'); m.checkForUpdate({ force: true, manual: true });
+    } }, ic('download'), h('div.lbl', h('b', 'تحديث إجباري'), h('small', 'لو التطبيق قاعد على نسخة قديمة'))),
+    h('button.set-row', { style: { width: '100%', textAlign: 'start' }, onclick: async () => {
+      const n = await lib.repairNames();
+      lib.emit('tracks');
+      toast(n ? `صلّحنا أسماء ${n} أغنية ✓` : 'كل الأسماء سليمة ✓');
+    } }, ic('edit'), h('div.lbl', h('b', 'إصلاح الأسماء المشوّهة'), h('small', 'لو أسماء أغاني تظهر برموز مثل ÚãÑæ أو Ø§Ù'))),
   ));
 }
 

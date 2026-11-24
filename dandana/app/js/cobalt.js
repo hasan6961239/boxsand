@@ -88,12 +88,50 @@ const errText = (code = '') => {
 // errors no other server will fix
 const FATAL = /link\.(invalid|unsupported)|content\.video\.(private|unavailable)|content\.too_long/;
 
+// The site's own relay (Netlify edge function) lets the app use cobalt
+// servers that don't allow browser requests. Detected once per session.
+let relayP = null;
+function relay() {
+  if (!relayP) {
+    relayP = fetchTimeout('/relay/health', { cache: 'no-store' }, 5000)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => (d && d.ok ? new Set(d.hosts || []) : null))
+      .catch(() => null);
+  }
+  return relayP;
+}
+
+async function askRelay(base, url, opts, signal) {
+  const r = await fetchTimeout('/relay/cobalt', {
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instance: base, body: body(url, opts) }),
+  }, 40000);
+  let d;
+  try { d = await r.json(); } catch { throw Object.assign(new Error(`رد غير مفهوم من الوسيط (${r.status})`), { code: 'relay' }); }
+  return d;
+}
+
 async function ask(base, url, opts, signal) {
+  const hosts = await relay();
+  const host = base.replace(/^https?:\/\//, '');
+  if (hosts && hosts.has(host)) {
+    try {
+      return interpret(await askRelay(base, url, opts, signal), opts);
+    } catch (e) {
+      if (e.name === 'AbortError' || !/relay/.test(e.code || '')) throw e;
+      // relay itself failed: fall through to a direct request
+    }
+  }
   const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
   if (base === clean(lib.settings.cobaltUrl) && lib.settings.cobaltKey) headers.Authorization = 'Api-Key ' + lib.settings.cobaltKey;
   const r = await fetchTimeout(base + '/', { method: 'POST', headers, body: JSON.stringify(body(url, opts)), signal }, 30000);
   let d;
   try { d = await r.json(); } catch { throw Object.assign(new Error(`رد غير مفهوم (${r.status})`), { code: 'bad' }); }
+  return interpret(d, opts);
+}
+
+function interpret(d, opts) {
+  if (!d) throw Object.assign(new Error('رد فاضي'), { code: 'bad' });
   if (d.status === 'error') throw Object.assign(new Error(errText(d.error && d.error.code)), { code: (d.error && d.error.code) || '' });
   if (d.status === 'tunnel' || d.status === 'redirect') return { url: d.url, filename: d.filename };
   if (d.status === 'picker' && d.picker && d.picker.length) {
@@ -145,11 +183,17 @@ export async function download(url, opts = {}, signal) {
   const list = await instances();
   if (!list.length) throw new Error('لا توجد خوادم تحميل متاحة');
   const errors = [];
-  for (let i = 0; i < list.length; i++) {
+  // second round after a pause: these servers' YouTube access flips minute to minute
+  const plan = [...list.map((b) => [b, 1]), ...list.map((b) => [b, 2])];
+  for (let i = 0; i < plan.length; i++) {
     if (signal && signal.aborted) throw new DOMException('abort', 'AbortError');
-    const base = list[i];
+    const [base, round] = plan[i];
     const host = base.replace(/^https?:\/\//, '');
-    opts.onStatus && opts.onStatus(`يجهّز الملف (خادم ${i + 1} من ${list.length})…`);
+    if (round === 2 && plan[i - 1][1] === 1) {
+      opts.onStatus && opts.onStatus('يعاود المحاولة بعد لحظات…');
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    opts.onStatus && opts.onStatus(`يجهّز الملف (خادم ${(i % list.length) + 1} من ${list.length}${round === 2 ? '، محاولة ثانية' : ''})…`);
     try {
       const res = await ask(base, url, opts, signal);
       opts.onStatus && opts.onStatus('ينقل للآيفون…');
@@ -159,7 +203,7 @@ export async function download(url, opts = {}, signal) {
     } catch (e) {
       if (e.name === 'AbortError' || (signal && signal.aborted)) throw new DOMException('abort', 'AbortError');
       note(base, false);
-      errors.push(`${host}: ${e.message}`);
+      errors.push(`${host}${round === 2 ? ' (2)' : ''}: ${e.message}`);
       if (FATAL.test(e.code || '')) throw new Error(e.message);
     }
   }

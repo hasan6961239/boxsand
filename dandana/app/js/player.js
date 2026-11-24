@@ -13,6 +13,7 @@ import * as db from './db.js';
 import * as api from './api.js';
 import { artURL } from './art.js';
 import { watchNowPlaying } from './radio.js';
+import { segments as sponsorSegments } from './sponsor.js';
 import { toast, shuffle as shuffled } from './util.js';
 
 const MS = 'mediaSession' in navigator;
@@ -83,8 +84,11 @@ class Player extends EventTarget {
     this.sleepAt = null;
     this.sleepEnd = false;
     this.npOpen = false;
+    this.interrupted = false;
+    this.userPaused = false;
     for (const el of [this.audio, this.video]) this.bind(el);
     this.setupMediaSession();
+    this.setupAudioSession();
     document.addEventListener('visibilitychange', () => this.onVisibility());
     setInterval(() => this.saveQueue(), 15000);
   }
@@ -99,7 +103,16 @@ class Player extends EventTarget {
   bind(el) {
     el.preload = 'auto';
     el.addEventListener('play', () => { if (el === this.el) { this.emit('state'); this.posState(); } });
-    el.addEventListener('pause', () => { if (el === this.el) { this.emit('state'); this.posState(); } });
+    el.addEventListener('pause', () => {
+      if (el !== this.el) return;
+      // a pause we didn't ask for = iOS interrupted us (call, voice note, Siri…)
+      if (!this.userPaused && this.wantPlaying && !this.bridging && !el.ended && el.readyState >= 2 && el.currentTime > 0) {
+        this.interrupted = true; this.interruptedAt = Date.now();
+      }
+      this.emit('state'); this.posState();
+    });
+    el.addEventListener('seeked', () => el === this.el && this.posState());
+    el.addEventListener('durationchange', () => el === this.el && this.posState());
     el.addEventListener('waiting', () => el === this.el && this.emit('buffering', true));
     el.addEventListener('playing', () => el === this.el && this.emit('buffering', false));
     el.addEventListener('timeupdate', () => el === this.el && !this.bridging && this.onTime());
@@ -387,6 +400,11 @@ class Player extends EventTarget {
     el.loop = false;
     this.current = src;
     this.listened = 0; this.lastT = null; this.counted = false;
+    this.skips = null;
+    const ytId = src.ytId || (src.trackId && (lib.tracks.get(src.trackId) || {}).ytId);
+    if (ytId && !src.live && lib.settings.sponsorSkip) {
+      sponsorSegments(ytId).then((seg) => { if (this.current === src && seg.length) this.skips = seg; }).catch(() => {});
+    }
     el.src = src.src;
     el.playbackRate = src.live ? 1 : lib.settings.speed || 1;
     if (startAt) {
@@ -414,13 +432,47 @@ class Player extends EventTarget {
       return;
     }
     this.wantPlaying = true;
-    if (this.current.live) {
-      // reconnect live streams instead of resuming a stale buffer
-      this.el.src = this.current.src;
-    }
-    return this.el.play().catch(() => {});
+    const el = this.el;
+    // after an interruption iOS can refuse to resume the old buffer: reload
+    // the same source at the same position (live streams always reconnect)
+    if (this.current.live || this.interrupted || el.error) this.reattach();
+    this.interrupted = false;
+    return el.play().catch(() => {
+      this.reattach();
+      return el.play().catch(() => { this.wantPlaying = false; this.emit('state'); });
+    });
   }
-  pause() { this.wantPlaying = false; this.el.pause(); this.saveQueue(); }
+  reattach() {
+    const el = this.el, c = this.current;
+    if (!c) return;
+    const t = c.live ? 0 : el.currentTime || 0;
+    el.src = c.src;
+    if (t > 0.5) el.addEventListener('loadedmetadata', () => { try { el.currentTime = t; } catch { /* ignore */ } }, { once: true });
+  }
+  pause() {
+    this.wantPlaying = false;
+    this.userPaused = true;
+    this.el.pause();
+    this.userPaused = false;
+    this.interrupted = false;
+    this.saveQueue();
+  }
+
+  /** Tell iOS this is music playback (Safari 16.4+), and resume after short interruptions. */
+  setupAudioSession() {
+    const as = navigator.audioSession;
+    if (!as) return;
+    try { as.type = 'playback'; } catch { /* unsupported */ }
+    let was = as.state;
+    const onState = () => {
+      const now = as.state;
+      if (was === 'interrupted' && now !== 'interrupted' && this.interrupted && Date.now() - (this.interruptedAt || 0) < 3 * 60e3) {
+        setTimeout(() => this.play(), 400);
+      }
+      was = now;
+    };
+    try { as.addEventListener('statechange', onState); } catch { as.onstatechange = onState; }
+  }
   toggle() { return this.playing ? this.pause() : this.play(); }
 
   seek(t) {
@@ -472,6 +524,16 @@ class Player extends EventTarget {
 
   onTime() {
     const t = this.el.currentTime;
+    if (this.skips) {
+      const seg = this.skips.find((x) => t >= x.start && t < x.end - 0.6);
+      if (seg) {
+        const d = this.el.duration;
+        if (isFinite(d) && seg.end >= d - 1) { this.next(true); return; }
+        this.seek(seg.end);
+        if (!document.hidden) toast('تخطّينا جزء مش غناء ⏭');
+        return;
+      }
+    }
     if (this.lastT != null) {
       const d = t - this.lastT;
       if (d > 0 && d < 2) this.listened += d;
@@ -572,12 +634,25 @@ class Player extends EventTarget {
     set('pause', () => this.pause());
     set('previoustrack', () => this.prev());
     set('nexttrack', () => this.next());
-    set('seekto', (d) => this.seek(d.seekTime));
-    // No seekforward/seekbackward: on iOS they replace next/previous on the
-    // lock screen and in the car.
-    set('seekforward', null);
-    set('seekbackward', null);
+    set('seekto', (d) => {
+      if (d.fastSeek && 'fastSeek' in this.el) { try { this.el.fastSeek(d.seekTime); this.posState(); return; } catch { /* fall back */ } }
+      this.seek(d.seekTime);
+    });
+    this.applyCarButtons();
     set('stop', () => this.pause());
+  }
+
+  /**
+   * Car/headphone buttons. 'tracks' (default): next/previous song. 'seek':
+   * fast-forward/rewind 15 s — some car screens use these to move along the
+   * song, but on iOS they then replace next/previous on the lock screen.
+   */
+  applyCarButtons() {
+    if (!MS) return;
+    const seek = lib.settings.carButtons === 'seek';
+    const set = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch { /* unsupported */ } };
+    set('seekforward', seek ? (d) => this.seek((this.el.currentTime || 0) + ((d && d.seekOffset) || 15)) : null);
+    set('seekbackward', seek ? (d) => this.seek((this.el.currentTime || 0) - ((d && d.seekOffset) || 15)) : null);
   }
 
   updateMediaSession() {

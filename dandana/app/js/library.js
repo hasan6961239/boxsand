@@ -2,6 +2,7 @@
 // few thousand songs is small, so everything is loaded once at startup.
 import * as db from './db.js';
 import { norm, uid } from './util.js';
+import { fixMojibake } from './tags.js';
 
 export const tracks = new Map();
 export const playlists = new Map();
@@ -29,6 +30,8 @@ export const DEFAULTS = {
   groqKey: '',
   aiAuto: true,
   ashellOn: false,
+  carButtons: 'tracks',
+  sponsorSkip: true,
   dlEngine: 'auto',
   cobaltUrl: '',
   cobaltKey: '',
@@ -62,10 +65,30 @@ export async function setSetting(k, v) {
 
 // ---------------------------------------------------------------- load
 
+export let repairedOnLoad = 0;
+
+/** Fix names that were saved garbled (wrong text encoding). Returns how many changed. */
+export async function repairNames(list = [...tracks.values()]) {
+  const fixed = [];
+  for (const t of list) {
+    let changed = false;
+    for (const k of ['title', 'artist', 'album', 'albumArtist', 'fileName']) {
+      if (!t[k]) continue;
+      const v = fixMojibake(t[k]);
+      if (v !== t[k]) { t[k] = v; changed = true; }
+    }
+    if (t.lyrics) { const v = fixMojibake(t.lyrics); if (v !== t.lyrics) { t.lyrics = v; changed = true; } }
+    if (changed) { t._n = searchKey(t); fixed.push(t); }
+  }
+  if (fixed.length) await db.putMany('tracks', fixed.map(({ _n, ...plain }) => plain));
+  return fixed.length;
+}
+
 export async function load() {
   const [ts, ps] = await Promise.all([db.all('tracks'), db.all('playlists')]);
   tracks.clear();
   for (const t of ts) { t._n = searchKey(t); tracks.set(t.id, t); }
+  try { repairedOnLoad = await repairNames(ts); } catch (e) { console.warn('repair', e); }
   playlists.clear();
   for (const p of ps) playlists.set(p.id, p);
   emit('tracks');

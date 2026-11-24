@@ -32,14 +32,15 @@ export function initPlayerUI() {
 
 // ---------------------------------------------------------------- mini
 
-let mCover, mT, mA, mPlay, mProg;
+let mCover, mT, mA, mPlay, mProg, mLike, nHeart;
 function buildMini() {
   mCover = h('div');
   mT = h('div.t.ellipsis');
   mA = h('div.a.ellipsis');
   mPlay = iconBtn('play', (e) => { e.stopPropagation(); player.toggle(); }, 'تشغيل');
+  mLike = iconBtn('heart', (e) => { e.stopPropagation(); likeCurrent(); }, 'مفضلة', 'mlike');
   mProg = h('div.prog');
-  mini.append(mCover, h('div.grow', mT, mA), mPlay,
+  mini.append(mCover, h('div.grow', mT, mA), mLike, mPlay,
     iconBtn('next', (e) => { e.stopPropagation(); player.next(); }, 'التالي'), mProg);
   mini.addEventListener('click', openNP);
   // swipe up on the mini player opens the full player
@@ -72,7 +73,7 @@ function buildNP() {
     await lib.toggleLike(c.trackId);
     refreshLike();
   }, 'مفضلة');
-  const info = h('div.np-info', h('div.grow', nT, nA), nLike);
+  const info = h('div.np-info', h('div.grow', nT, nA));
   nSeek = h('input.range', { type: 'range', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'الموضع' });
   let seeking = false;
   nSeek.addEventListener('input', () => {
@@ -106,7 +107,8 @@ function buildNP() {
     player.setVideoMode(!lib.settings.videoMode);
     toast(lib.settings.videoMode ? 'وضع الفيديو' : 'صوت فقط — يستمر بعد قفل الشاشة');
   }, 'فيديو/صوت', 'tl');
-  nTools = h('div.np-tools', nLyrBtn, nQBtn, nVideoBtn, nSleepBtn, nSpeedBtn,
+  nHeart = iconBtn('heart', () => likeCurrent(), 'المفضلة', 'tl heart');
+  nTools = h('div.np-tools', nHeart, nLyrBtn, nQBtn, nVideoBtn, nSleepBtn, nSpeedBtn,
     iconBtn('listplus', () => { const c = player.current; if (c && c.trackId) addToPlaylistSheet([c.trackId]); else toast('متاح لأغاني مكتبتك'); }, 'أضف لقائمة', 'tl'));
   np.append(top, h('div.np-body', { style: { display: 'flex', flexDirection: 'column', flex: '1', minHeight: '0' } },
     nStage, info, nSeekWrap, nLive, ctrl, nTools));
@@ -257,8 +259,33 @@ function refreshLike() {
   const c = player.current;
   const t = c && c.trackId && lib.tracks.get(c.trackId);
   const on = !!(t && t.liked);
-  nLike.innerHTML = ''; nLike.append(ic(on ? 'heartf' : 'heart'));
-  nLike.classList.toggle('on', on);
+  for (const b of [nLike, nHeart, mLike]) {
+    if (!b) continue;
+    b.innerHTML = ''; b.append(ic(on ? 'heartf' : 'heart'));
+    b.classList.toggle('on', on);
+  }
+  const canLike = !!(c && (c.trackId || c.ytId));
+  if (mLike) mLike.classList.toggle('hidden', !canLike);
+  if (nHeart) nHeart.classList.toggle('hidden', !canLike);
+}
+
+/** Heart: favourite a library song; a YouTube stream gets saved to the library first. */
+async function likeCurrent() {
+  const c = player.current;
+  if (!c) return;
+  if (c.trackId) {
+    const on = await lib.toggleLike(c.trackId);
+    refreshLike();
+    toast(on ? 'أُضيفت للمفضلة ❤️' : 'أُزيلت من المفضلة');
+    return;
+  }
+  if (c.ytId) {
+    const have = lib.findByYt(c.ytId);
+    if (have) { if (!have.liked) await lib.toggleLike(have.id); toast('في المفضلة ❤️'); return; }
+    await saveStream(c);
+    const t = lib.findByYt(c.ytId);
+    if (t && !t.liked) await lib.toggleLike(t.id);
+  }
 }
 
 // ---------------------------------------------------------------- panels
